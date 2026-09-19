@@ -1,0 +1,11 @@
+.git
+.gitignore
+.idea
+.env
+.env.*
+!.env.example
+.npm-cache
+coverage
+dist
+node_modules
+*.log

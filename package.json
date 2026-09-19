@@ -1,0 +1,42 @@
+{
+  "name": "v-max",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "scripts": {
+    "build": "node scripts/clean.mjs && npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "check": "npm run typecheck && npm test && npm run build",
+    "dev": "concurrently --kill-others --success first npm:dev:server npm:dev:client",
+    "dev:client": "vite",
+    "dev:server": "tsx watch src/server/index.ts",
+    "env:init": "node scripts/init-env.mjs",
+    "smoke:max": "node scripts/smoke-max-token.mjs",
+    "start": "node dist/server/server/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/static": "10.1.4",
+    "@maxhub/max-ui": "0.5.0",
+    "fastify": "5.12.5",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "concurrently": "10.0.5",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2",
+    "vite": "8.3.0",
+    "vitest": "5.0.1"
+  }
+}
