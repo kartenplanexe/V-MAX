@@ -1,182 +1,51 @@
-import { Button, Panel } from '@maxhub/max-ui';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-
-import type { ApiError, MaxAuthSuccess } from '../shared/auth';
-
-type ConnectionState =
-  | { kind: 'checking' }
-  | { kind: 'preview' }
-  | { kind: 'ready'; auth: MaxAuthSuccess }
-  | { kind: 'error'; message: string };
-
-interface StageProps {
-  caption: string;
-  detail: string;
-  state: 'done' | 'active' | 'pending' | 'warning';
-  title: string;
-}
-
-function Stage({ caption, detail, state, title }: StageProps) {
+function WaitingCat() {
   return (
-    <li className={`stage stage--${state}`}>
-      <span className="stage__dot" aria-hidden="true" />
-      <div className="stage__copy">
-        <span className="stage__caption">{caption}</span>
-        <strong>{title}</strong>
-        <span>{detail}</span>
-      </div>
-    </li>
+    <svg
+      aria-hidden="true"
+      className="waiting-cat"
+      fill="none"
+      viewBox="0 0 260 210"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        className="waiting-cat__fill"
+        d="M78 111c0-37 22-66 52-66s52 29 52 66v36H78v-36Z"
+      />
+      <path
+        className="waiting-cat__line"
+        d="M83 82 68 52l34 14M177 82l15-30-34 14M78 111c0-37 22-66 52-66s52 29 52 66"
+      />
+      <path className="waiting-cat__line" d="M111 101c4-4 10-4 14 0M149 101c-4-4-10-4-14 0" />
+      <path className="waiting-cat__line" d="M126 115h8l-4 5-4-5ZM130 120v8m0 0c-6 0-10-2-12-6m12 6c6 0 10-2 12-6" />
+      <path className="waiting-cat__line" d="m105 114-30-5m30 14-32 4m82-13 30-5m-30 14 32 4" />
+      <path className="waiting-cat__line" d="M78 126c-24 5-33 22-20 35 8 8 24 5 26-6" />
+      <path
+        className="waiting-cat__bowl"
+        d="M67 148h126l-12 36c-2 7-9 12-17 12H96c-8 0-15-5-17-12l-12-36Z"
+      />
+      <path className="waiting-cat__line" d="M67 148h126m-114 36h102" />
+      <path className="waiting-cat__empty" d="M109 169h42" />
+    </svg>
   );
 }
 
-async function authenticate(initData: string, signal: AbortSignal): Promise<MaxAuthSuccess> {
-  const response = await fetch('/api/auth/max', {
-    body: JSON.stringify({ initData }),
-    headers: { 'Content-Type': 'application/json' },
-    method: 'POST',
-    signal,
-  });
-
-  const body = (await response.json()) as MaxAuthSuccess | ApiError;
-  if (!response.ok || body.status !== 'authenticated') {
-    const message = body.status === 'error' ? body.message : 'Не удалось проверить запуск.';
-    throw new Error(message);
-  }
-
-  return body;
-}
-
 export function App() {
-  const [attempt, setAttempt] = useState(0);
-  const [connection, setConnection] = useState<ConnectionState>({ kind: 'checking' });
-  const bridge = window.WebApp;
-  const initData = bridge?.initData?.trim() ?? '';
-  const hasMaxLaunch = initData.length > 0;
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    if (!initData) {
-      setConnection({ kind: 'preview' });
-      return () => controller.abort();
-    }
-
-    setConnection({ kind: 'checking' });
-    authenticate(initData, controller.signal)
-      .then((auth) => setConnection({ auth, kind: 'ready' }))
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        setConnection({
-          kind: 'error',
-          message: error instanceof Error ? error.message : 'Не удалось проверить запуск.',
-        });
-      });
-
-    return () => controller.abort();
-  }, [attempt, initData]);
-
-  const retry = useCallback(() => setAttempt((value) => value + 1), []);
-  const status = useMemo(() => {
-    if (connection.kind === 'ready') {
-      return {
-        eyebrow: 'Подключение подтверждено',
-        lead: `MAX передал корректные данные запуска для ${connection.auth.user.firstName}.`,
-        title: 'Контекст MAX готов',
-      };
-    }
-
-    if (connection.kind === 'preview') {
-      return {
-        eyebrow: 'Режим предпросмотра',
-        lead: 'Здесь можно проверить адаптивность. Подпись пользователя появится при запуске через кнопку бота.',
-        title: 'Оболочка mini-app',
-      };
-    }
-
-    if (connection.kind === 'error') {
-      return {
-        eyebrow: 'Нужна повторная проверка',
-        lead: connection.message,
-        title: 'Запуск не подтверждён',
-      };
-    }
-
-    return {
-      eyebrow: 'Безопасный запуск',
-      lead: 'Сверяем данные запуска с сервером. Токен бота остаётся только на серверной стороне.',
-      title: 'Подключаемся к MAX',
-    };
-  }, [connection]);
-
-  const bridgeDetail = hasMaxLaunch
-    ? `${bridge?.platform ?? 'платформа не указана'} · версия ${bridge?.version ?? 'не указана'}`
-    : 'Внешний браузер — без данных пользователя';
-
   return (
-    <Panel className="app-shell">
-      <main className="launch-card">
-        <header className="launch-card__header">
-          <div className="assistant-mark" aria-hidden="true">
-            <span />
-          </div>
-          <div>
-            <span className="product-label">Планировщик досуга</span>
-            <span className="product-context">мини-приложение MAX</span>
-          </div>
-        </header>
+    <main className="placeholder">
+      <picture className="max-logo">
+        <source media="(prefers-color-scheme: dark)" srcSet="/assets/max-logo-on-dark.svg" />
+        <img src="/assets/max-logo-on-light.svg" alt="MAX" />
+      </picture>
 
-        <section className="hero" aria-live="polite">
-          <span className="hero__eyebrow">{status.eyebrow}</span>
-          <h1>{status.title}</h1>
-          <p>{status.lead}</p>
-        </section>
+      <section className="placeholder__content">
+        <h1>
+          <strong>Спланируй свой досуг</strong>
+          <span>в мини-приложении MAX</span>
+        </h1>
 
-        <ol className="dayline" aria-label="Состояние подключения">
-          <Stage
-            caption="01 · Контекст"
-            detail={bridgeDetail}
-            state={hasMaxLaunch ? 'done' : 'warning'}
-            title={hasMaxLaunch ? 'Открыто через MAX Bridge' : 'Открыто вне MAX'}
-          />
-          <Stage
-            caption="02 · Доверие"
-            detail={
-              connection.kind === 'ready'
-                ? 'Подпись и срок действия проверены сервером'
-                : connection.kind === 'error'
-                  ? connection.message
-                  : connection.kind === 'preview'
-                    ? 'Проверка доступна только при запуске из MAX'
-                    : 'Проверяем подпись запуска'
-            }
-            state={
-              connection.kind === 'ready'
-                ? 'done'
-                : connection.kind === 'error'
-                  ? 'warning'
-                  : connection.kind === 'preview'
-                    ? 'pending'
-                    : 'active'
-            }
-            title={connection.kind === 'ready' ? 'Пользователь подтверждён' : 'Серверная проверка'}
-          />
-          <Stage
-            caption="03 · Следующий этап"
-            detail="Подключим типизированный запрос и детерминированный планировщик после утверждения механизмов M2"
-            state="pending"
-            title="План на день"
-          />
-        </ol>
-
-        <footer className="launch-card__footer">
-          {connection.kind === 'error' && (
-            <Button onClick={retry}>Повторить проверку</Button>
-          )}
-          <p>
-            Данные пользователя не сохраняются этой оболочкой. Внешний браузер работает только как предпросмотр.
-          </p>
-        </footer>
-      </main>
-    </Panel>
+        <WaitingCat />
+        <p>тут пока ничего нет</p>
+      </section>
+    </main>
   );
 }

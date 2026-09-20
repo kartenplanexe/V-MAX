@@ -49,7 +49,7 @@ npm run env:init
 docker compose up --build
 ```
 
-Приложение откроется на `http://127.0.0.1:3000`. Compose запускает контейнер с read-only filesystem, непривилегированным пользователем и healthcheck. Остановка:
+Приложение откроется на `http://127.0.0.1:3000`: Compose публикует внутренний порт контейнера `8080` на локальном порту `3000`. Compose запускает контейнер с read-only filesystem, непривилегированным пользователем и healthcheck. Остановка:
 
 ```shell
 docker compose down
@@ -62,7 +62,7 @@ docker compose down
 | `MAX_BOT_TOKEN` | для запуска из MAX | серверный секрет проверки `initData` |
 | `MAX_INIT_DATA_TTL_SECONDS` | нет, default `3600` | максимальный возраст данных запуска |
 | `HOST` | нет, default `0.0.0.0` | адрес прослушивания |
-| `PORT` | нет, default `3000` | порт HTTP-сервера |
+| `PORT` | нет, default `3000`; Docker image `8080` | порт HTTP-сервера |
 | `PUBLIC_BASE_URL` | для production | постоянный публичный HTTPS URL mini-app |
 
 ## API и граница доверия
