@@ -20,11 +20,21 @@ const secretKeys = [
   'DATABASE_URL', 'DATABASE_CA_PEM',
 ];
 const publicEnvironment = {
-  HOST: '0.0.0.0', PORT: '8080', NODE_ENV: 'production', PUBLIC_BASE_URL: baseUrl,
+  HOST: '0.0.0.0', NODE_ENV: 'production', PUBLIC_BASE_URL: baseUrl,
 };
 const retainedEnvironmentKeys = new Set(['MAX_INIT_DATA_TTL_SECONDS']);
+const ignoredOldEnvironmentKeys = new Set(['PORT']); // Reserved by Yandex; Dockerfile already sets 8080.
 
-function run(program, args, { json = false, stream = false, timeout = 90_000 } = {}) {
+function safeCliError(stderr) {
+  const lines = String(stderr ?? '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const message = lines.find(line => /^(ERROR:|Error:|rpc error:)/i.test(line)) ?? lines[0] ?? '';
+  return message
+    .replace(/postgres(?:ql)?:\/\/[^\s"'<>]+/gi, 'postgres://[REDACTED]')
+    .replace(/\b(token|password|api[_-]?key)\s*[:=]\s*[^,\s]+/gi, '$1=[REDACTED]')
+    .slice(0, 800);
+}
+
+function run(program, args, { json = false, stream = false, timeout = 90_000, showError = false } = {}) {
   const child = spawnSync(program, args, {
     cwd: root, encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024,
     stdio: stream ? 'inherit' : ['ignore', 'pipe', 'pipe'],
@@ -32,8 +42,10 @@ function run(program, args, { json = false, stream = false, timeout = 90_000 } =
     env: { ...process.env, YC_CLI_INITIALIZATION_SILENCE: 'true' },
   });
   if (child.error || child.status !== 0) {
-    // Do not echo CLI diagnostics: revision metadata can contain environment values.
-    throw new Error(`${program} ${args.slice(0, 4).join(' ')}: ошибка/таймаут (код ${child.status ?? 'start'}). Секреты не печатаем.`);
+    // For deploy, arguments contain only IDs, key names and public env values, not payloads.
+    // Show one redacted error line so that a rejected revision can be diagnosed.
+    const diagnostic = showError ? safeCliError(child.stderr) : '';
+    throw new Error(`${program} ${args.slice(0, 4).join(' ')}: ошибка/таймаут (код ${child.status ?? 'start'}).${diagnostic ? ` Причина: ${diagnostic}` : ''}`);
   }
   if (!json) return child.stdout ?? '';
   try { return JSON.parse(child.stdout); }
@@ -60,7 +72,8 @@ function checkExistingConfiguration(revision) {
   // A previous placeholder may have put a now-secret key directly in env.
   // Replace those keys with Lockbox mappings; never print or forward old values.
   const extraEnv = Object.keys(env).filter(key =>
-    !(key in publicEnvironment) && !secretKeys.includes(key) && !retainedEnvironmentKeys.has(key));
+    !(key in publicEnvironment) && !secretKeys.includes(key) &&
+    !retainedEnvironmentKeys.has(key) && !ignoredOldEnvironmentKeys.has(key));
   if (extraEnv.length) throw new Error(`У старой ревизии есть дополнительные переменные: ${extraEnv.join(', ')}. Их перенос требует проверки; ничего не меняем.`);
   const retainedEnvironment = {};
   if (env.MAX_INIT_DATA_TTL_SECONDS !== undefined) {
@@ -107,15 +120,20 @@ let previousId;
 let deploymentStarted = false;
 try {
   if (process.argv[2] === '--self-test') {
+    assert.equal('PORT' in publicEnvironment, false);
     assert.deepEqual(checkExistingConfiguration({ image: { environment: { MAX_INIT_DATA_TTL_SECONDS: '3600' } } }),
       { MAX_INIT_DATA_TTL_SECONDS: '3600' });
+    assert.deepEqual(checkExistingConfiguration({ image: { environment: { PORT: '8080' } } }), {});
     assert.throws(() => checkExistingConfiguration({ image: { environment: { UNEXPECTED_SETTING: 'x' } } }), /дополнительные переменные/);
     assert.throws(() => checkExistingConfiguration({ image: { environment: { MAX_INIT_DATA_TTL_SECONDS: '0' } } }), /положительным целым/);
     console.log('DEPLOY_PREFLIGHT_SELF_TEST_OK');
     process.exit(0);
   }
-  if (process.argv.length !== 3 || process.argv[2] !== '--apply') {
-    console.log('Выкладка существующего контейнера MAX: node scripts/deploy-yandex-live.mjs --apply');
+  const reuseArg = process.argv.slice(3).find(arg => arg.startsWith('--reuse-image-tag='));
+  const validArgs = process.argv[2] === '--apply' &&
+    process.argv.slice(3).every(arg => arg === reuseArg) && process.argv.slice(3).length <= 1;
+  if (!validArgs) {
+    console.log('Выкладка существующего контейнера MAX: node scripts/deploy-yandex-live.mjs --apply [--reuse-image-tag=live-YYYYMMDDHHMMSS]');
     console.log('Команда выполняет проверку, docker build/push, выкладку и HTTP smoke. Секреты не выводятся.');
     process.exit(0);
   }
@@ -135,13 +153,19 @@ try {
   if (secret.id !== secretId || secret.current_version?.id !== secretVersionId) {
     throw new Error('Текущая версия Lockbox отличается от подготовленной. Ничего не меняем.');
   }
-  const tag = 'live-' + new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  const tag = reuseArg ? reuseArg.slice('--reuse-image-tag='.length) :
+    'live-' + new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  if (!/^live-\d{14}$/.test(tag)) throw new Error('Недопустимый тег ранее загруженного образа. Ничего не меняем.');
   const image = `cr.yandex/${registryId}/maxbot-app:${tag}`;
   console.log(`Предыдущая ревизия: ${previousId}. Новая версия секрета: ${secretVersionId}. URL останется прежним.`);
-  console.log('Собираю Docker-образ…');
-  run('docker', ['build', '--tag', image, '.'], { stream: true, timeout: 30 * 60_000 });
-  console.log('Загружаю образ в существующий Container Registry…');
-  run('docker', ['push', image], { stream: true, timeout: 15 * 60_000 });
+  if (reuseArg) {
+    console.log(`Использую уже загруженный образ ${image}; сборку и push не повторяю.`);
+  } else {
+    console.log('Собираю Docker-образ…');
+    run('docker', ['build', '--tag', image, '.'], { stream: true, timeout: 30 * 60_000 });
+    console.log('Загружаю образ в существующий Container Registry…');
+    run('docker', ['push', image], { stream: true, timeout: 15 * 60_000 });
+  }
   if (activeRevision().id !== previousId) throw new Error('Активная ревизия изменилась во время сборки. Выкладка остановлена.');
   const args = [
     'serverless', 'container', 'revision', 'deploy', '--container-id', containerId,
@@ -158,7 +182,7 @@ try {
   }
   console.log('Создаю новую ревизию того же контейнера…');
   deploymentStarted = true;
-  ycAction(args, { timeout: 5 * 60_000 });
+  ycAction(args, { timeout: 5 * 60_000, showError: true });
   const after = activeRevision();
   if (after.id === previousId) throw new Error('После deploy активная ревизия не изменилась.');
   const newRevision = yc(['serverless', 'container', 'revision', 'get', '--id', after.id]);
