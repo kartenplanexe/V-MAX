@@ -3,6 +3,7 @@ import type { Change, PlanningView } from '../shared/planning-form';
 import './planner-form.css';
 import { PointPicker } from './PointPicker';
 import { PlanMap } from './PlanMap';
+import { readMaxLaunchData, waitForMaxLaunchData } from './max-launch-data';
 
 type Draft = PlanningView['draft'];
 type Bootstrap = { token: string; view: PlanningView | null };
@@ -30,7 +31,7 @@ const messages: Record<string, string> = {
   LOCALITY_RESOLUTION_REQUIRED: 'Город в пожеланиях отличается от выбранного. Выберите нужный город перед отправкой.',
   BUDGET_SCOPE_REQUIRED: 'Уточните: бюджет на человека или на всех, на день или на весь план.',
   DESTINATION_REQUIRED: 'В запросе указан финиш. Выберите его или явно отмените это условие.',
-  AUTH_REQUIRED: 'Откройте мини-приложение из чата с ботом в MAX.',
+  AUTH_REQUIRED: 'Не удалось подтвердить сеанс MAX. Закройте мини-приложение и откройте снова из чата с ботом.',
   DRAFT_NOT_FOUND: 'Этот черновик больше недоступен. Обновите страницу.',
   STALE_VERSION: 'Параметры уже изменились. Загрузите сохранённую версию и проверьте её.',
   STALE_RESULT: 'Параметры изменились во время расчёта. Подтвердите новую версию.',
@@ -118,12 +119,13 @@ export function PlannerForm() {
   const pendingStart = useRef<{ text: string; eventId: string } | null>(null);
   useEffect(() => {
     let active = true;
-    const fragment = new URLSearchParams(window.location.hash.slice(1));
-    const token = window.WebApp?.initData || fragment.get('WebAppData') || '';
-    if (!token) { setBusy(''); setError(messages.AUTH_REQUIRED!); return; }
-    bootstrap ??= request<{ view: PlanningView | null }>('/api/planning/bootstrap', token).then(value => ({ ...value, token }));
-    bootstrap.then(value => { if (active) { setSession(value); setDraft(value.view ? structuredClone(value.view.draft) : null); setBusy(''); } })
-      .catch(e => { bootstrap = undefined; if (active) { setBusy(''); setError(e instanceof Error ? e.message : 'Не удалось открыть планировщик.'); } });
+    void waitForMaxLaunchData(() => readMaxLaunchData(window.WebApp?.initData, window.location.hash)).then(token => {
+      if (!active) return;
+      if (!token) { setBusy(''); setError('MAX не передал данные для входа. Закройте мини-приложение и откройте его снова из чата с ботом.'); return; }
+      bootstrap ??= request<{ view: PlanningView | null }>('/api/planning/bootstrap', token).then(value => ({ ...value, token }));
+      bootstrap.then(value => { if (active) { setSession(value); setDraft(value.view ? structuredClone(value.view.draft) : null); setBusy(''); } })
+        .catch(e => { bootstrap = undefined; if (active) { setBusy(''); setError(e instanceof Error ? e.message : 'Не удалось открыть планировщик.'); } });
+    });
     return () => { active = false; };
   }, []);
   function accept(view: PlanningView) {

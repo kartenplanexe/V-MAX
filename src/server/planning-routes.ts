@@ -18,6 +18,10 @@ export function maxPlanningAuthenticator(botToken: string, maxAgeSeconds: number
     const auth = request.headers.authorization;
     if (!botToken || !auth?.startsWith('max ')) return null;
     const result = validateMaxInitData(auth.slice(4), botToken, { maxAgeSeconds, nowSeconds: nowSeconds?.() });
+    if (!result.ok && request.url === '/api/planning/bootstrap') {
+      // A fixed reason enum is enough to diagnose failures; never log initData or its hash.
+      request.log.warn({ reason: result.reason }, 'MAX planner launch validation failed');
+    }
     return result.ok ? `max:${result.user.id}` : null;
   };
 }
