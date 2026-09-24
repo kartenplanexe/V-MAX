@@ -12,6 +12,7 @@ import { maxPlanningAuthenticator, registerPlanningRoutes } from './planning-rou
 import { registerInitialRequestRoutes } from './initial-requests.js';
 import { InitialIntentError } from './intent-start.js';
 import { PlanningSessionError } from './planning-sessions.js';
+import { databaseStartupDiagnostic } from './database-startup-diagnostic.js';
 
 export async function registerLiveRuntime(app: FastifyInstance) {
   const authenticate = maxPlanningAuthenticator(config.maxBotToken, config.initDataTtlSeconds);
@@ -28,8 +29,16 @@ export async function registerLiveRuntime(app: FastifyInstance) {
     required: requireDatabaseTls(config.isProduction, config.databaseAllowLocalPlaintext, config.databaseUrl),
   }));
   // Only additive schema changes. A DB error prevents startup; never fall back to in-memory state.
-  try { await database.migrate(); await database.purge(); }
-  catch { await database.pool.end(); throw new Error('Planning database initialization failed'); }
+  let phase: 'migration' | 'cleanup' = 'migration';
+  try {
+    await database.migrate();
+    phase = 'cleanup';
+    await database.purge();
+  } catch (error) {
+    app.log.error({ phase, ...databaseStartupDiagnostic(error) }, 'Planning database initialization failed');
+    await database.pool.end();
+    throw new Error('Planning database initialization failed');
+  }
   const purge = setInterval(() => { void database.purge().catch(() => app.log.warn('Planning expiry cleanup failed')); }, 60_000);
   purge.unref();
   app.addHook('onClose', async () => { clearInterval(purge); await database.pool.end(); });

@@ -185,6 +185,7 @@ try {
   ycAction(args, { timeout: 5 * 60_000, showError: true });
   const after = activeRevision();
   if (after.id === previousId) throw new Error('После deploy активная ревизия не изменилась.');
+  console.log(`Новая ревизия для диагностики: ${after.id}`);
   const newRevision = yc(['serverless', 'container', 'revision', 'get', '--id', after.id]);
   const deployedImage = newRevision.image?.image_url ?? newRevision.image?.imageUrl;
   if (deployedImage !== image) throw new Error('Активная ревизия использует неожиданный образ.');
