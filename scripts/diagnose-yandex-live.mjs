@@ -1,6 +1,7 @@
 // Read-only, bounded diagnostics for one Serverless Container revision.
 // Only public metadata and short redacted log messages are printed.
 import { spawnSync } from 'node:child_process';
+import assert from 'node:assert/strict';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,8 +32,34 @@ function ycJson(args) {
   catch { throw new Error('yc не вернул корректный JSON. Сырые журналы не показываем.'); }
 }
 
+function formatEntry(entry) {
+  const rawPayload = entry.json_payload ?? entry.jsonPayload;
+  const payload = rawPayload && typeof rawPayload === 'object' && !Array.isArray(rawPayload) ? rawPayload : {};
+  const message = entry.message ?? payload.message ?? payload.msg ?? payload.error?.message ?? '';
+  const prefix = `${String(entry.timestamp ?? '')} ${String(entry.level ?? '')}`;
+  if (message === 'Planning database initialization failed') {
+    // Yandex puts fields other than msg/level into json_payload. Print only allowlisted
+    // diagnostic values; never echo an arbitrary PostgreSQL error or secret payload.
+    const phase = ['migration', 'cleanup'].includes(payload.phase) ? payload.phase : 'UNKNOWN';
+    const code = typeof payload.code === 'string' && /^[A-Z0-9_]{1,40}$/.test(payload.code)
+      ? payload.code : 'UNKNOWN';
+    const symptom = payload.symptom === 'CONNECTION_TIMEOUT' ? 'CONNECTION_TIMEOUT' : 'none';
+    return `${prefix} Planning database initialization failed phase=${phase} code=${code} symptom=${symptom}`;
+  }
+  return `${prefix} ${redact(message)}`;
+}
+
 try {
   const revisionId = process.argv[2];
+  if (revisionId === '--self-test' && process.argv.length === 3) {
+    const formatted = formatEntry({ timestamp: 'test', level: 'TRACE', message: 'Planning database initialization failed',
+      json_payload: { phase: 'migration', code: 'ERR_TLS_CERT_ALTNAME_INVALID', symptom: 'CONNECTION_TIMEOUT',
+        password: 'secret-value', message: 'password=secret-value' } });
+    assert.equal(formatted, 'test TRACE Planning database initialization failed phase=migration code=ERR_TLS_CERT_ALTNAME_INVALID symptom=CONNECTION_TIMEOUT');
+    assert(!formatted.includes('secret-value'));
+    console.log('DIAGNOSTIC_FORMAT_SELF_TEST_OK');
+    process.exit(0);
+  }
   if (process.argv.length !== 3 || !/^bba[a-z0-9]{10,}$/.test(revisionId ?? '')) {
     throw new Error('Укажите один ID ревизии: node scripts/diagnose-yandex-live.mjs bba...');
   }
@@ -51,11 +78,7 @@ try {
   if (!Array.isArray(entries)) throw new Error('Неизвестный формат ответа Cloud Logging.');
   console.log(`Записей: ${entries.length}. Печатаю короткие обезличенные сообщения, максимум 50.`);
   for (const entry of entries.slice(0, 50)) {
-    const payload = entry.json_payload ?? entry.jsonPayload ?? {};
-    const message = entry.message ?? payload.message ?? payload.msg ?? payload.error?.message ?? '';
-    const level = String(entry.level ?? '');
-    const timestamp = String(entry.timestamp ?? '');
-    console.log(`${timestamp} ${level} ${redact(message)}`);
+    console.log(formatEntry(entry));
   }
   if (!entries.length) console.log('Журнал пуст: проверьте, включено ли логирование ревизии и есть ли доступ к Cloud Logging.');
 } catch (error) {

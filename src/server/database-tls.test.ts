@@ -1,6 +1,7 @@
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { PeerCertificate } from 'node:tls';
 import { expect, it } from 'vitest';
 import { loadDatabaseCa, planningPoolConfig, requireDatabaseTls } from './database-tls.js';
 
@@ -31,7 +32,15 @@ it('fails closed for missing, conflicting, private-key or unreadable CA configur
 });
 it('requires verified TLS with the supplied CA and blocks URL overrides', () => {
   const url = 'postgres://user:password@10.130.0.19:5432/maxbot';
-  expect(planningPoolConfig(url, pem).ssl).toEqual({ ca: pem, rejectUnauthorized: true });
+  const ssl = planningPoolConfig(url, pem).ssl;
+  expect(ssl).toMatchObject({ ca: pem, rejectUnauthorized: true });
+  if (!ssl || typeof ssl !== 'object' || !ssl.checkServerIdentity) throw new Error('TLS identity check missing');
+  const correct = { subjectaltname: 'IP Address:10.130.0.19' } as PeerCertificate;
+  const incorrect = { subjectaltname: 'IP Address:10.130.0.20' } as PeerCertificate;
+  // pg passes a socket without a hostname for IP connections; ignore Node's
+  // default "localhost" and verify the URL host against the certificate SAN.
+  expect(ssl.checkServerIdentity('localhost', correct)).toBeUndefined();
+  expect(ssl.checkServerIdentity('localhost', incorrect)).toMatchObject({ code: 'ERR_TLS_CERT_ALTNAME_INVALID' });
   for (const key of ['sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'ssl']) {
     expect(() => planningPoolConfig(`${url}?${key}=disable`, pem)).toThrow('Remove SSL');
   }
