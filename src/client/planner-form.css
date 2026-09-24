@@ -1,0 +1,103 @@
+.planner-page {
+  --panel: #fff; --ink: #0d001a; --muted: #5d5669; --line: #d8d1e4; --soft: #f4f0ff; --accent: #471aff;
+  max-width: 480px; margin: auto; padding: 16px 16px max(40px, env(safe-area-inset-bottom));
+  min-height: 100dvh; background: #faf8ff; color: var(--ink); font-size: 15px; line-height: 1.45;
+}
+.planner-header { display: flex; gap: 12px; align-items: center; padding: 0 0 20px; }
+.parameters-panel > summary { cursor: pointer; color: var(--accent); padding: 14px 0; min-height: 44px; }
+.parameters-panel[open] > summary { display: none; }
+.view-switch { display: flex; gap: 4px; padding: 4px; background: var(--soft); border-radius: 14px; margin-bottom: 16px; }
+.view-switch button { flex: 1; background: transparent; color: var(--muted); }
+.view-switch button[aria-pressed="true"] { background: var(--panel); color: var(--accent); border-color: var(--line); }
+.plan-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 0 24px; }
+.plan-metrics > div { padding: 12px 6px; background: var(--soft); border-radius: 12px; text-align: center; }
+.plan-metrics dt { color: var(--muted); font-size: 11px; }
+.plan-metrics dd { margin: 6px 0 0; font-size: 14px; font-weight: 600; }
+.plan-map-canvas { height: 400px; border-radius: 16px; overflow: hidden; }
+.map-places { padding-left: 22px; font-size: 14px; }
+.map-places li { margin-bottom: 8px; }
+.city-choices { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 20px; }
+.city-choices [aria-pressed="true"] { outline: 2px solid var(--accent); }
+.request-composer form + form { margin-top: 20px; }
+.point-picker { margin-top: 12px; }
+.point-picker-canvas { height: 340px; width: 100%; border-radius: 12px; overflow: hidden; }
+.planner-avatar { display: grid; place-items: center; width: 44px; height: 44px; background: var(--accent); color: #fff; border-radius: 15px; font-size: 26px; }
+.planner-page h1, .planner-page h2, .planner-page h3, .planner-page h4, .planner-page p { margin: 0; }
+.planner-page h1 { font-size: 22px; line-height: 1.3; font-weight: 650; }
+.planner-page h2 { font-size: 23px; line-height: 1.3; letter-spacing: -.025em; }
+.planner-page h3 { font-size: 16px; margin: 0 0 12px; }
+.planner-header p, .muted, .field-hint { color: var(--muted); }
+.planner-header p { font-size: 13px; }
+.demo-note { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; color: var(--muted); font-size: 12px; }
+.request-bubble { background: var(--soft); margin: 8px 0 20px 40px; padding: 16px 18px; border-radius: 20px 20px 4px 20px; }
+.request-bubble small { display: block; color: var(--muted); font-size: 11px; margin-bottom: 6px; }
+.planner-card { border-radius: 20px; background: var(--panel); padding: 24px; margin: 0 0 20px; border: 1px solid var(--line); }
+.section-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 8px; }
+.section-heading > span { font-size: 13px; color: var(--muted); }
+.planner-card > .muted { margin-bottom: 24px; font-size: 13px; }
+.planner-page fieldset { padding: 0; border: 0; margin: 0; min-width: 0; }
+.planner-page label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; font-weight: 600; min-width: 0; }
+.planner-page input, .planner-page select { font: inherit; font-size: 15px; color: var(--ink); background: var(--panel); width: 100%; min-width: 0; min-height: 44px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; }
+.planner-page input:focus-visible, .planner-page select:focus-visible, .planner-page button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.planner-page textarea { width: 100%; resize: vertical; min-height: 140px; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+.planner-page textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.request-composer h2 { margin-bottom: 12px; }
+.request-examples { display: flex; flex-wrap: wrap; gap: 8px; }
+.request-examples button { font-size: 13px; }
+.activity-constraints { padding-left: 18px; color: var(--muted); font-size: 13px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
+.field-row--time { grid-template-columns: 1.6fr 1fr 1fr; }
+.day-fields { padding-bottom: 20px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+.activity-order { margin-top: 15px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 13px; }
+.activity-order ol { display: flex; flex-wrap: wrap; gap: 6px 24px; padding-left: 20px; margin: 0; }
+.planner-page button { font: inherit; cursor: pointer; border-radius: 12px; min-height: 44px; padding: 10px 14px; border: 1px solid transparent; }
+.planner-page button:disabled { opacity: .5; cursor: not-allowed; }
+.planner-page .text-button { color: var(--accent); background: transparent; padding: 8px 0; font-size: 13px; }
+.planner-page .secondary-button, .point-choices button { color: var(--accent); background: var(--soft); border-color: var(--line); }
+.planner-page .primary-button { display: block; width: 100%; background: var(--accent); color: #fff; font-weight: 650; margin-top: 14px; min-height: 50px; }
+.planner-page .field-hint { font-size: 12px; margin: 8px 0 18px; }
+.budget-fields { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 12px; }
+.point-fields { border-top: 1px solid var(--line); padding-top: 20px; margin-top: 22px; }
+.point-fields .selected-point { margin-bottom: 12px; }
+.point-fields > button { margin: 0 8px 8px 0; font-size: 13px; }
+.point-choices { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 18px; }
+.point-choices button { font-size: 12px; min-height: 40px; }
+.point-choices button[aria-pressed=true] { border-color: var(--accent); }
+.planner-page .checkbox-label { flex-direction: row; align-items: center; gap: 10px; }
+.checkbox-label input { width: 18px; height: 18px; min-height: 18px; accent-color: var(--accent); }
+.form-actions { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; }
+.planner-page .planner-message { padding: 12px 14px; background: var(--soft); border-radius: 12px; margin: 14px 0; font-size: 14px; }
+.planner-message--error, .form-issues { color: #a01624; }
+.form-issues { padding-left: 20px; font-size: 13px; }
+.planner-page .planner-progress { color: var(--muted); font-size: 13px; margin: 8px 0; min-height: 20px; }
+.refresh-button { display: block; margin: 10px auto 0; }
+.plan-result h2 { margin-bottom: 8px; }
+.result-warnings { font-size: 13px; color: var(--muted); padding-left: 18px; }
+.plan-timeline { padding: 0; list-style: none; margin: 0; }
+.plan-timeline li { position: relative; border-left: 2px solid var(--line); padding: 0 0 20px 18px; margin-left: 6px; }
+.plan-timeline li::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); position: absolute; left: -6px; top: 40px; }
+.timeline-travel { color: var(--muted); font-size: 12px; padding: 0 0 10px; }
+.timeline-visit { display: grid; grid-template-columns: 58px 1fr; gap: 12px; }
+.timeline-visit time { font-weight: 650; font-size: 16px; font-variant-numeric: tabular-nums; }
+.timeline-visit time span { display: block; font-weight: 400; color: var(--muted); font-size: 13px; }
+.timeline-visit h4 { font-size: 16px; }
+.timeline-visit p { font-size: 13px; color: var(--muted); margin-top: 3px; }
+@media (max-width: 420px) {
+  .planner-page { padding: 16px 10px 32px; }
+  .planner-card { padding: 18px 14px; }
+  .field-row--time { gap: 8px; grid-template-columns: 1.55fr 1fr 1fr; }
+  .planner-page input, .planner-page select { font-size: 14px; padding: 9px 7px; }
+  .budget-fields { grid-template-columns: 1fr 1fr; }
+  .budget-fields > label:first-child { grid-column: 1 / -1; }
+}
+@media (prefers-color-scheme: dark) {
+  .planner-page { --panel: #1a1025; --ink: #fff; --muted: #c7bcd2; --line: #4a3b56; --soft: #2b1746; --accent: #c9beff; background: #0d001a; }
+  .planner-page .primary-button, .planner-avatar { background: #471aff; color: #fff; }
+  .planner-message--error, .form-issues { color: #ffacb5; }
+  .planner-page input { color-scheme: dark; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .request-bubble, .plan-result { animation: planner-enter 160ms ease-out both; }
+  .planner-page button { transition: background-color 120ms, border-color 120ms; }
+  @keyframes planner-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+}

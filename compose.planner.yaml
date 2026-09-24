@@ -1,0 +1,13 @@
+services:
+  planner:
+    build:
+      context: ./planner
+    network_mode: none
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    stdin_open: true

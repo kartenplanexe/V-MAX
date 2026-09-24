@@ -1,0 +1,12 @@
+{
+  "version": "time-default-policy.v1",
+  "approved_at": "2026-09-24",
+  "duration_minutes": 120,
+  "periods": {
+    "morning": { "start": "09:00", "end": "11:00" },
+    "day": { "start": "13:00", "end": "15:00" },
+    "evening": { "start": "18:00", "end": "20:00" }
+  },
+  "requires_confirmation": true,
+  "allow_silent_date_shift": false
+}

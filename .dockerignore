@@ -9,3 +9,8 @@ coverage
 dist
 node_modules
 *.log
+planner/.venv
+planner/.pytest_cache
+**/__pycache__
+output
+data

@@ -6,8 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
 import type { ApiError, MaxAuthSuccess } from '../shared/auth.js';
+import type { PublicConfig } from '../shared/public-config.js';
 import { config } from './config.js';
 import { validateMaxInitData } from './max-init-data.js';
+import { selectPublicMapglKey } from './public-config.js';
+import { registerLiveRuntime } from './live-runtime.js';
 
 const AuthBodySchema = z.object({
   initData: z.string().min(1).max(16 * 1024),
@@ -33,6 +36,24 @@ server.get('/api/health', async () => ({
   status: 'ok',
   version: '0.1.0',
 }));
+
+server.get<{ Reply: PublicConfig }>('/api/public-config', async (_request, reply) => {
+  reply.header('Cache-Control', 'no-store');
+
+  const mapglKey = selectPublicMapglKey({
+    isProduction: config.isProduction,
+    mapglApiKey: config.dgisMapglApiKey,
+    placesApiKey: config.dgisPlacesApiKey,
+    routingApiKey: config.dgisRoutingApiKey,
+  });
+  return {
+    maps: {
+      enabled: Boolean(mapglKey),
+      ...(mapglKey ? { mapglKey } : {}),
+      provider: '2gis',
+    },
+  };
+});
 
 server.post<{ Reply: ApiError | MaxAuthSuccess }>('/api/auth/max', async (request, reply) => {
   if (!config.maxBotToken) {
@@ -77,7 +98,10 @@ server.post<{ Reply: ApiError | MaxAuthSuccess }>('/api/auth/max', async (reques
 });
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
-const clientDirectory = resolve(currentDirectory, '../../client');
+await registerLiveRuntime(server);
+const clientDirectory = existsSync(resolve(currentDirectory, '../../client/index.html'))
+  ? resolve(currentDirectory, '../../client')
+  : resolve(currentDirectory, '../../dist/client');
 
 if (existsSync(clientDirectory)) {
   await server.register(staticPlugin, {

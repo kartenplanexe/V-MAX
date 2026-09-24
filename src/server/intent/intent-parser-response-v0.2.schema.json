@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:leisure:spec:intent-parser-response:0.2",
+  "title": "Предложение намерения по дням, НЕ готовый план",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "action", "date_anchor", "shared_updates", "days", "unresolved"],
+  "properties": {
+    "schema_version": {"const": "intent-parser.v0.2"},
+    "action": {"enum": ["new_request", "update_draft", "map_categories", "off_topic", "unclear"], "description": "Создание дней, точечное изменение, повторное сопоставление категорий или отсутствие применимого предложения."},
+    "date_anchor": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/anchor"}], "description": "Только для нового последовательного плана: явно названное начало. null НЕ означает, что пользователь сказал сегодня."},
+    "shared_updates": {"type": "array", "items": {"$ref": "#/$defs/sharedChange"}, "description": "Общие условия, не копируемые в каждый день. Только явно изменённые поля."},
+    "days": {"type": "array", "items": {"$ref": "#/$defs/day"}, "description": "Новый запрос: все названные дни. Уточнение: только затронутые существующие day_id. Пусто при неопределённом дне изменения."},
+    "unresolved": {"type": "array", "items": {"$ref": "#/$defs/unresolved"}}
+  },
+  "$defs": {
+    "text": {"type": "string", "minLength": 1},
+    "quote": {"type": "string", "minLength": 1, "description": "Непрерывная дословная цитата текущего user_text, включая ограничители только/без, если они обосновывают значение. Не объяснение."},
+    "ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/text"}},
+    "clock": {"type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"},
+    "dateRef": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["kind", "days"], "properties": {"kind": {"const": "relative"}, "days": {"type": "integer", "minimum": 0}}},
+      {"type": "object", "additionalProperties": false, "required": ["kind", "date"], "properties": {"kind": {"const": "absolute"}, "date": {"type": "string", "format": "date"}}},
+      {"type": "object", "additionalProperties": false, "required": ["kind", "weekday", "relation"], "properties": {"kind": {"const": "weekday"}, "weekday": {"type": "integer", "minimum": 1, "maximum": 7}, "relation": {"enum": ["this_week", "next_week", "upcoming"]}}}
+    ]},
+    "anchor": {"type": "object", "additionalProperties": false, "required": ["value", "evidence"], "properties": {"value": {"$ref": "#/$defs/dateRef"}, "evidence": {"$ref": "#/$defs/quote"}}},
+    "dayDate": {"oneOf": [
+      {"type": "null"}, {"$ref": "#/$defs/dateRef"},
+      {"type": "object", "additionalProperties": false, "required": ["kind", "days"], "properties": {"kind": {"const": "anchor_offset"}, "days": {"type": "integer", "minimum": 0}}, "description": "Смещение от date_anchor; при null anchor дату предложит сервер. Только для нового запроса."}
+    ]},
+    "budget": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["kind", "amount_rub", "basis", "period"], "properties": {"kind": {"const": "limit"}, "amount_rub": {"type": "number", "minimum": 0}, "basis": {"enum": ["per_person", "whole_party", "unknown"]}, "period": {"enum": ["per_day", "whole_trip", "unknown"]}}},
+      {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "unlimited"}}}
+    ]},
+    "sharedChange": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["op", "field", "evidence"], "properties": {"op": {"const": "clear"}, "field": {"enum": ["locality_text", "budget", "mobility", "origin_text", "destination_text", "party.total", "party.child_ages", "exploratory"]}, "evidence": {"$ref": "#/$defs/quote"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "field", "value", "evidence"], "properties": {"op": {"const": "set"}, "field": {"enum": ["locality_text", "origin_text", "destination_text"]}, "value": {"$ref": "#/$defs/text"}, "evidence": {"$ref": "#/$defs/quote"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "field", "value", "evidence"], "properties": {"op": {"const": "set"}, "field": {"const": "budget"}, "value": {"$ref": "#/$defs/budget"}, "evidence": {"$ref": "#/$defs/quote"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "field", "value", "evidence"], "properties": {"op": {"const": "set"}, "field": {"const": "mobility"}, "value": {"type": "array", "uniqueItems": true, "minItems": 1, "items": {"enum": ["walking", "public_transport", "driving", "taxi", "cycling"]}}, "evidence": {"$ref": "#/$defs/quote"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "field", "value", "evidence"], "properties": {"op": {"const": "set"}, "field": {"const": "party.total"}, "value": {"type": "integer", "minimum": 1}, "evidence": {"$ref": "#/$defs/quote"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "field", "value", "evidence"], "properties": {"op": {"const": "set"}, "field": {"const": "party.child_ages"}, "value": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 17}}, "evidence": {"$ref": "#/$defs/quote"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "field", "value", "evidence"], "properties": {"op": {"const": "set"}, "field": {"const": "exploratory"}, "value": {"type": "boolean"}, "evidence": {"$ref": "#/$defs/quote"}}}
+    ]},
+    "timeChange": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["op", "field", "evidence"], "properties": {"op": {"const": "clear"}, "field": {"enum": ["start", "end", "period", "duration_minutes"]}, "evidence": {"$ref": "#/$defs/quote"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "field", "value", "evidence"], "properties": {"op": {"const": "set"}, "field": {"enum": ["start", "end"]}, "value": {"$ref": "#/$defs/clock"}, "evidence": {"$ref": "#/$defs/quote"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "field", "value", "evidence"], "properties": {"op": {"const": "set"}, "field": {"const": "period"}, "value": {"enum": ["morning", "day", "evening", "night"]}, "evidence": {"$ref": "#/$defs/quote"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "field", "value", "evidence"], "properties": {"op": {"const": "set"}, "field": {"const": "duration_minutes"}, "value": {"type": "integer", "minimum": 1}, "evidence": {"$ref": "#/$defs/quote"}}}
+    ]},
+    "selection": {
+      "type": "object", "additionalProperties": false, "required": ["category_policy", "named_types", "evidence"],
+      "properties": {
+        "category_policy": {"enum": ["related_allowed", "named_types_only"], "description": "Свободное пожелание допускает смежные категории. Явные только/именно/другие не предлагать запрещают расширение."},
+        "named_types": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/text"}, "description": "Названные типы, НЕ ID и НЕ найденные места. При строгом выборе не пусто."},
+        "evidence": {"$ref": "#/$defs/quote"}
+      }
+    },
+    "requirement": {"type": "object", "additionalProperties": false, "required": ["text", "strength", "evidence"], "properties": {"text": {"$ref": "#/$defs/text"}, "strength": {"enum": ["required", "preferred"]}, "evidence": {"$ref": "#/$defs/quote"}}},
+    "activityEdit": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["op", "activity_id", "evidence"], "properties": {"op": {"const": "remove"}, "activity_id": {"$ref": "#/$defs/text"}, "evidence": {"$ref": "#/$defs/quote"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "activity_id", "label", "selection", "requirements", "evidence"], "properties": {"op": {"enum": ["add", "rename"]}, "activity_id": {"$ref": "#/$defs/text"}, "label": {"$ref": "#/$defs/text"}, "selection": {"$ref": "#/$defs/selection"}, "requirements": {"type": "array", "items": {"$ref": "#/$defs/requirement"}}, "evidence": {"$ref": "#/$defs/quote"}}}
+    ]},
+    "orderChange": {"type": "object", "additionalProperties": false, "required": ["op", "before", "after", "evidence"], "properties": {"op": {"enum": ["add", "remove"]}, "before": {"$ref": "#/$defs/text"}, "after": {"$ref": "#/$defs/text"}, "evidence": {"$ref": "#/$defs/quote"}}},
+    "categoryMatch": {"type": "object", "additionalProperties": false, "required": ["activity_id", "state", "include_any", "exclude", "evidence"], "properties": {
+      "activity_id": {"$ref": "#/$defs/text"}, "state": {"enum": ["matched", "no_match", "catalog_unavailable"]},
+      "include_any": {"$ref": "#/$defs/ids", "description": "OR-кандидаты одной активности, не отдельные обязательные визиты. Только конечные рубрики текущего каталога."},
+      "exclude": {"$ref": "#/$defs/ids", "description": "Явно запрещённые рубрики. Не пересекаются с include_any."}, "evidence": {"$ref": "#/$defs/quote"}
+    }},
+    "day": {"type": "object", "additionalProperties": false, "required": ["day_id", "date", "date_evidence", "scope_evidence", "time_updates", "activity_edits", "order_changes", "category_matches"], "properties": {
+      "day_id": {"$ref": "#/$defs/text", "description": "new:1, new:2... для нового плана; точный существующий ID для уточнения. ID активности локален внутри дня."},
+      "date": {"$ref": "#/$defs/dayDate", "description": "В новом запросе обязательное описание даты; null в уточнении значит оставить дату прежней, а не удалить."},
+      "date_evidence": {"type": ["string", "null"], "minLength": 1},
+      "scope_evidence": {"type": ["string", "null"], "minLength": 1, "description": "Слова, выбирающие день/все дни. null для выбранного в UI дня или нового запроса. Цитата не является разрешением сервера."},
+      "time_updates": {"type": "array", "items": {"$ref": "#/$defs/timeChange"}},
+      "activity_edits": {"type": "array", "items": {"$ref": "#/$defs/activityEdit"}},
+      "order_changes": {"type": "array", "items": {"$ref": "#/$defs/orderChange"}},
+      "category_matches": {"type": "array", "items": {"$ref": "#/$defs/categoryMatch"}}
+    }},
+    "unresolved": {"type": "object", "additionalProperties": false, "required": ["field", "day_ids", "text", "reason"], "properties": {
+      "field": {"enum": ["request", "locality", "dates", "time", "budget", "mobility", "origin", "destination", "party", "activities", "order", "requirements", "scope"]},
+      "day_ids": {"$ref": "#/$defs/ids", "description": "Пусто, если область ещё неизвестна или условие общее."},
+      "text": {"$ref": "#/$defs/quote"}, "reason": {"enum": ["ambiguous", "conflict", "not_representable"]}
+    }}
+  }
+}

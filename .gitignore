@@ -9,3 +9,13 @@
 dist/
 node_modules/
 coverage/
+.playwright-cli/
+output/playwright/
+
+# Python planner: reproducible environment, no local artifacts in Git.
+**/.venv/
+**/.uv-cache/
+**/.uv-python/
+**/__pycache__/
+**/.pytest_cache/
+*.pyc

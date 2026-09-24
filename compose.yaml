@@ -8,11 +8,34 @@ services:
       HOST: 0.0.0.0
       NODE_ENV: production
       PORT: 8080
+      DATABASE_URL: postgres://maxbot:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.local}@database:5432/maxbot
+      DATABASE_CA_PATH: ""
+      DATABASE_CA_PEM: ""
+      DATABASE_ALLOW_LOCAL_PLAINTEXT: "true"
+    depends_on:
+      database:
+        condition: service_healthy
     ports:
-      - "3000:8080"
+      - "127.0.0.1:3000:8080"
     restart: unless-stopped
     read_only: true
     security_opt:
       - no-new-privileges:true
     tmpfs:
       - /tmp
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: maxbot
+      POSTGRES_DB: maxbot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.local}
+    volumes:
+      - planning-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U maxbot -d maxbot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+volumes:
+  planning-data:
