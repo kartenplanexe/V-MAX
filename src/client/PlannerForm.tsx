@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Change, PlanningView } from '../shared/planning-form';
+import type { PublicConfig } from '../shared/public-config';
 import './planner-form.css';
 import { PointPicker } from './PointPicker';
 import { PlanMap } from './PlanMap';
@@ -7,7 +8,6 @@ import { readMaxLaunchData, waitForMaxLaunchData } from './max-launch-data';
 
 type Draft = PlanningView['draft'];
 type Bootstrap = { token: string; view: PlanningView | null };
-type LocalityChoice = { id: string; name: string; region_id: string; timezone: string; token: string; center: { lat: number; lon: number } };
 let bootstrap: Promise<Bootstrap> | undefined;
 const messages: Record<string, string> = {
   PLANNER_NOT_CONFIGURED: 'Планировщик пока недоступен. Попробуйте открыть его позже.',
@@ -73,10 +73,12 @@ const warningText = (code: string) => ({
 const humanError = (code: string) => messages[code] ?? 'Не удалось выполнить действие. Проверьте параметры и попробуйте ещё раз.';
 const modeLabels: Record<string, string> = { walking: 'Пешком', driving: 'На машине', cycling: 'На велосипеде' };
 const clock = (value: number) => `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+const displayDate = (value: string) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' })
+  .format(new Date(`${value}T12:00:00Z`));
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 async function request<T>(path: string, token?: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(path, { method, credentials: 'omit', cache: 'no-store', headers: {
-    ...(token ? { Authorization: `max ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}),
+    ...(token ? { 'X-Max-Init-Data': token } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}),
   }, ...(body ? { body: JSON.stringify(body) } : {}) });
   const result = await response.json();
   if (!response.ok) throw new Error(humanError(result.error));
@@ -109,16 +111,15 @@ export function PlannerForm() {
   const [busy, setBusy] = useState('Загружаем…');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [text, setText] = useState('');
-  const [submittedText, setSubmittedText] = useState('');
-  const [cityQuery, setCityQuery] = useState('');
-  const [cities, setCities] = useState<LocalityChoice[]>([]);
-  const [city, setCity] = useState<LocalityChoice | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
   const [resultMode, setResultMode] = useState<'list' | 'map'>('list');
-  const pendingStart = useRef<{ text: string; eventId: string } | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [mapsAvailable, setMapsAvailable] = useState(false);
   useEffect(() => {
     let active = true;
+    void fetch('/api/public-config', { cache: 'no-store' }).then(response => response.ok ? response.json() : null)
+      .then((value: PublicConfig | null) => { if (active) setMapsAvailable(Boolean(value?.maps.enabled)); })
+      .catch(() => {});
     void waitForMaxLaunchData(() => readMaxLaunchData(window.WebApp?.initData, window.location.hash)).then(token => {
       if (!active) return;
       if (!token) { setBusy(''); setError('MAX не передал данные для входа. Закройте мини-приложение и откройте его снова из чата с ботом.'); return; }
@@ -160,16 +161,6 @@ export function PlannerForm() {
     }
     accept(await request<PlanningView>(base + '/plan', session.token, 'POST', { base_version: current.version, event_id: crypto.randomUUID() }));
   }
-  async function start() {
-    if (!session || !city) return;
-    const requestKey = text + '\n' + city.token;
-    if (pendingStart.current?.text !== requestKey) pendingStart.current = { text: requestKey, eventId: crypto.randomUUID() };
-    const result = await request<{ status: 'off_topic' | 'draft'; view?: PlanningView }>('/api/planning/requests', session.token, 'POST', {
-      event_id: pendingStart.current.eventId, user_text: text, locality_token: city.token,
-    });
-    if (result.status === 'off_topic') { setNotice('Напишите, чем хочется заняться и когда. Например: «Завтра вечером хочу в музей».'); return; }
-    if (result.view) { accept(result.view); setSubmittedText(text); }
-  }
   async function locate() {
     if (!navigator.geolocation) throw new Error('Геолокация недоступна. Выберите точку на карте.');
     const position = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve,
@@ -178,40 +169,70 @@ export function PlannerForm() {
     patch(d => { d.points.origin = { lat, lon, locality_id: d.locality.id, label: 'Моё местоположение', source: 'user_geolocation' }; });
     setNotice('Точка выбрана. Сохраните изменения, чтобы учесть её в плане.');
   }
+  async function quickSave(change: Change) {
+    if (!session?.view) return;
+    accept(await request<PlanningView>(base, session.token, 'PATCH', {
+      base_version: session.view.version, event_id: crypto.randomUUID(), changes: [change],
+    }));
+  }
+  async function quickLocate() {
+    if (!navigator.geolocation) throw new Error('Геолокация недоступна. Выберите точку на карте.');
+    const position = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve,
+      () => reject(new Error('Не удалось получить местоположение. Выберите точку на карте.')), { timeout: 10_000, maximumAge: 60_000 }));
+    await quickSave({ op: 'point', field: 'origin', point: { lat: position.coords.latitude,
+      lon: position.coords.longitude, label: 'Моё местоположение', source: 'user_geolocation' } });
+  }
 
   return <main className="planner-page">
     <header className="planner-header">
-      <div><h1>{view?.result ? 'Ваш план' : view ? 'Уточнение условий' : 'План досуга'}</h1><p>{draft?.locality.name ?? 'Спланируйте свободное время'}</p></div>
+      <span className="planner-header-mark" aria-hidden="true">✦</span>
+      <div><h1>{view?.result ? (view.draft.days.length > 1 ? 'План на несколько дней' : 'План на день') : view ? 'Уточнение условий' : 'План досуга'}</h1><p>{draft?.locality.name ?? 'Ваш маршрут в MAX'}</p></div>
     </header>
     {error && <div className="planner-message planner-message--error" role="alert">{error}</div>}
     {notice && <p className="planner-message" role="status">{notice}</p>}
-    {error && session && !view && pendingStart.current && <button type="button" className="secondary-button" disabled={!!busy}
-      onClick={() => { pendingStart.current = null; void act('Повторно разбираем пожелания…', start); }}>Повторить разбор новым запросом</button>}
     <p className="planner-progress" role="status" aria-live="polite">{busy}</p>
-    {session && !view && <section className="planner-card request-composer">
-      <h2>Как хотите провести время?</h2>
-      <p className="muted">Сначала пожелания, затем проверка параметров и готовый план.</p>
-      <form onSubmit={e => { e.preventDefault(); void act('Ищем город…', async () => {
-        const result = await request<{ choices: LocalityChoice[] }>('/api/planning/localities?q=' + encodeURIComponent(cityQuery), session.token);
-        setCities(result.choices); setCity(null);
-        if (!result.choices.length) setNotice('Для этого населённого пункта не удалось получить необходимые данные 2ГИС. Можно поискать соседний город — только если вам подходит поездка туда.');
-      }); }}>
-        <label>Город или населённый пункт<input value={cityQuery} minLength={2} maxLength={100} required disabled={!!busy}
-          onChange={e => { setCityQuery(e.target.value); setCity(null); setCities([]); }} placeholder="Где планируем досуг?" /></label>
-        <button type="submit" className="secondary-button" disabled={!!busy || cityQuery.trim().length < 2}>Найти город</button>
-      </form>
-      <div className="city-choices">{cities.map(choice => <button type="button" className="secondary-button" key={choice.id}
-        aria-pressed={city?.id === choice.id} onClick={() => setCity(choice)}>{choice.name}{city?.id === choice.id ? ' ✓' : ''}</button>)}</div>
-      <form onSubmit={e => { e.preventDefault(); void act('Разбираем пожелания…', start); }}>
-        <label htmlFor="initial-request">Ваши пожелания<textarea id="initial-request" value={text} maxLength={4000} rows={5} required disabled={!!busy}
-          placeholder="Завтра вечером хочу в музей, а потом в кафе" onChange={e => setText(e.target.value)} /></label>
-        <button className="primary-button" disabled={!!busy || !text.trim() || !city}>Продолжить</button>
-      </form>
-      <p className="field-hint">Пожелания обрабатывает Алиса в Yandex Cloud. Не указывайте в тексте телефон и другие личные сведения.</p>
+    {session && !view && <section className="planner-card planner-empty">
+      <div className="planner-empty-icon" aria-hidden="true">✦</div>
+      <h2>Сначала напишите боту</h2>
+      <p>Например: «Завтра с 16 до 19 хочу погулять в Казани и зайти в кафе».</p>
+      <p>Бот разберёт пожелания и составит план в чате. Здесь можно будет уточнить детали и посмотреть маршрут на карте.</p>
     </section>}
     {view && draft && <>
-      {submittedText && <div className="request-bubble"><small>Ваш запрос</small>{submittedText}</div>}
-      <details className="parameters-panel" open={!view.result || !!dirty}>
+      <section className="planner-card planner-overview" aria-label="Сводка маршрута">
+        <span className="planner-eyebrow">Маршрут</span>
+        <h2>{draft.locality.name} · {draft.days.length === 1 ? displayDate(draft.days[0]!.date) : `${draft.days.length} дня`}</h2>
+        <p>{draft.days.map(day => day.activities.map(activity => activity.label).join(' → ')).filter(Boolean).join(' · ') || 'Условия сохранены'}</p>
+      </section>
+      {!view.result && !dirty && <section className="planner-card planner-clarification" aria-label="Следующий шаг">
+        <span className="planner-eyebrow">Я правильно понял?</span>
+        <p className="planner-clarification-summary">{draft.days.map(day => `${displayDate(day.date)}${day.window ? ` · ${day.window.start}–${day.window.end}` : ''}`).join(' · ')}
+          {draft.shared.mobility?.[0] ? ` · ${modeLabels[draft.shared.mobility[0]] ?? draft.shared.mobility[0]}` : ''}</p>
+        {view.issues[0]?.code === 'ORIGIN_REQUIRED' ? <>
+          <h2>Откуда удобнее начать?</h2>
+          <p className="muted">{mapsAvailable ? 'Можно отправить текущее местоположение или указать точку на карте.' : 'Отправьте текущее местоположение — оно нужно для расчёта дороги.'}</p>
+          <div className="planner-quick-actions">
+            <button className="primary-button" disabled={!!busy} onClick={() => void act('Определяем местоположение…', quickLocate)}>Моё местоположение</button>
+            {mapsAvailable && <button className="secondary-button" disabled={!!busy} onClick={() => setMapOpen(true)}>Выбрать на карте</button>}
+          </div>
+          {mapOpen && (view.capabilities.map_center || draft.points.origin) && <PointPicker
+            center={draft.points.origin ?? view.capabilities.map_center!} onClose={() => setMapOpen(false)}
+            onSelect={point => { setMapOpen(false); void act('Сохраняем точку…', () => quickSave({ op: 'point', field: 'origin',
+              point: { ...point, label: 'Выбранная точка на карте', source: 'user_map' } })); }} />}
+        </> : view.issues[0]?.code === 'TRANSPORT_REQUIRED' ? <>
+          <h2>Как будем передвигаться?</h2>
+          <div className="planner-quick-actions">{view.capabilities.modes.map(mode => <button key={mode} className="secondary-button"
+            disabled={!!busy} onClick={() => void act('Сохраняем…', () => quickSave({ op: 'mobility', mode }))}>{modeLabels[mode] ?? mode}</button>)}</div>
+        </> : view.issues[0]?.code === 'WINDOW_REQUIRED' ? <>
+          <h2>Когда вы свободны?</h2>
+          <p className="muted">Это примерные окна — их можно изменить.</p>
+          <div className="planner-quick-actions">{[['09:00', '11:00'], ['13:00', '15:00'], ['18:00', '20:00']].map(([start, end]) => <button
+            key={start} className="secondary-button" disabled={!!busy} onClick={() => void act('Сохраняем…', () => quickSave({ op: 'window',
+              day_ids: draft.days.map(day => day.day_id), start: start!, end: end! }))}>{start}–{end}</button>)}</div>
+        </> : view.issues.length ? <><h2>{humanError(view.issues[0]!.code)}</h2><p className="muted">Измените только этот пункт в условиях ниже.</p></>
+          : <><h2>Всё верно?</h2><p className="muted">Составлю план с учётом времени в пути и расписания мест.</p>
+            <button className="primary-button" disabled={!!busy} onClick={() => void act('Подбираем места и проверяем расписание…', calculate)}>Составить план</button></>}
+      </section>}
+      <details className="parameters-panel" open={detailsOpen || !!dirty} onToggle={event => setDetailsOpen(event.currentTarget.open)}>
       <summary>Изменить условия</summary>
       <section className="planner-card">
         <div className="section-heading"><h2>Я правильно понял?</h2><span>{draft.locality.name}</span></div>
@@ -264,9 +285,9 @@ export function PlannerForm() {
             <section className="point-fields"><h3>Откуда начинаем?</h3>
               <p className="selected-point">⌖ {draft.points.origin?.label ?? 'Точка не выбрана'}</p>
               <button className="secondary-button" type="button" onClick={() => void act('Определяем местоположение…', locate)}>Моё местоположение</button>
-              <button className="secondary-button" type="button" onClick={() => setMapOpen(true)}>Выбрать на карте</button>
-              {mapOpen && (view.capabilities.map_center || city?.center || draft.points.origin) && <PointPicker
-                center={draft.points.origin ?? view.capabilities.map_center ?? city!.center} onClose={() => setMapOpen(false)}
+              {mapsAvailable && <button className="secondary-button" type="button" onClick={() => setMapOpen(true)}>Выбрать на карте</button>}
+              {mapOpen && (view.capabilities.map_center || draft.points.origin) && <PointPicker
+                center={draft.points.origin ?? view.capabilities.map_center!} onClose={() => setMapOpen(false)}
                 onSelect={point => { patch(d => { d.points.origin = { ...point, locality_id: d.locality.id, label: 'Выбранная точка на карте', source: 'user_map' }; }); setMapOpen(false); }} />}
               <label className="checkbox-label"><input type="checkbox" checked={!!draft.points.destination} disabled={!draft.points.origin}
                 onChange={e => patch(d => { if (e.target.checked) d.points.destination = structuredClone(d.points.origin); else delete d.points.destination; })} />Вернуться к выбранной точке в конце</label>
@@ -284,19 +305,18 @@ export function PlannerForm() {
           if (session) accept(await request<PlanningView>(base, session.token));
         })}>Загрузить сохранённую версию</button>
         <button className="text-button refresh-button" disabled={!!busy} onClick={() => {
-          setSession(current => current ? { ...current, view: null } : null); setDraft(null); pendingStart.current = null;
-          setError(''); setNotice('');
-        }}>Начать другой план</button>
+          setError(''); setNotice('В чате с ботом напишите новый запрос — текущий план останется доступен здесь до замены.');
+        }}>Начать другой план в чате</button>
       </section>
       </details>
       {view.result && !dirty && <section className="planner-card plan-result" aria-label="Результат расчёта">
         <h2>{view.result.status === 'AVAILABLE' ? 'Ваш план' : view.result.status === 'LIMITED' ? 'Получился неполный план' : 'План пока не получился'}</h2>
         <p className="muted">Места и дорога — по данным 2ГИС. Время посещения и расходы приблизительные.</p>
         {!!view.result.days.some(d => d.visits.length) && <>
-          <nav className="view-switch" aria-label="Режим отображения">
+          {mapsAvailable && <nav className="view-switch" aria-label="Режим отображения">
             <button type="button" aria-pressed={resultMode === 'list'} onClick={() => setResultMode('list')}>План</button>
             <button type="button" aria-pressed={resultMode === 'map'} onClick={() => setResultMode('map')}>Карта</button>
-          </nav>
+          </nav>}
           <dl className="plan-metrics">
             <div><dt>Мест</dt><dd>{view.result.days.reduce((n, d) => n + d.visits.length, 0)}</dd></div>
             <div><dt>Расходы ≈</dt><dd>{view.result.total_expected_cost_minor == null ? 'Неизвестны' : `${view.result.total_expected_cost_minor / 100} ₽`}</dd></div>
@@ -305,12 +325,12 @@ export function PlannerForm() {
         </>}
         {!!view.result.issues?.length && <ul className="form-issues">{view.result.issues.map(issue => <li key={issue}>{humanError(issue)}</li>)}</ul>}
         {view.result.days.map(day => <div key={day.day_id}>
-          <h3>{new Intl.DateTimeFormat('ru', { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(day.date))}</h3>
+          <h3>{displayDate(day.date)}</h3>
           {resultMode === 'map' ? <PlanMap day={day} /> : <ol className="plan-timeline">{day.visits.map(visit => <li key={visit.activity_id}>
             <div className="timeline-travel">В пути {visit.travel_before_minutes} мин · запас перед посещением {visit.arrival_buffer_minutes} мин</div>
             <div className="timeline-visit"><time>{clock(visit.starts_at)}<span>{clock(visit.ends_at)}</span></time>
               <div><h4>{visit.name}</h4><p>{visit.ends_at - visit.starts_at} мин на посещение</p><p>{visit.price_expected_minor == null ? 'Стоимость неизвестна' : `${visit.price_expected_minor / 100} ₽ — оценка`}</p>
-                <p>{visit.source?.data_mode === 'test' ? 'Источник: учебный набор' : visit.source ? `Источник: ${visit.source.provider}` : 'Источник не указан'}</p></div>
+                <p>{visit.source?.data_mode === 'test' ? 'Источник: учебный набор' : visit.source ? `Источник: ${visit.source.provider === '2gis' ? '2ГИС' : visit.source.provider}` : 'Источник не указан'}</p></div>
             </div>
           </li>)}</ol>}
           {day.visits.length > 0 && day.ends_at != null && <p className="field-hint">{draft.points.destination ? 'Прибытие к финишу' : 'Завершение плана'} в {clock(day.ends_at)}. Всего на дорогу с запасом: {day.total_safe_travel_minutes ?? '—'} мин.</p>}

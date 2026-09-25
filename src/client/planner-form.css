@@ -101,3 +101,191 @@
   .planner-page button { transition: background-color 120ms, border-color 120ms; }
   @keyframes planner-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 }
+
+/* Adapted from the approved Stitch "Уточнение условий" and "План на завтра" screens.
+   Keep this view data-driven: no mock places, prices, or non-functional actions. */
+.planner-page {
+  --panel: #fff;
+  --ink: #101b33;
+  --muted: #414755;
+  --line: #c1c6d7;
+  --soft: #f2f3ff;
+  --accent: #0057c2;
+  width: min(100%, 430px);
+  max-width: 430px;
+  padding: 0 16px max(36px, env(safe-area-inset-bottom));
+  background: #faf8ff;
+  color: var(--ink);
+  font-family: 'Source Sans 3', 'Segoe UI', system-ui, sans-serif;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 4%);
+}
+.planner-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  min-height: 62px;
+  padding: 8px 0;
+  margin: 0 -16px 16px;
+  padding-inline: 16px;
+  background: color-mix(in srgb, #faf8ff 95%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 45%, transparent);
+  backdrop-filter: blur(10px);
+}
+.planner-header-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #e5deff;
+  color: #5b40d4;
+  font-size: 19px;
+}
+.planner-page h1, .planner-page h2, .planner-page h3, .planner-page h4,
+.planner-page button, .planner-page label { font-family: Manrope, 'Segoe UI', system-ui, sans-serif; }
+.planner-page h1 { font-size: 18px; font-weight: 700; line-height: 24px; }
+.planner-header p { margin-top: 1px; }
+.planner-card {
+  border-radius: 18px;
+  border-color: color-mix(in srgb, var(--line) 65%, transparent);
+  box-shadow: 0 2px 10px rgb(16 27 51 / 4%);
+  padding: 18px;
+  margin-bottom: 14px;
+}
+.planner-overview { padding: 16px; }
+.planner-overview .planner-eyebrow {
+  color: var(--muted);
+  font: 600 11px/16px 'JetBrains Mono', monospace;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.planner-clarification .planner-eyebrow {
+  color: #5b40d4;
+  font: 700 11px/16px 'JetBrains Mono', monospace;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.planner-clarification-summary {
+  margin: 9px 0 17px !important;
+  color: var(--muted);
+  font-size: 13px;
+}
+.planner-clarification h2 { font-size: 18px; line-height: 25px; margin-bottom: 8px; }
+.planner-clarification .muted { font-size: 13px; margin-bottom: 12px; }
+.planner-quick-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.planner-quick-actions .primary-button { width: auto; margin: 0; }
+.planner-quick-actions .secondary-button { margin: 0; }
+.planner-overview h2 { margin-top: 3px; font-size: 16px; line-height: 23px; }
+.planner-overview p { margin-top: 7px; color: var(--muted); font-size: 13px; }
+.planner-empty { text-align: center; padding: 40px 24px; }
+.planner-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  margin: 0 auto 16px;
+  border-radius: 18px;
+  background: #e5deff;
+  color: #5b40d4;
+  font-size: 27px;
+}
+.planner-empty h2 { margin-bottom: 10px; }
+.planner-empty p { margin-top: 10px; color: var(--muted); }
+.parameters-panel > summary {
+  min-height: 44px;
+  padding: 10px 14px;
+  margin: 0 0 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-family: Manrope, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+}
+.parameters-panel[open] > summary { display: list-item; }
+.parameters-panel .section-heading { border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+.parameters-panel .section-heading h2 { font-size: 18px; }
+.day-fields { padding-bottom: 16px; margin-bottom: 16px; }
+.planner-page input, .planner-page select, .planner-page textarea {
+  border-radius: 12px;
+  border-color: var(--line);
+  min-height: 44px;
+}
+.planner-page .secondary-button, .point-choices button {
+  background: #f2f3ff;
+  color: #004398;
+  border-color: #c1c6d7;
+}
+.planner-page .primary-button { background: #0057c2; color: #fff; }
+.planner-page .primary-button:hover:not(:disabled) { background: #004398; }
+.planner-page .primary-button:disabled { background: #dae2ff; color: #414755; opacity: 1; }
+.planner-page .text-button { color: #0057c2; }
+.planner-page .planner-message { border: 1px solid var(--line); }
+.plan-result > h2 { font-size: 18px; }
+.plan-result > .muted { margin: 7px 0 15px; }
+.view-switch { background: #e2e7ff; }
+.view-switch button { min-height: 40px; border-radius: 10px; font-size: 13px; }
+.view-switch button[aria-pressed=true] { color: #0057c2; box-shadow: 0 1px 4px rgb(16 27 51 / 12%); }
+.plan-metrics { margin-bottom: 20px; padding-top: 10px; border-top: 1px solid var(--line); }
+.plan-metrics > div { background: #f2f3ff; border: 1px solid #eaedff; }
+.plan-metrics dt { font-size: 11px; }
+.plan-metrics dd { font-weight: 700; }
+.plan-timeline { counter-reset: stop; margin: 10px 0 18px; }
+.plan-timeline li { counter-increment: stop; border-left: 2px solid #c1c6d7; padding: 0 0 20px 30px; margin-left: 18px; }
+.plan-timeline li::before {
+  content: counter(stop);
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  top: 36px;
+  left: -14px;
+  background: #fff;
+  color: #0057c2;
+  border: 2px solid #0057c2;
+  font: 700 12px/1 Manrope, sans-serif;
+}
+.timeline-travel {
+  margin: 0 0 9px;
+  padding: 9px 10px;
+  border: 1px solid #d9e2ff;
+  border-radius: 12px;
+  background: #f2f6ff;
+  color: #004398;
+  font-size: 12px;
+}
+.timeline-visit {
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 13px;
+  box-shadow: 0 2px 8px rgb(16 27 51 / 5%);
+}
+.timeline-visit time { display: block; border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 9px; font-size: 14px; }
+.timeline-visit time span { display: inline; margin-left: 5px; font-size: 14px; color: var(--ink); font-weight: 650; }
+.timeline-visit time span::before { content: '– '; }
+.timeline-visit h4 { font-size: 15px; line-height: 22px; }
+.timeline-visit p { font-size: 12px; line-height: 18px; }
+@media (max-width: 420px) {
+  .planner-page { padding-inline: 12px; }
+  .planner-header { margin-inline: -12px; padding-inline: 12px; }
+}
+@media (prefers-color-scheme: dark) {
+  .planner-page {
+    --panel: #1b2433; --ink: #f2f5ff; --muted: #c4ccdb; --line: #596579;
+    --soft: #252f46; --accent: #9ec1ff;
+    background: #101722;
+  }
+  .planner-header { background: color-mix(in srgb, #101722 95%, transparent); }
+  .planner-header-mark, .planner-empty-icon { background: #34305a; color: #c8bfff; }
+  .planner-clarification .planner-eyebrow { color: #c8bfff; }
+  .planner-page .secondary-button, .point-choices button { background: #252f46; color: #c8daff; border-color: #596579; }
+  .planner-page .primary-button { background: #006ef2; color: #fff; }
+  .planner-page .primary-button:disabled { background: #343f55; color: #b8c2d6; }
+  .planner-page .text-button { color: #a9c8ff; }
+  .plan-metrics > div, .timeline-travel { background: #252f46; border-color: #596579; color: #c8daff; }
+  .plan-timeline li::before { background: #1b2433; color: #a9c8ff; border-color: #a9c8ff; }
+  .planner-page input, .planner-page select, .planner-page textarea { background: #1b2433; color: #f2f5ff; }
+}

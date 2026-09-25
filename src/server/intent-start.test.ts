@@ -58,3 +58,17 @@ it('accepts an explicitly repeated trusted city without discarding the regional 
   const result = await parseInitialIntent({ ...f.context, userText: 'Москва. ' + f.text, inputId: 'same-city' }, async () => f.response);
   expect(result.status).toBe('draft');
 });
+
+it('infers walking for an outing but never overrides an explicit transport mode', async () => {
+  const f = intentFixture();
+  f.response.shared_updates = [];
+  const walk = await parseInitialIntent({ ...f.context, userText: 'Завтра с 16 до 19 хочу в музей, потом в кафе. Хочу погулять.', inputId: 'walk' }, async () => f.response);
+  expect(walk.status).toBe('draft');
+  if (walk.status === 'draft') {
+    expect(walk.draft.shared.mobility).toEqual(['walking']);
+    expect(walk.provenance['shared.mobility']).toBe('inferred_walk');
+  }
+  const car = await parseInitialIntent({ ...f.context, userText: 'Завтра с 16 до 19 хочу в музей, потом в кафе. Хочу погулять, поеду на машине.', inputId: 'car' }, async () => f.response);
+  expect(car.status).toBe('draft');
+  if (car.status === 'draft') expect(car.draft.shared.mobility).toBeUndefined();
+});

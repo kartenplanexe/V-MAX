@@ -11,7 +11,7 @@ function signed(id: number, age = 0) {
   const entries = [['auth_date', String(now - age)], ['user', JSON.stringify({ id, first_name: 'Тест' })]];
   const key = createHmac('sha256', 'WebAppData').update('test-token').digest();
   const hash = createHmac('sha256', key).update(entries.map(e => e.join('=')).join('\n')).digest('hex');
-  return `max ${new URLSearchParams([...entries, ['hash', hash]])}`;
+  return String(new URLSearchParams([...entries, ['hash', hash]]));
 }
 it('protects all form endpoints with signed MAX ownership and runs the confirmed HTTP workflow', async () => {
   const fixture = planningFixture();
@@ -24,21 +24,23 @@ it('protects all form endpoints with signed MAX ownership and runs the confirmed
   const path = `/api/planning/drafts/${draft.id}`;
   try {
     for (const [method, suffix] of [['GET', ''], ['PATCH', ''], ['POST', '/confirm'], ['POST', '/plan']] as const) {
-      expect((await app.inject({ method, url: path + suffix, headers: { authorization: signed(42, 3601) } })).statusCode).toBe(401);
-      expect((await app.inject({ method, url: path + suffix, headers: { authorization: signed(43) },
+      expect((await app.inject({ method, url: path + suffix, headers: { 'x-max-init-data': signed(42, 3601) } })).statusCode).toBe(401);
+      expect((await app.inject({ method, url: path + suffix, headers: { 'x-max-init-data': signed(43) },
         ...(method !== 'GET' ? { payload: { base_version: 0, event_id: 'test-0001' } } : {}) })).statusCode).toBe(404);
     }
-    expect((await app.inject({ url: path, headers: { authorization: signed(42) + 'tampered' } })).statusCode).toBe(401);
-    const get = await app.inject({ url: path, headers: { authorization: signed(42) } });
+    expect((await app.inject({ url: path, headers: { 'x-max-init-data': signed(42) + 'tampered' } })).statusCode).toBe(401);
+    expect((await app.inject({ url: path })).statusCode).toBe(401);
+    expect((await app.inject({ url: path, headers: { authorization: `max ${signed(42)}` } })).statusCode).toBe(401);
+    const get = await app.inject({ url: path, headers: { 'x-max-init-data': signed(42) } });
     expect(get.headers['cache-control']).toBe('no-store');
     expect(get.json().id).toBe(draft.id);
-    const edit = await app.inject({ method: 'PATCH', url: path, headers: { authorization: signed(42) },
+    const edit = await app.inject({ method: 'PATCH', url: path, headers: { 'x-max-init-data': signed(42) },
       payload: { base_version: 0, event_id: 'test-0001', changes: [{ op: 'window', day_ids: ['d1'], start: '16:30', end: '20:00' }] } });
     expect(edit.statusCode).toBe(200);
-    const confirm = await app.inject({ method: 'POST', url: path + '/confirm', headers: { authorization: signed(42) },
+    const confirm = await app.inject({ method: 'POST', url: path + '/confirm', headers: { 'x-max-init-data': signed(42) },
       payload: { base_version: edit.json().version, event_id: 'test-0002' } });
     expect(confirm.statusCode).toBe(200);
-    const options = { method: 'POST' as const, url: path + '/plan', headers: { authorization: signed(42) },
+    const options = { method: 'POST' as const, url: path + '/plan', headers: { 'x-max-init-data': signed(42) },
       payload: { base_version: confirm.json().version, event_id: 'test-0003' } };
     const result = await app.inject(options);
     expect(result.statusCode).toBe(200);
@@ -47,7 +49,7 @@ it('protects all form endpoints with signed MAX ownership and runs the confirmed
     const calls = fixture.requests.length;
     await app.inject(options);
     expect(fixture.requests.length).toBe(calls);
-    expect((await app.inject({ method: 'POST', url: '/api/planning/drafts', headers: { authorization: signed(42) },
+    expect((await app.inject({ method: 'POST', url: '/api/planning/drafts', headers: { 'x-max-init-data': signed(42) },
       payload: fixture.input.intent })).statusCode).toBe(404);
   } finally { await app.close(); }
 }, 30_000);

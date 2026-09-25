@@ -13,6 +13,8 @@ import { registerInitialRequestRoutes } from './initial-requests.js';
 import { InitialIntentError } from './intent-start.js';
 import { PlanningSessionError } from './planning-sessions.js';
 import { databaseStartupDiagnostic } from './database-startup-diagnostic.js';
+import { MaxApiTransport, registerMaxChatRoute } from './max-chat.js';
+import { selectPublicMapglKey } from './public-config.js';
 
 export async function registerLiveRuntime(app: FastifyInstance) {
   const authenticate = maxPlanningAuthenticator(config.maxBotToken, config.initDataTtlSeconds);
@@ -54,6 +56,12 @@ export async function registerLiveRuntime(app: FastifyInstance) {
   });
   registerPlanningRoutes(app, planning, authenticate);
   registerInitialRequestRoutes(app, planning, authenticate);
+  registerMaxChatRoute(app, { database, geography, planning,
+    transport: new MaxApiTransport(config.maxBotToken), botUsername: config.maxBotUsername,
+    dailyGeographyCalls: config.dailyGeographyCalls,
+    mapEnabled: Boolean(selectPublicMapglKey({ isProduction: config.isProduction,
+      mapglApiKey: config.dgisMapglApiKey, placesApiKey: config.dgisPlacesApiKey,
+      routingApiKey: config.dgisRoutingApiKey })) }, config.maxBotToken);
   app.get('/api/planning/bootstrap', async (req, reply) => {
     reply.header('Cache-Control', 'no-store');
     const owner = authenticate(req); if (!owner) return reply.code(401).send({ error: 'AUTH_REQUIRED' });

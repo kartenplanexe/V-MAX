@@ -15,9 +15,16 @@ export type PlanningAuthenticator = (request: FastifyRequest) => string | null;
 export function maxPlanningAuthenticator(botToken: string, maxAgeSeconds: number,
   nowSeconds?: () => number): PlanningAuthenticator {
   return request => {
-    const auth = request.headers.authorization;
-    if (!botToken || !auth?.startsWith('max ')) return null;
-    const result = validateMaxInitData(auth.slice(4), botToken, { maxAgeSeconds, nowSeconds: nowSeconds?.() });
+    // Yandex Serverless Containers strips Authorization before forwarding HTTP requests.
+    const initData = request.headers['x-max-init-data'];
+    if (!botToken || typeof initData !== 'string') {
+      if (request.url === '/api/planning/bootstrap') {
+        request.log.info({ reason: !botToken ? 'bot_token_unconfigured' : 'missing_launch_header' },
+          'MAX planner launch validation failed');
+      }
+      return null;
+    }
+    const result = validateMaxInitData(initData, botToken, { maxAgeSeconds, nowSeconds: nowSeconds?.() });
     if (!result.ok && request.url === '/api/planning/bootstrap') {
       // A fixed reason enum is enough to diagnose failures; never log initData or its hash.
       request.log.warn({ reason: result.reason }, 'MAX planner launch validation failed');

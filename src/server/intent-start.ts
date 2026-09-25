@@ -62,6 +62,14 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
     else shared[head!] = update.value;
     provenance[`shared.${update.field}`] = 'user';
   }
+  // A walking outing implies a walking route unless the user explicitly chose
+  // another way to travel between places. Do not require a second form question
+  // for the most ordinary interpretation of «хочу погулять».
+  if (!shared.mobility && /(?:по|про)гуля(?:ть|ться|ю|ем)|пройтись|пешую\s+прогулку/iu.test(text) &&
+      !/машин|автомобил|такси|автобус|метро|трамва|велосипед|велике|общественн\w*\s+транспорт/iu.test(text)) {
+    shared.mobility = ['walking'];
+    provenance['shared.mobility'] = 'inferred_walk';
+  }
   const days = proposal.days.map((day, index) => {
     const projected = projection.days[index]!, dayId = `day-${index + 1}`;
     const ids = new Map(day.activity_edits.map((a, i) => [a.activity_id, `${dayId}-activity-${i + 1}`]));

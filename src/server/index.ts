@@ -21,7 +21,8 @@ const server = Fastify({
   logger: {
     redact: {
       censor: '[REDACTED]',
-      paths: ['req.headers.authorization', 'req.body.initData'],
+      paths: ['req.headers.authorization', 'req.headers["x-max-init-data"]',
+        'req.headers["x-max-bot-api-secret"]', 'req.body.initData'],
     },
   },
 });

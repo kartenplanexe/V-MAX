@@ -43,6 +43,7 @@ export const config = {
     'MAX_INIT_DATA_TTL_SECONDS',
   ),
   maxBotToken: process.env.MAX_BOT_TOKEN?.trim() || '',
+  maxBotUsername: process.env.MAX_BOT_USERNAME?.trim() || 't801_hakaton_max_bot',
   port: parsePositiveInteger(process.env.PORT, 3000, 'PORT'),
   publicBaseUrl: process.env.PUBLIC_BASE_URL?.trim() || '',
 } as const;

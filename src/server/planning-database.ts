@@ -5,7 +5,13 @@ import { planningPoolConfig } from './database-tls.js';
 
 export type DurableReceipt = { hash: string; status: 'pending' | 'done' | 'failed'; at: number;
   draftId?: string; offTopic?: boolean; error?: string };
-export type OwnerState = { checkpoint?: PlanningCheckpoint; receipts: Record<string, DurableReceipt>; attempts: number[] };
+export type ChatPending =
+  | { kind: 'city'; requestText: string; requestId: string; nonce: string;
+      choices?: { name: string; token: string }[] }
+  | { kind: 'origin' | 'destination'; draftId: string }
+  | { kind: 'party'; draftId: string };
+export type OwnerState = { checkpoint?: PlanningCheckpoint; receipts: Record<string, DurableReceipt>; attempts: number[];
+  chat?: { pending?: ChatPending; seen: Record<string, { at: number; status: 'pending' | 'done' }> } };
 
 /** One short-lived owner actor per DB connection. Session advisory locks, NOT open SQL transactions
  * during HTTP calls. try-lock returns immediately; disconnect releases the lock. Requires direct
