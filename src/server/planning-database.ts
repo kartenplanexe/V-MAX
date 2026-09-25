@@ -11,7 +11,8 @@ export type ChatPending =
   | { kind: 'origin' | 'destination'; draftId: string }
   | { kind: 'party'; draftId: string };
 export type OwnerState = { checkpoint?: PlanningCheckpoint; receipts: Record<string, DurableReceipt>; attempts: number[];
-  chat?: { pending?: ChatPending; seen: Record<string, { at: number; status: 'pending' | 'done' }> } };
+  chat?: { pending?: ChatPending; welcomed?: boolean;
+    seen: Record<string, { at: number; status: 'pending' | 'done' }> } };
 
 /** One short-lived owner actor per DB connection. Session advisory locks, NOT open SQL transactions
  * during HTTP calls. try-lock returns immediately; disconnect releases the lock. Requires direct

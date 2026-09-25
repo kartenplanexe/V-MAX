@@ -49,6 +49,23 @@ const message = (mid: string, text?: string, attachments?: unknown[]) => ({ upda
     body: { mid, text, attachments } } });
 
 describe('MAX chat', () => {
+  it('welcomes an existing chat on its first message and still handles the request', async () => {
+    const h = harness(); const chat = new MaxChatController(h.deps);
+    expect(await chat.handle(message('old-chat-1', 'Хочу погулять завтра с 16 до 19 в Москве'))).toBe('handled');
+    expect(h.messages[0]?.text).toMatch(/^Привет!/u);
+    expect(h.messages.at(-1)?.text).toContain('Прогулка');
+    expect(h.planning.start).toHaveBeenCalledTimes(1);
+    expect(await chat.handle(message('old-chat-2', 'Привет'))).toBe('handled');
+    expect(h.messages.filter(item => item.text.startsWith('Привет!'))).toHaveLength(1);
+  });
+
+  it('does not send two prompts for the first greeting', async () => {
+    const h = harness(); const chat = new MaxChatController(h.deps);
+    expect(await chat.handle(message('hello-first', 'Привет'))).toBe('handled');
+    expect(h.messages).toHaveLength(1);
+    expect(h.messages[0]?.text).toMatch(/^Привет!/u);
+    expect(h.planning.start).not.toHaveBeenCalled();
+  });
   it('keeps the core flow in messages and uses the same owner as the mini-app', async () => {
     const h = harness(); const chat = new MaxChatController(h.deps);
     expect(await chat.handle(message('m1', 'Хочу погулять завтра с 16 до 19 в Москве'))).toBe('handled');

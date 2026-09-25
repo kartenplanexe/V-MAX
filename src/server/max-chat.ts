@@ -30,6 +30,7 @@ export interface MaxChatDependencies {
 }
 
 const eventKey = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 32);
+const welcomeText = 'Привет! Напишите обычными словами, когда и как хотите провести время. Например: «Завтра после 16 хочу погулять в Казани и поесть». Я соберу план прямо здесь.';
 const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 const appButton = (botUsername: string, text = 'Подробнее и карта'): Button => ({ type: 'open_app', text, web_app: botUsername });
 const callback = (text: string, payload: string): Button => ({ type: 'callback', text, payload });
@@ -146,6 +147,16 @@ export class MaxChatController {
     });
   }
   private async send(userId: number, message: Message) { await this.deps.transport.send(userId, message); }
+  private async welcome(owner: string, userId: number, force = false) {
+    return this.deps.database.withOwner(owner, async (state, save) => {
+      state.chat ??= { seen: {} };
+      if (state.chat.welcomed && !force) return false;
+      await this.send(userId, { text: welcomeText });
+      state.chat.welcomed = true;
+      await save();
+      return true;
+    });
+  }
 
   async handle(raw: unknown) {
     const update = parseUpdate(raw);
@@ -156,10 +167,12 @@ export class MaxChatController {
     if (claimed === 'running') return 'retry_later' as const;
     try {
       if (update.kind === 'callback' && update.callbackId) await this.deps.transport.answer(update.callbackId);
-      if (update.kind === 'started' || update.text === '/start') {
-        await this.send(update.userId, { text: 'Привет! Напишите обычными словами, когда и как хотите провести время. Например: «Завтра после 16 хочу погулять в Казани и поесть». Я соберу план прямо здесь.' });
-      } else if (update.kind === 'callback') await this.handleCallback(owner, update);
-      else await this.handleMessage(owner, update);
+      if (update.kind === 'started' || update.text === '/start') await this.welcome(owner, update.userId, true);
+      else if (update.kind === 'callback') await this.handleCallback(owner, update);
+      else {
+        const firstWelcome = await this.welcome(owner, update.userId);
+        if (!firstWelcome || !isExactGreeting(update.text ?? '')) await this.handleMessage(owner, update);
+      }
       await this.finish(owner, update.eventId);
       return 'handled' as const;
     } catch (error) {

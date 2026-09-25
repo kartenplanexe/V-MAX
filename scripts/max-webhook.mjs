@@ -26,7 +26,8 @@ async function call(method, body) {
 const current = await call('GET');
 if (!Array.isArray(current.subscriptions)) throw new Error('Unexpected MAX subscriptions response.');
 console.log(JSON.stringify({ count: current.subscriptions.length,
-  subscriptions: current.subscriptions.map(item => ({ url: item.url, update_types: item.update_types })) }, null, 2));
+  subscriptions: current.subscriptions.map(item => ({ url: item.url, time: item.time,
+    update_types: item.update_types })) }, null, 2));
 if (!apply) process.exit(0);
 if (current.subscriptions.length) {
   console.log('Subscription exists; no changes made. Inspect it before changing bot delivery.');
