@@ -36,6 +36,7 @@ describe('regional candidate retrieval', () => {
     expect(result.coverage).toBe('PARTIAL');
     expect(result.places).toHaveLength(1);
     expect(result.searches[0]?.status).toBe('PROVIDER_ERROR');
+    expect(result.searches[0]?.failure_code).toBe('HTTP_503');
     expect(result.searches[0]?.truncated).toBe(true);
   });
 

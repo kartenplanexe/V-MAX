@@ -22,7 +22,9 @@
     "planner:test": "node scripts/planner.mjs test",
     "planner:run": "node scripts/planner.mjs run",
     "smoke:2gis": "node scripts/smoke-2gis.mjs",
+    "smoke:2gis:address": "node --env-file=.env.local --use-system-ca --import tsx scripts/probe-2gis-address.mts",
     "smoke:max": "node scripts/smoke-max-token.mjs",
+    "max:commands": "node --use-system-ca scripts/configure-max-commands.mjs",
     "start": "node dist/server/server/index.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit"

@@ -29,12 +29,10 @@ export const config = {
   databaseAllowLocalPlaintext: process.env.DATABASE_ALLOW_LOCAL_PLAINTEXT === 'true',
   yandexApiKey: process.env.YANDEX_API_KEY?.trim() || '',
   yandexFolderId: process.env.YANDEX_FOLDER_ID?.trim() || '',
-  dailyIntentCalls: parsePositiveInteger(process.env.PLANNER_DAILY_INTENT_CALLS, 20, 'PLANNER_DAILY_INTENT_CALLS'),
-  dailyPlanCalls: parsePositiveInteger(process.env.PLANNER_DAILY_PLAN_CALLS, 50, 'PLANNER_DAILY_PLAN_CALLS'),
-  dailyGeographyCalls: parsePositiveInteger(process.env.PLANNER_DAILY_GEOGRAPHY_CALLS, 100, 'PLANNER_DAILY_GEOGRAPHY_CALLS'),
   dgisMapglApiKey: process.env.DGIS_MAPGL_API_KEY?.trim() || '',
   dgisPlacesApiKey: process.env.DGIS_PLACES_API_KEY?.trim() || '',
   dgisRoutingApiKey: process.env.DGIS_ROUTING_API_KEY?.trim() || '',
+  dgisBackupApiKey: process.env.DGIS_BACKUP_API_KEY?.trim() || '',
   host: process.env.HOST?.trim() || '0.0.0.0',
   isProduction: process.env.NODE_ENV === 'production',
   initDataTtlSeconds: parsePositiveInteger(

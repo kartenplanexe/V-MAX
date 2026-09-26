@@ -45,6 +45,49 @@ export function projectResponse(response, regionId) {
     total:body.result.total,items:body.result.items.map(item=>projectItem(item,regionId))};
 }
 
+// Production reads the provider's complete root page, including its embedded
+// child rubrics, in one request. It does not persist or reuse the result across
+// user requests. The deeper per-parent verification below remains for bounded
+// offline evaluation, where completeness must be independently cross-checked.
+export async function collectEmbeddedCatalog({regionId,fetchRoot}) {
+  const summary={complete:false,region_id:regionId,http_calls:0,
+    completeness_scope:'Categories API /list embedded root tree, requested region only',
+    verification_method:'single_response_embedded_tree',atomic_snapshot_guaranteed:true,
+    raw_provider_payload_persisted:false,sent_to_llm:false};
+  try {
+    if(!identifier(regionId) || regionId==='0') fail('INVALID_OPTIONS');
+    summary.http_calls=1;
+    const projected=projectResponse(await fetchRoot({regionId}),regionId);
+    if(projected.items.length!==projected.total || projected.total===0) fail('INCOMPLETE_ROOT_PAGE');
+    const roots=[], nodes=new Map();
+    for(const root of projected.items){
+      if(root.type!=='general_rubric' || !Array.isArray(root.rubrics)) fail('INCOMPLETE_EMBEDDED_TREE');
+      if(nodes.has(root.id)) fail('DUPLICATE_CATEGORY_ID');
+      roots.push(root.id);
+      nodes.set(root.id,{id:root.id,name:root.name,type:root.type,caption:root.caption??null,
+        parent_ids:[],declared_parent_ids:[]});
+      for(const child of root.rubrics){
+        if(child.type!=='rubric' || (child.rubrics?.length??0)>0 || child.parent_id!==root.id || nodes.has(child.id))
+          fail('INVALID_EMBEDDED_CHILD');
+        nodes.set(child.id,{id:child.id,name:child.name,type:child.type,caption:child.caption??null,
+          parent_ids:[root.id],declared_parent_ids:[root.id]});
+      }
+    }
+    const items=[...nodes.values()].sort((a,b)=>compare(a.id,b.id));
+    const catalog={version:'',format:'2gis-category-catalog.v1',region_id:regionId,complete:true,
+      provider_version:{issue_date:projected.meta.issue_date,api_version:projected.meta.api_version},
+      roots:sorted(roots),items};
+    const {version:unusedVersion,...versionInput}=catalog;
+    catalog.version=`2gis:${regionId}:${sha256(JSON.stringify(versionInput))}`;
+    Object.assign(summary,{complete:true,root_categories:roots.length,unique_categories:items.length,
+      leaf_categories:items.length-roots.length,version:catalog.version});
+    return {summary,catalog};
+  } catch(error) {
+    summary.error_code=error instanceof CatalogError ? error.message : safeFailure(error).error_code;
+    return {summary,catalog:null};
+  }
+}
+
 export async function collectCatalog({regionId,fetchPage,pageSize=10000,maxCalls=40,onProgress=()=>{}}) {
   const summary={complete:false,region_id:regionId,http_calls:0,verified_parent_lists:0,nested_sets_verified:0,
     exact_tokens:null,sent_to_llm:false,raw_provider_payload_persisted:false,

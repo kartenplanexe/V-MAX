@@ -51,7 +51,7 @@ def prepare_routes(job):
             edges.update((o.place_id, "@destination") for o in chosen)
         for a in chosen:
             for b in chosen:
-                if a.activity_id != b.activity_id and a.place_id != b.place_id and (b.activity_id, a.activity_id) not in p["precedence"][did]:
+                if (a.activity_id != b.activity_id or a.activity_id in p["multi_stop"]) and a.place_id != b.place_id and (b.activity_id, a.activity_id) not in p["precedence"][did]:
                     edges.add((a.place_id, b.place_id))
         start, end = clock(day["window"]["start"]), clock(day["window"]["end"])
         # Three traffic-statistics samples for a car; not a proven upper bound.
@@ -71,7 +71,8 @@ def prepare_routes(job):
     return {"schema_version": POLICY_VERSION, "status": "AVAILABLE", "job": narrowed,
             "pairs": pairs, "shortlist": {"policy": ROUTING_POLICY, "groups": groups,
             "method": "verified_preferences_then_origin_distance_then_shrunk_rating", "global_optimality_claimed": False},
-            "maximum_selected_legs": sum(len(d["activities"]) + int(p["destination"] is not None) for d in p["days"])}
+            "maximum_selected_legs": sum(sum(p["multi_stop"].get(a["id"], 1) for a in d["activities"])
+                                         + int(p["destination"] is not None) for d in p["days"])}
 
 
 def route_checks(envelope):

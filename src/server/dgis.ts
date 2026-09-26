@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DgisKeyFallback, shouldTryDgisBackup, type DgisService } from './dgis-key-fallback.js';
 
 const PointSchema = z.object({
   lat: z.number(),
@@ -50,6 +51,7 @@ export interface DgisClientOptions {
   fetchImpl?: typeof fetch;
   placesApiKey: string;
   routingApiKey: string;
+  backupApiKey?: string;
   timeoutMs?: number;
 }
 
@@ -64,12 +66,16 @@ export class DgisClient {
   readonly #fetch: typeof fetch;
   readonly #placesApiKey: string;
   readonly #routingApiKey: string;
+  readonly #placesKeys: DgisKeyFallback;
+  readonly #routingKeys: DgisKeyFallback;
   readonly #timeoutMs: number;
 
   constructor(options: DgisClientOptions) {
     this.#fetch = options.fetchImpl ?? fetch;
     this.#placesApiKey = options.placesApiKey.trim();
     this.#routingApiKey = options.routingApiKey.trim();
+    this.#placesKeys = new DgisKeyFallback(this.#placesApiKey, options.backupApiKey?.trim() ?? '');
+    this.#routingKeys = new DgisKeyFallback(this.#routingApiKey, options.backupApiKey?.trim() ?? '');
     this.#timeoutMs = options.timeoutMs ?? 10_000;
   }
 
@@ -125,6 +131,9 @@ export class DgisClient {
     url.search = new URLSearchParams({
       fields: [
         'items.point',
+        'items.adm_div',
+        'items.full_address_name',
+        'items.city_alias',
         'items.region_id',
         'items.rubrics',
         'items.schedule',
@@ -147,10 +156,27 @@ export class DgisClient {
       url.searchParams.set('region_id', input.regionId!);
     }
 
-    const response = await this.#request(url, { headers: { Accept: 'application/json' } });
-    const parsed = PlacesResponseSchema.safeParse(await readJson(response));
-    if (!parsed.success || parsed.data.meta.code !== 200) {
-      throw new DgisProviderError('2GIS Places returned an unexpected response.');
+    const body = await this.#request(url, { headers: { Accept: 'application/json' } }, 'places');
+    const providerCode = z.object({ meta: z.object({ code: z.number().int() }) }).safeParse(body);
+    if (providerCode.success && providerCode.data.meta.code !== 200) {
+      const value = body && typeof body === 'object' ? body as Record<string, unknown> : {};
+      const meta = value.meta && typeof value.meta === 'object' ? value.meta as Record<string, unknown> : {};
+      const error = meta.error && typeof meta.error === 'object' ? meta.error as Record<string, unknown> : {};
+      const diagnostic = [error.message, meta.message, value.error, value.message]
+        .filter(value => typeof value === 'string').join(' ').toLowerCase();
+      // Only predefined API parameter names may leave this function; never log provider prose or request URLs.
+      const hints = ['rubric_id', 'region_id', 'page_size', 'radius', 'point', 'sort', 'fields', 'key', 'query', 'q']
+        .filter(name => new RegExp(`(?:^|[^a-z_])${name}(?:$|[^a-z_])`, 'u').test(diagnostic));
+      const errorType = typeof error.type === 'string' && /^[a-zA-Z]{1,40}$/u.test(error.type)
+        ? error.type.toUpperCase() : 'UNKNOWN';
+      throw new DgisProviderError(`2GIS Places provider code ${providerCode.data.meta.code}; type ${errorType}; hints ${hints.join('_') || 'none'}.`);
+    }
+    const parsed = PlacesResponseSchema.safeParse(body);
+    if (!parsed.success) {
+      const first = parsed.error.issues[0];
+      // Only a schema path is retained; never include values from the provider response.
+      const path = first?.path.map(segment => typeof segment === 'number' ? '*' : String(segment)).join('.') || 'root';
+      throw new DgisProviderError(`2GIS Places response schema failed at ${path}.`);
     }
     return { items: parsed.data.result?.items ?? [], total: parsed.data.result?.total ?? null };
   }
@@ -170,7 +196,7 @@ export class DgisClient {
     const url = new URL('https://routing.api.2gis.com/routing/7.0.0/global');
     url.searchParams.set('key', requireKey(this.#routingApiKey, 'DGIS_ROUTING_API_KEY'));
 
-    const response = await this.#request(url, {
+    const body = await this.#request(url, {
       body: JSON.stringify({
         locale: 'ru',
         output: 'summary',
@@ -180,8 +206,8 @@ export class DgisClient {
       }),
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       method: 'POST',
-    });
-    const parsed = RoutingResponseSchema.safeParse(await readJson(response));
+    }, 'routing');
+    const parsed = RoutingResponseSchema.safeParse(body);
     if (!parsed.success || parsed.data.type !== 'result' || parsed.data.status !== 'OK') {
       throw new DgisProviderError('2GIS Routing could not build the requested route.');
     }
@@ -206,17 +232,17 @@ export class DgisClient {
     if (new Set(keys).size !== keys.length) throw new DgisProviderError('Duplicate coordinate pair.');
     const url = new URL('https://routing.api.2gis.com/routing/7.0.0/global');
     url.searchParams.set('key', requireKey(this.#routingApiKey, 'DGIS_ROUTING_API_KEY'));
-    const response = await this.#request(url, {
+    const body = await this.#request(url, {
       method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ points: input.pairs.map(pair => pair.map(p => ({ lat: p.lat, lon: p.lon, type: 'stop' }))),
         transport: input.transport, output: 'summary', locale: 'ru', route_mode: 'fastest',
         traffic_mode: 'statistics', utc: input.departureUtc, save_route: false }),
-    });
+    }, 'routing');
     const parsed = z.array(z.object({
       lat1: z.number(), lon1: z.number(), lat2: z.number(), lon2: z.number(), status: z.string(),
       duration: z.number().nonnegative().nullable().optional(),
       distance: z.number().nonnegative().nullable().optional(),
-    })).safeParse(await readJson(response));
+    })).safeParse(body);
     if (!parsed.success || parsed.data.length !== keys.length) {
       throw new DgisProviderError('2GIS returned an invalid routing batch.');
     }
@@ -232,27 +258,33 @@ export class DgisClient {
     return keys.map(key => rows.get(key)!);
   }
 
-  async #request(url: URL, init: RequestInit) {
-    let response: Response;
-    try {
-      response = await this.#fetch(url, {
-        ...init,
-        signal: AbortSignal.timeout(this.#timeoutMs),
-      });
-    } catch {
-      throw new DgisProviderError('2GIS request failed or timed out.');
+  async #request(url: URL, init: RequestInit, service: 'places' | 'routing'): Promise<unknown> {
+    const keys = service === 'places' ? this.#placesKeys : this.#routingKeys;
+    const send = async (key: string) => {
+      const requestUrl = new URL(url);
+      requestUrl.searchParams.set('key', key);
+      let response: Response;
+      try {
+        response = await this.#fetch(requestUrl, { ...init, signal: AbortSignal.timeout(this.#timeoutMs) });
+      } catch { throw new DgisProviderError('2GIS request failed or timed out.'); }
+      let body: unknown;
+      try { body = await response.json(); }
+      catch {
+        if (response.ok) throw new DgisProviderError('2GIS returned invalid JSON.');
+        body = null;
+      }
+      return { status: response.status, body };
+    };
+    const selected = keys.current(service as DgisService);
+    let result = await send(selected);
+    if (shouldTryDgisBackup(result.status, result.body)) {
+      const backup = keys.backupAfterDenial(service, selected);
+      if (backup) result = await send(backup);
     }
-
-    if (!response.ok) {
-      throw new DgisProviderError(`2GIS returned HTTP ${response.status}.`);
-    }
-    return response;
+    if (result.status < 200 || result.status >= 300)
+      throw new DgisProviderError(`2GIS returned HTTP ${result.status}.`);
+    return result.body;
   }
-}
-
-async function readJson(response: Response): Promise<unknown> {
-  try { return await response.json(); }
-  catch { throw new DgisProviderError('2GIS returned invalid JSON.'); }
 }
 
 export function pairKey(a: Coordinates, b: Coordinates) {

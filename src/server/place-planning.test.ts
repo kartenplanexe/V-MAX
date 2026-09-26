@@ -1,18 +1,39 @@
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { defaultPlannerPython } from './planner-process.js';
-import { planPlacesWithDgis } from './place-planning.js';
+import { conservativeTravelSeconds, planPlacesWithDgis, safePlanningDiagnostic } from './place-planning.js';
 import { demoNow, planningFixture } from './place-planning.fixture.js';
 
 const options = { retrieval: { radiusMeters: 5000, maxPages: 1 }, now: demoNow, dataMode: 'test' as const };
+it('never accepts a walking route shorter than its geometry or an implausibly fast walk', () => {
+  const pair = { day_id: 'd1', from_id: '@origin', to_id: 'tower',
+    from_point: { lat: 56.326919, lon: 43.992346 }, to_point: { lat: 56.335627, lon: 43.974836 },
+    date: '2026-09-26', window: { start: '16:00', end: '18:00' }, mode: 'walking' as const };
+  expect(conservativeTravelSeconds(pair, { durationSeconds: 420, distanceMeters: 600 })).toBeNull();
+  expect(conservativeTravelSeconds(pair, { durationSeconds: 420, distanceMeters: 1600 })).toBeGreaterThan(880);
+});
 describe.skipIf(!existsSync(defaultPlannerPython()))('confirmed JSON -> 2GIS HTTP -> real Python solver -> route verification', () => {
+  it('logs only aggregate failure causes, without place identifiers or provider payloads', () => {
+    const summary = safePlanningDiagnostic({ status: 'UNAVAILABLE', routing: { places_http_calls: 2, routing_http_calls: 1,
+      routing_failed_batches: 1 }, shortlist: { groups: [{ eligible: 3, selected: 2 }] },
+    excluded: [{ place_id: 'sensitive-place-id', reasons: ['SCHEDULE_UNKNOWN', 'DROP TABLE'] }],
+    days: [{ visits: [] }] });
+    expect(summary).toEqual({ status: 'UNAVAILABLE', places_http_calls: 2, places_received: 0,
+      places_failed_queries: 0, places_http_4xx: 0, places_http_5xx: 0, places_transport_failures: 0,
+      places_provider_4xx: 0, places_schema_failures: 0, places_max_rubric_ids: 0, places_failure_codes: {}, routing_http_calls: 1,
+      routing_failed_batches: 1, eligible_options: 3, shortlisted_options: 2, excluded_options: 1,
+      exclusion_reasons: { SCHEDULE_UNKNOWN: 1 }, verified_visits: 0 });
+    expect(JSON.stringify(summary)).not.toContain('sensitive-place-id');
+  });
   it('normalizes places, excludes closures before routing, preserves order, checks exact departures', async () => {
     const f = planningFixture();
     const result = await planPlacesWithDgis(f.client(), f.input, options);
     expect(result.status).toBe('AVAILABLE');
     const output = result as Record<string, any>;
     expect(output.data_mode).toBe('test');
+    expect(output.origin).toEqual(f.input.intent.points.origin);
     expect(output.days[0].visits.map((v: any) => v.place_id)).toEqual(['near', 'cafe']);
+    expect(output.days[0].visits.map((v: any) => v.distance_before_meters)).toEqual([600, 600]);
     expect(output.days[0].visits.map((v: any) => v.starts_at)).toEqual([977, 1054]);
     expect(output.total_expected_cost_minor).toBeNull(); // Unknown prices are not reported as free.
     expect(output.routing.route_pair_calculations).toBe(7); // 5 matrix + 2 exact checks.

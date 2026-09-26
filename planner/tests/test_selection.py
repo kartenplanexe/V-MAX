@@ -48,6 +48,34 @@ def test_selects_one_place_per_activity_and_preserves_order(job):
     assert result["days"][0]["visits"][0]["starts_at"] >= 12 * 60 + 15
     assert result["total_budget_upper_minor"] == 100000
     assert result["data_mode"] == "test"
+    assert result["origin"]["label"] == "Начало"
+    validate_selection(job, result)
+
+
+def test_generic_walk_can_visit_two_distinct_waypoints(job):
+    day = job["intent"]["days"][0]
+    day["activities"] = day["activities"][:1]
+    day["order"] = []
+    job["visit_policy"]["by_activity"] = {"culture": 25}
+    job["visit_policy"]["max_stops_by_activity"] = {"culture": 2}
+    result = select_places(job)
+    assert result["status"] == "AVAILABLE"
+    assert {v["place_id"] for v in result["days"][0]["visits"]} == {"museum-near", "museum-far"}
+    assert all(v["duration_minutes"] == 25 for v in result["days"][0]["visits"])
+    validate_selection(job, result)
+
+
+def test_generic_walk_with_one_reachable_waypoint_is_marked_incomplete(job):
+    day = job["intent"]["days"][0]
+    day["activities"] = day["activities"][:1]
+    day["order"] = []
+    job["places"] = job["places"][:1]
+    job["visit_policy"]["by_activity"] = {"culture": 25}
+    job["visit_policy"]["max_stops_by_activity"] = {"culture": 2}
+    result = select_places(job)
+    assert result["status"] == "LIMITED"
+    assert len(result["days"][0]["visits"]) == 1
+    assert "WALK_WAYPOINTS_INCOMPLETE" in result["warnings"]
     validate_selection(job, result)
 
 
@@ -92,6 +120,63 @@ def test_exclusions_win_over_matching_category(job):
     assert result["days"][0]["missing_activity_ids"] == ["food"]
 
 
+def test_known_matching_duration_survives_unmapped_secondary_rubric(job):
+    activity = job["intent"]["days"][0]["activities"][0]
+    activity["categories"]["include_any"].append("pub")
+    job["places"][0]["rubric_ids"].append("pub")
+    result = select_places(job)
+    assert result["status"] == "AVAILABLE"
+    assert result["days"][0]["visits"][0]["duration_minutes"] == 60
+
+
+def test_no_known_matching_duration_still_excludes_place(job):
+    activity = job["intent"]["days"][0]["activities"][0]
+    activity["categories"]["include_any"] = ["pub"]
+    job["places"][0]["rubric_ids"] = ["pub"]
+    result = select_places(job)
+    assert any("DURATION_UNKNOWN" in item["reasons"] for item in result["excluded"] if item["place_id"] == "museum-near")
+
+
+def test_walk_activity_estimate_recovers_unmapped_matching_rubric_without_guessing_hours(job):
+    activity = job["intent"]["days"][0]["activities"][0]
+    activity["categories"]["include_any"] = ["pub"]
+    job["places"][0]["rubric_ids"] = ["pub"]
+    job["visit_policy"]["by_activity"] = {"culture": 60}
+    result = select_places(job)
+    visit = next(v for v in result["days"][0]["visits"] if v["activity_id"] == "culture")
+    assert visit["duration_minutes"] == 60
+    job["places"][0]["opening_intervals"] = {}
+    result = select_places(job)
+    assert any("SCHEDULE_UNKNOWN" in item["reasons"] for item in result["excluded"] if item["place_id"] == "museum-near")
+
+
+def test_walk_activity_duration_is_not_shortened_by_poi_estimate(job):
+    job["visit_policy"]["by_activity"] = {"culture": 60}
+    job["visit_policy"]["by_category"]["museum"] = 20
+    result = select_places(job)
+    visit = next(v for v in result["days"][0]["visits"] if v["activity_id"] == "culture")
+    assert visit["duration_minutes"] == 60
+
+
+def test_tentative_outdoor_walk_never_claims_verified_opening_hours(job):
+    job["intent"]["days"][0]["activities"] = [job["intent"]["days"][0]["activities"][0]]
+    job["intent"]["days"][0]["order"] = []
+    activity = job["intent"]["days"][0]["activities"][0]
+    activity["categories"]["include_any"] = ["pub"]
+    job["places"][0]["rubric_ids"] = ["pub"]
+    job["places"][0]["opening_intervals"] = {}
+    job["places"][1]["rubric_ids"] = ["cafe"]
+    job["visit_policy"]["by_activity"] = {"culture": 60}
+    job["visit_policy"]["tentative_schedule_category_ids"] = ["pub"]
+    result = select_places(job)
+    assert result["status"] == "LIMITED"
+    visit = result["days"][0]["visits"][0]
+    assert visit["place_id"] == "museum-near"
+    assert "OPENING_HOURS_UNVERIFIED" in visit["warnings"]
+    assert "OPEN_FOR_FULL_VISIT" not in visit["reasons"]
+    assert "OPENING_HOURS_UNVERIFIED" in result["warnings"]
+
+
 def test_required_facts_are_not_guessed(job):
     activity = job["intent"]["days"][0]["activities"][0]
     activity["requirements"] = [{"text": "доступно на коляске", "strength": "required"}]
@@ -108,7 +193,10 @@ def test_preference_beats_distance_when_verified(job):
 
 def test_no_routes_means_no_invented_travel(job):
     job["route_legs"] = []
-    assert select_places(job)["status"] == "UNAVAILABLE"
+    result = select_places(job)
+    assert result["status"] == "UNAVAILABLE"
+    assert result["total_expected_cost_minor"] is None
+    assert result["total_budget_upper_minor"] is None
 
 
 def test_stale_place_and_route_data_are_not_used(job):

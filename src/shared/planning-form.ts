@@ -51,15 +51,19 @@ export const FormChange = z.discriminatedUnion('op', [
 export const FormEvent = z.object({ base_version: z.number().int().nonnegative(), event_id: z.string().min(8).max(128) }).strict();
 export const FormEdit = FormEvent.extend({ changes: z.array(FormChange).min(1).max(32) }).strict();
 export const PublicPlan = z.object({ status: z.enum(['AVAILABLE', 'LIMITED', 'UNAVAILABLE', 'ERROR', 'NEEDS_INPUT']),
+  origin: Point.optional(),
   data_mode: z.string().optional(), warnings: z.array(z.string()).default([]), issues: z.array(z.string()).optional(),
   total_expected_cost_minor: z.number().nullable().optional(),
   shortlist: z.object({ groups: z.array(z.object({ truncated: z.boolean() })) }).optional(),
   days: z.array(z.object({ day_id: Id, date: DateValue, status: z.string(), missing_activity_ids: z.array(Id),
     ends_at: z.number().optional(), total_safe_travel_minutes: z.number().optional(),
-    visits: z.array(z.object({ activity_id: Id, place_id: Id, name: z.string(), point: Coordinates.optional(), starts_at: z.number(), ends_at: z.number(),
-      travel_before_minutes: z.number(), arrival_buffer_minutes: z.number(), price_expected_minor: z.number().nullable(),
+    visits: z.array(z.object({ activity_id: Id, place_id: Id, name: z.string(), location_label: z.string().nullable().optional(),
+      point: Coordinates.optional(), starts_at: z.number(), ends_at: z.number(),
+      travel_before_minutes: z.number(), distance_before_meters: z.number().nullable().optional(),
+      arrival_buffer_minutes: z.number(), price_expected_minor: z.number().nullable(),
       warnings: z.array(z.string()),
-      source: z.object({ provider: z.string(), fetched_at: z.string(), valid_until: z.string(), data_mode: z.string() }).optional(),
+      source: z.object({ provider: z.string(), url: z.string().url().nullable().optional(),
+        fetched_at: z.string(), valid_until: z.string(), data_mode: z.string() }).optional(),
     })),
   })).default([]),
 });

@@ -20,7 +20,9 @@ it('protects all form endpoints with signed MAX ownership and runs the confirmed
   const draft = sessions.create('max:42', fixture.input.intent, { catalog: fixture.input.catalog,
     visit_policy: fixture.input.visit_policy, modes: ['walking'], data_mode: 'test' });
   const app = Fastify({ bodyLimit: 32 * 1024 });
-  registerPlanningRoutes(app, sessions, maxPlanningAuthenticator('test-token', 3600, () => now));
+  const changed: Array<{ owner: string; status: string }> = [];
+  registerPlanningRoutes(app, sessions, maxPlanningAuthenticator('test-token', 3600, () => now),
+    async (owner, view) => { changed.push({ owner, status: view.status }); });
   const path = `/api/planning/drafts/${draft.id}`;
   try {
     for (const [method, suffix] of [['GET', ''], ['PATCH', ''], ['POST', '/confirm'], ['POST', '/plan']] as const) {
@@ -37,6 +39,7 @@ it('protects all form endpoints with signed MAX ownership and runs the confirmed
     const edit = await app.inject({ method: 'PATCH', url: path, headers: { 'x-max-init-data': signed(42) },
       payload: { base_version: 0, event_id: 'test-0001', changes: [{ op: 'window', day_ids: ['d1'], start: '16:30', end: '20:00' }] } });
     expect(edit.statusCode).toBe(200);
+    expect(changed).toEqual([{ owner: 'max:42', status: edit.json().status }]);
     const confirm = await app.inject({ method: 'POST', url: path + '/confirm', headers: { 'x-max-init-data': signed(42) },
       payload: { base_version: edit.json().version, event_id: 'test-0002' } });
     expect(confirm.statusCode).toBe(200);
@@ -46,6 +49,8 @@ it('protects all form endpoints with signed MAX ownership and runs the confirmed
     expect(result.statusCode).toBe(200);
     expect(result.json().result.days[0].visits[0].starts_at).toBeGreaterThanOrEqual(16 * 60 + 30);
     expect(result.json().result).not.toHaveProperty('routing');
+    expect(changed).toHaveLength(2);
+    expect(changed[1]).toEqual({ owner: 'max:42', status: result.json().status });
     const calls = fixture.requests.length;
     await app.inject(options);
     expect(fixture.requests.length).toBe(calls);

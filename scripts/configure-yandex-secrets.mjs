@@ -39,6 +39,7 @@ try {
   if (missing.length) throw new Error(`Заполните в .env.local: ${missing.join(', ')}`);
   if (env.YANDEX_FOLDER_ID.trim() !== folderId) throw new Error('YANDEX_FOLDER_ID отличается от каталога maxbot. Ничего не изменено.');
   const pairs = required.map(key => ({ key, text_value: env[key].trim() }));
+  if (env.DGIS_BACKUP_API_KEY?.trim()) pairs.push({ key: 'DGIS_BACKUP_API_KEY', text_value: env.DGIS_BACKUP_API_KEY.trim() });
   if (env.DGIS_MAPGL_API_KEY?.trim()) pairs.push({ key: 'DGIS_MAPGL_API_KEY', text_value: env.DGIS_MAPGL_API_KEY.trim() });
   const mapDistinct = Boolean(env.DGIS_MAPGL_API_KEY?.trim()) &&
     ![env.DGIS_PLACES_API_KEY?.trim(), env.DGIS_ROUTING_API_KEY?.trim()].includes(env.DGIS_MAPGL_API_KEY.trim());

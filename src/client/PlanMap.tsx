@@ -5,7 +5,7 @@ import type { PlanningView } from '../shared/planning-form';
 
 type Day = NonNullable<PlanningView['result']>['days'][number];
 /** Only provider coordinates. Routing durations are not a polyline: never draw guessed connections. */
-export function PlanMap({ day }: { day: Day }) {
+export function PlanMap({ day, origin }: { day: Day; origin?: PlanningView['draft']['points']['origin'] }) {
   const element = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState('Загружаем карту…');
   useEffect(() => {
@@ -13,7 +13,7 @@ export function PlanMap({ day }: { day: Day }) {
     const resources: { destroy(): void }[] = [];
     void (async () => {
       try {
-        const points = day.visits.flatMap(v => v.point ? [v.point] : []);
+        const points = [...(origin ? [origin] : []), ...day.visits.flatMap(v => v.point ? [v.point] : [])];
         if (!points.length) { setStatus('Нет координат для отображения. Откройте план списком.'); return; }
         const response = await fetch('/api/public-config', { cache: 'no-store', signal: AbortSignal.timeout(10000) });
         if (!response.ok) throw new Error();
@@ -27,19 +27,21 @@ export function PlanMap({ day }: { day: Day }) {
         resources.push(map);
         const lon = points.map(p => p.lon), lat = points.map(p => p.lat);
         map.fitBounds({ southWest: [Math.min(...lon) - .002, Math.min(...lat) - .002], northEast: [Math.max(...lon) + .002, Math.max(...lat) + .002] }, { padding: { top: 40, bottom: 40, left: 40, right: 40 } });
+        if (origin) resources.push(new sdk.Marker(map, { coordinates: [origin.lon, origin.lat], label: { text: 'Старт' } }));
         day.visits.forEach((visit, index) => {
           if (!visit.point) return;
           const marker = new sdk.Marker(map, { coordinates: [visit.point.lon, visit.point.lat],
             label: { text: String(index + 1) } });
           resources.push(marker);
         });
-        setStatus('Номера на карте соответствуют порядку посещений. Линия пути пока не отображается.');
+        setStatus('Старт и номера на карте соответствуют порядку посещений. Линия пути пока не отображается.');
       } catch { if (!cancelled) setStatus('Карта недоступна. Места и время остаются в плане списком.'); }
     })();
     return () => { cancelled = true; resources.reverse().forEach(r => r.destroy()); };
-  }, [day]);
+  }, [day, origin]);
   return <section aria-label="Места на карте 2ГИС"><div className="plan-map-canvas" ref={element} />
     <p className="field-hint" role="status">{status}</p>
-    <ol className="map-places">{day.visits.map(v => <li key={v.activity_id}>{v.name}</li>)}</ol>
+    <ol className="map-places">{origin && <li key="origin">Старт: {origin.label ?? 'выбранная точка'}</li>}{day.visits.map(v =>
+      <li key={`${v.activity_id}:${v.place_id}`}>{v.name}{v.location_label ? ` — ${v.location_label}` : ''}</li>)}</ol>
   </section>;
 }

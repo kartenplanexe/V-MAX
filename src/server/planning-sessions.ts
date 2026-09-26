@@ -4,7 +4,9 @@ import { FormDraft, FormEdit, FormEvent, PublicPlan, minutes, type FormIssue, ty
 
 export type PlanningContext = {
   catalog: { version: string; region_id: string; leaf_ids: string[] };
-  visit_policy: { version: string; by_category: Record<string, number>; arrival_buffer_minutes: number };
+  visit_policy: { version: string; by_category: Record<string, number>; walkable_category_ids?: string[];
+    park_category_ids?: string[];
+    arrival_buffer_minutes: number };
   point_area?: { south: number; north: number; west: number; east: number };
   map_center?: { lat: number; lon: number };
   modes: readonly ('walking' | 'driving' | 'cycling')[];
@@ -37,7 +39,6 @@ const fingerprint = (operation: string, value: unknown) => createHash('sha256').
  */
 export class PlanningSessions {
   readonly #records = new Map<string, RecordState>();
-  readonly #attempts = new Map<string, number[]>();
   readonly #activeOwners = new Set<string>();
   readonly #now: () => Date;
   readonly #plan: (job: Record<string, unknown>) => Promise<unknown>;
@@ -59,7 +60,6 @@ export class PlanningSessions {
         }
         this.#records.set(r.view.id, r);
       }
-      for (const [owner, times] of options.checkpoint.attempts) this.#attempts.set(owner, times);
       this.#prune();
     }
   }
@@ -68,15 +68,11 @@ export class PlanningSessions {
     this.#prune();
     return structuredClone({ version: 1, records: [...this.#records.values()].map(r => ({ ...r,
       events: [...r.events], failures: [...r.failures].map(([key, e]) => [key, { code: e.code, status: e.status }] as [string, { code: string; status: number }]) })),
-      attempts: [...this.#attempts] });
+      attempts: [] }); // Retained for compatibility with existing version-1 checkpoints.
   }
   #prune() {
     const now = this.#now().getTime();
     for (const [id, record] of this.#records) if (now >= record.expires) this.#records.delete(id);
-    for (const [owner, attempts] of this.#attempts) {
-      const remaining = attempts.filter(time => now - time < 600_000);
-      if (remaining.length) this.#attempts.set(owner, remaining); else this.#attempts.delete(owner);
-    }
   }
   #record(owner: string, id: string) {
     this.#prune();
@@ -139,7 +135,6 @@ export class PlanningSessions {
   create(owner: string, seed: unknown, context: PlanningContext, provenance: Record<string, string> = {}): PlanningView {
     this.#prune();
     if (!owner || owner.length > 200 || JSON.stringify(seed).length > 128 * 1024) reject('INVALID_SEED', 400);
-    if (this.#records.size >= 200 || [...this.#records.values()].filter(r => r.owner === owner).length >= 5) reject('SESSION_CAPACITY', 429);
     const draft = parse(FormDraft, seed), now = this.#now().getTime(), id = randomUUID();
     const record: RecordState = { owner, context: structuredClone(context), expires: now + 1_800_000,
       events: new Map(), failures: new Map(), resultExpires: 0, inProgress: null,
@@ -149,11 +144,14 @@ export class PlanningSessions {
     this.#records.set(id, record); return this.#view(record);
   }
   get(owner: string, id: string) { return this.#view(this.#record(owner, id)); }
+  remove(owner: string, id: string) {
+    this.#record(owner, id);
+    this.#records.delete(id);
+  }
   #event(record: RecordState, operation: string, body: z.infer<typeof FormEvent>, full: unknown) {
     const hash = fingerprint(operation, full), previous = record.events.get(body.event_id);
     if (previous) { if (previous !== hash) reject('EVENT_CONFLICT'); return null; }
     if (record.view.version !== body.base_version) reject('STALE_VERSION');
-    if (record.events.size >= 128) reject('EVENT_CAPACITY', 429);
     return hash;
   }
   edit(owner: string, id: string, input: unknown) {
@@ -229,16 +227,53 @@ export class PlanningSessions {
     if (record.view.confirmed_version !== body.base_version || this.#issues(record).length) reject('CONFIRMATION_REQUIRED', 422);
     if (record.inProgress || this.#activeOwners.has(owner)) reject('PLAN_IN_PROGRESS');
     if (this.#activeOwners.size >= 2) reject('PLANNER_BUSY', 429);
-    const attempts = this.#attempts.get(owner) ?? [];
-    if (attempts.length >= 3) reject('PLAN_RATE_LIMIT', 429);
-    if (this.#attempts.size >= 200 && !this.#attempts.has(owner)) reject('PLANNER_BUSY', 429);
-    // No awaits before lock/revision capture/quota debit: single-process atomicity only.
-    this.#activeOwners.add(owner); this.#attempts.set(owner, [...attempts, this.#now().getTime()]);
+    // No awaits before lock/revision capture: single-process atomicity only.
+    this.#activeOwners.add(owner);
     record.inProgress = body.event_id; record.events.set(body.event_id, hash); record.view.phase = 'PLANNING';
     const version = record.view.version;
-    const job = { schema_version: 'place-selection.v1', intent: { ...structuredClone(record.view.draft),
+    const draft = record.view.draft;
+    // A walk is an activity with a flexible visit length, even when its many
+    // eligible outdoor rubrics have no individual duration estimate. This is a
+    // product scheduling estimate, not a claimed 2GIS opening-hours fact.
+    const planDraft = structuredClone(draft);
+    const leaves = new Set(record.context.catalog.leaf_ids);
+    // Old saved drafts predate the dynamic walk policy. These 2GIS IDs are a
+    // curated compatibility subset, not a cached Places response; only IDs
+    // present in this draft's live regional catalog may be used.
+    const legacyWalkIds = ['111526', '112594', '112668', '112720', '112900', '112901',
+      '112905', '112906', '112907', '112912', '112918', '112926', '113289', '113292',
+      '113468', '113471', '114018', '168', '24169', '24353'];
+    const walkIds = (record.context.visit_policy.walkable_category_ids ?? legacyWalkIds)
+      .filter(id => leaves.has(id));
+    const parkIds = (record.context.visit_policy.park_category_ids ?? ['168'])
+      .filter(id => leaves.has(id));
+    const walkSet = new Set(walkIds);
+    const by_activity: Record<string, number> = {};
+    const max_stops_by_activity: Record<string, number> = {};
+    for (const day of planDraft.days) for (const activity of day.activities) {
+      if (!/прогул|погуля|гулят/iu.test(activity.label)) continue;
+      const explicitPark = /(?:^|[\s.,!?])(?:в|по)\s+парк(?:е|у)?(?=$|[\s.,!?])/iu.test(activity.label) ||
+        activity.selection.named_types.some(name => /^парки?$/iu.test(name.trim()));
+      const allowed = explicitPark ? new Set(parkIds) : walkSet;
+      const safeIds = activity.categories.include_any.filter(id => allowed.has(id) && !activity.categories.exclude.includes(id));
+      const categories = explicitPark ? parkIds.filter(id => !activity.categories.exclude.includes(id))
+        : safeIds.length ? safeIds : activity.selection.category_policy === 'named_types_only'
+        ? [] : walkIds.filter(id => !activity.categories.exclude.includes(id));
+      if (!categories.length) reject('WALK_CATEGORY_UNAVAILABLE', 422);
+      activity.categories.include_any = categories;
+      const genericCityWalk = !explicitPark && !planDraft.points.destination && day.activities.length === 1 &&
+        !!day.window && minutes(day.window.end) - minutes(day.window.start) >= 90 &&
+        /^(?:прогулка|погулять|гулять|прогуляться)(?:\s+по\s+городу)?[.!?]?$/iu.test(activity.label.trim()) &&
+        activity.selection.category_policy === 'related_allowed' &&
+        !activity.requirements.length;
+      by_activity[activity.id] = genericCityWalk ? 25 : 60;
+      if (genericCityWalk) max_stops_by_activity[activity.id] = 2;
+    }
+    const job = { schema_version: 'place-selection.v1', intent: { ...planDraft,
       schema_version: 'confirmed-daily-intent.research.v1', session_id: id, draft_revision: version },
-      catalog: structuredClone(record.context.catalog), visit_policy: structuredClone(record.context.visit_policy) };
+      catalog: structuredClone(record.context.catalog), visit_policy: {
+        ...structuredClone(record.context.visit_policy), by_activity, max_stops_by_activity,
+        tentative_schedule_category_ids: walkIds } };
     try {
       await this.#beforePlan?.();
       const output = await this.#plan(job);

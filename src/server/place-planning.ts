@@ -15,11 +15,62 @@ type RoutePair = z.infer<typeof Pair>;
 type Query = { pair: RoutePair; utc: number };
 type Measurement = { durationSeconds: number; distanceMeters: number } | null;
 type Source = { provider: string; fetched_at: string; valid_until: string; data_mode: 'live' | 'test' };
-type Leg = RoutePair & { safe_minutes: number; source: Source; cost_upper_minor?: number };
+type Leg = RoutePair & { safe_minutes: number; distance_meters?: number; source: Source; cost_upper_minor?: number };
 const ROUTING_POLICY = 'dated-routing.v1';
+
+/** Aggregate operator evidence only. Never log a place, coordinate, user text or provider response. */
+export function safePlanningDiagnostic(value: unknown) {
+  const result = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const routing = result.routing && typeof result.routing === 'object' ? result.routing as Record<string, unknown> : {};
+  const shortlist = result.shortlist && typeof result.shortlist === 'object' ? result.shortlist as Record<string, unknown> : {};
+  const groups = Array.isArray(shortlist.groups) ? shortlist.groups : [];
+  const exclusions = Array.isArray(result.excluded) ? result.excluded : [];
+  const numbers = (field: string) => typeof routing[field] === 'number' && Number.isSafeInteger(routing[field]) ? routing[field] : 0;
+  const reasonCounts: Record<string, number> = {};
+  for (const item of exclusions) {
+    if (!item || typeof item !== 'object' || !Array.isArray(item.reasons)) continue;
+    for (const reason of item.reasons) if (typeof reason === 'string' && /^[A-Z_]{2,50}$/u.test(reason))
+      reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
+  }
+  return {
+    status: ['AVAILABLE', 'LIMITED', 'UNAVAILABLE', 'ERROR', 'NEEDS_INPUT'].includes(String(result.status))
+      ? result.status : 'UNKNOWN',
+    places_http_calls: numbers('places_http_calls'), routing_http_calls: numbers('routing_http_calls'),
+    places_received: numbers('places_received'), places_failed_queries: numbers('places_failed_queries'),
+    places_http_4xx: numbers('places_http_4xx'), places_http_5xx: numbers('places_http_5xx'),
+    places_transport_failures: numbers('places_transport_failures'),
+    places_provider_4xx: numbers('places_provider_4xx'), places_schema_failures: numbers('places_schema_failures'),
+    places_max_rubric_ids: numbers('places_max_rubric_ids'),
+    places_failure_codes: typeof routing.places_failure_codes === 'object' && routing.places_failure_codes !== null
+      ? Object.fromEntries(Object.entries(routing.places_failure_codes).filter(([key, value]) =>
+        /^(?:HTTP|PROVIDER)_\d{3}(?:_[A-Z_]+)?$|^SCHEMA_[A-Z0-9_]+$|^(?:TRANSPORT|INVALID_PROVIDER_RESPONSE)$/u.test(key) &&
+        typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) : {},
+    routing_failed_batches: numbers('routing_failed_batches'),
+    eligible_options: groups.reduce((sum, group) => sum + (Number.isSafeInteger(group?.eligible) ? group.eligible : 0), 0),
+    shortlisted_options: groups.reduce((sum, group) => sum + (Number.isSafeInteger(group?.selected) ? group.selected : 0), 0),
+    excluded_options: exclusions.length, exclusion_reasons: reasonCounts,
+    verified_visits: Array.isArray(result.days) ? result.days.reduce((sum, day) => sum + (Array.isArray(day?.visits) ? day.visits.length : 0), 0) : 0,
+  };
+}
 
 function edgeKey(pair: RoutePair) { return JSON.stringify([pair.day_id, pair.from_id, pair.to_id]); }
 function safeMinutes(seconds: number) { return Math.ceil(seconds / 60 * 1.25) + 2; }
+function directMeters(a: Coordinates, b: Coordinates) {
+  const rad = Math.PI / 180, dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(Math.min(1, h)));
+}
+/** Reject implausible walking geometry and never schedule walking faster than 6.5 km/h.
+ * This is a conservative product check, not a new claim about provider travel time.
+ */
+export function conservativeTravelSeconds(pair: RoutePair, row: Measurement): number | null {
+  if (!row || !Number.isFinite(row.durationSeconds) || !Number.isFinite(row.distanceMeters) ||
+      row.durationSeconds < 0 || row.distanceMeters < 0) return null;
+  if (pair.mode !== 'walking') return row.durationSeconds;
+  const direct = directMeters(pair.from_point, pair.to_point);
+  if (row.distanceMeters + 100 < direct * 0.85) return null;
+  return Math.max(row.durationSeconds, row.distanceMeters / 1.8, direct / 1.8);
+}
 function batches(queries: Query[]) {
   const groups = new Map<string, { utc: number; mode: RoutePair['mode']; entries: Map<string, { pair: [Coordinates, Coordinates]; indices: number[] }> }>();
   queries.forEach((query, index) => {
@@ -54,7 +105,11 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
   const maxHttp = z.number().int().min(1).max(100).parse(options.maxRoutingHttpCalls ?? 30);
   const mode = options.dataMode ?? 'live';
   const started = Date.now();
-  const counters = { places_http_calls: 0, route_pair_calculations: 0, routing_http_calls: 0, routing_failed_batches: 0, replans: 0 };
+  const counters = { places_http_calls: 0, places_received: 0, places_failed_queries: 0,
+    places_http_4xx: 0, places_http_5xx: 0, places_transport_failures: 0,
+    places_provider_4xx: 0, places_schema_failures: 0, places_failure_codes: {} as Record<string, number>,
+    places_max_rubric_ids: 0,
+    route_pair_calculations: 0, routing_http_calls: 0, routing_failed_batches: 0, replans: 0 };
   const metadata = () => ({ policy: ROUTING_POLICY, ...counters, llm_calls: 0, provider_payload_persisted: false,
     max_route_pair_calculations: maxPairs, max_routing_http_calls: maxHttp, data_mode: mode });
   const stop = (issue: string) => ({ schema_version: 'place-selection.v1', status: 'ERROR', issues: [issue], days: [], routing: metadata() });
@@ -98,6 +153,17 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
     const fetchedAt = now();
     const retrieval = await retrievePlaceCandidates(client, input.intent, { ...options.retrieval, catalogVersion: catalog.version });
     counters.places_http_calls = retrieval.requests;
+    counters.places_received = retrieval.places.length;
+    counters.places_failed_queries = retrieval.searches.filter(search => search.status === 'PROVIDER_ERROR').length;
+    counters.places_http_4xx = retrieval.searches.filter(search => /^HTTP_4\d\d$/u.test(search.failure_code ?? '')).length;
+    counters.places_http_5xx = retrieval.searches.filter(search => /^HTTP_5\d\d$/u.test(search.failure_code ?? '')).length;
+    counters.places_transport_failures = retrieval.searches.filter(search => search.failure_code === 'TRANSPORT').length;
+    counters.places_provider_4xx = retrieval.searches.filter(search => /^PROVIDER_4\d\d(?:_|$)/u.test(search.failure_code ?? '')).length;
+    counters.places_schema_failures = retrieval.searches.filter(search => search.failure_code?.startsWith('SCHEMA_')).length;
+    counters.places_max_rubric_ids = Math.max(0, ...retrieval.searches.map(search => search.rubric_ids.length));
+    for (const search of retrieval.searches) if (search.failure_code) {
+      counters.places_failure_codes[search.failure_code] = (counters.places_failure_codes[search.failure_code] ?? 0) + 1;
+    }
     const { places: _empty, ...withoutPlaces } = base;
     const preparedReply = await run({ ...withoutPlaces, as_of: now().toISOString(),
       retrieval: { coverage: retrieval.coverage }, provider_batches: [{ items: retrieval.places, region_id: retrieval.region_id,
@@ -118,9 +184,12 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
     for (const pair of prepared.pairs) {
       const values = measurements.filter((_, i) => edgeKey(queries[i]!.pair) === edgeKey(pair));
       if (!values.length || values.some(value => value === null)) continue;
-      const minutes = safeMinutes(Math.max(...values.map(value => value!.durationSeconds)));
+      const seconds = values.map(value => conservativeTravelSeconds(pair, value));
+      if (seconds.some(value => value === null)) { incompleteMatrix = true; continue; }
+      const minutes = safeMinutes(Math.max(...(seconds as number[])));
       if (minutes > 1440) continue;
-      legs.set(edgeKey(pair), { ...pair, safe_minutes: minutes, source: matrixSource,
+      legs.set(edgeKey(pair), { ...pair, safe_minutes: minutes,
+        distance_meters: Math.ceil(Math.max(...values.map(value => value!.distanceMeters))), source: matrixSource,
         ...(pair.mode === 'walking' ? { cost_upper_minor: 0 } : {}) });
     }
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -137,9 +206,11 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
       let changed = false;
       checks.forEach((check, i) => {
         const row = observations[i], key = edgeKey(check), leg = legs.get(key)!;
-        if (!row || safeMinutes(row.durationSeconds) > 1440) { legs.delete(key); changed = true; incompleteMatrix = true; }
-        else if (safeMinutes(row.durationSeconds) > check.safe_minutes) {
-          legs.set(key, { ...leg, safe_minutes: safeMinutes(row.durationSeconds), source: source() }); changed = true;
+        const seconds = row ? conservativeTravelSeconds(check, row) : null;
+        if (seconds === null || safeMinutes(seconds) > 1440) { legs.delete(key); changed = true; incompleteMatrix = true; }
+        else if (safeMinutes(seconds) > check.safe_minutes) {
+          legs.set(key, { ...leg, safe_minutes: safeMinutes(seconds),
+            distance_meters: Math.max(leg.distance_meters ?? 0, Math.ceil(row!.distanceMeters)), source: source() }); changed = true;
         }
       });
       if (changed) {

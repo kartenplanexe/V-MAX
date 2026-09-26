@@ -34,7 +34,8 @@ export function planningFixture() {
     routingBatches++;
     const pairs = body.points as [{ lat: number; lon: number }, { lat: number; lon: number }][];
     return Response.json(pairs.map(([a, b]) => ({ lat1: a.lat, lon1: a.lon, lat2: b.lat, lon2: b.lon,
-      status: 'OK', duration: a.lon === 37.65 || b.lon === 37.65 ? 2400 : 480, distance: 600 })));
+      status: 'OK', duration: a.lon === 37.65 || b.lon === 37.65 ? 2400 : 480,
+      distance: a.lon === 37.65 || b.lon === 37.65 ? 2500 : 600 })));
   };
   const client = (fetchImpl: typeof fetch = defaultFetch) => new DgisClient({ placesApiKey: 'test-only', routingApiKey: 'test-only', fetchImpl });
   return { input, items, requests, defaultFetch, client, routingBatches: () => routingBatches };

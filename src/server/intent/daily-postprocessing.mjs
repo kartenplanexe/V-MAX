@@ -7,12 +7,33 @@ export function reviewDailyResponse(raw,input) {
   const original=validateDailyProposal(raw,input);
   let checked=original;
   const repairs=[];
-  if(equal(original.errors,['ANCHOR_WITHOUT_OFFSETS'])&&raw.action==='new_request'&&raw.days.length===1&&
+  if(original.errors.includes('ANCHOR_WITHOUT_OFFSETS')&&raw.action==='new_request'&&raw.days.length===1&&
     raw.date_anchor&&raw.days[0].date?.kind!=='anchor_offset'&&equal(raw.date_anchor.value,raw.days[0].date)) {
     const copy=structuredClone(raw);
     repairs.push({kind:'redundant_identical_date_anchor',path:'/date_anchor',from:copy.date_anchor,to:null});
     copy.date_anchor=null;
     checked=validateDailyProposal(copy,input);
+  }
+  // A single explicit «завтра» has a deterministic date regardless of whether
+  // the model redundantly used an anchor and offset=1. Repair only date fields;
+  // all category/evidence/intent checks still run on the complete proposal.
+  const tomorrow=typeof input.user_text==='string'
+    ? /(?<![\p{L}\p{N}])завтра(?![\p{L}\p{N}])/iu.exec(input.user_text)?.[0] : null;
+  const dateErrors=['NONCONTIGUOUS_OFFSETS','ANCHOR_WITHOUT_OFFSETS'];
+  const safeErrors=checked.errors.every(error=>dateErrors.includes(error)||error==='CATEGORY_ID');
+  const otherDate=typeof input.user_text==='string' &&
+    /(?<!\p{L})(?:сегодня|послезавтра|после\s+завтра|вчера|не\s+завтра|несколько\s+дней|\d+\s*(?:день|дня|дней))(?!\p{L})/iu.test(input.user_text);
+  if(tomorrow&&safeErrors&&checked.errors.some(error=>dateErrors.includes(error))&&
+    raw?.action==='new_request'&&raw.days?.length===1&&!otherDate) {
+    const copy=structuredClone(raw);
+    copy.date_anchor=null;
+    copy.days[0].date={kind:'relative',days:1};
+    copy.days[0].date_evidence=tomorrow;
+    const fixed=validateDailyProposal(copy,input);
+    if(fixed.errors.length<checked.errors.length) {
+      repairs.push({kind:'explicit_tomorrow_single_day',path:'/days/0/date',from:raw.days[0].date,to:copy.days[0].date});
+      checked=fixed;
+    }
   }
   const result={...checked,original_status:original.status,original_errors:original.errors,
     postprocessing_version:postprocessingVersion,normalizations:[...repairs,...checked.normalizations],strict_checks:[]};

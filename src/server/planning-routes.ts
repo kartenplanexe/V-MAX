@@ -35,7 +35,7 @@ export function maxPlanningAuthenticator(botToken: string, maxAgeSeconds: number
 
 /** Production injects the PostgreSQL-backed coordinator; ownership is always checked server-side. */
 export function registerPlanningRoutes(app: FastifyInstance, sessions: PlanningService,
-  authenticate: PlanningAuthenticator) {
+  authenticate: PlanningAuthenticator, onChanged?: (owner: string, view: PlanningView) => Promise<void>) {
   for (const [method, suffix, action] of [
     ['GET', '', 'get'], ['PATCH', '', 'edit'], ['POST', '/confirm', 'confirm'], ['POST', '/plan', 'calculate'],
   ] as const) {
@@ -47,8 +47,13 @@ export function registerPlanningRoutes(app: FastifyInstance, sessions: PlanningS
         try {
           // Check ownership before inspecting the action body, even for malformed actions.
           await sessions.get(owner, request.params.id);
-          return action === 'get' ? await sessions.get(owner, request.params.id)
+          const view = action === 'get' ? await sessions.get(owner, request.params.id)
             : await sessions[action](owner, request.params.id, request.body);
+          if (action === 'edit' || action === 'calculate') {
+            try { await onChanged?.(owner, view); }
+            catch { request.log.warn({ action }, 'Bot route index could not be refreshed'); }
+          }
+          return view;
         } catch (error) {
           if (error instanceof PlanningSessionError) return reply.code(error.status).send({ error: error.code });
           return reply.code(500).send({ error: 'INTERNAL_ERROR' });

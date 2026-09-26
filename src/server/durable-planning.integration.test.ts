@@ -12,7 +12,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL)('resumes on another instance, uses one
   const intent = intentFixture(), places = planningFixture(); let calls = 0;
   const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
   places.items.forEach(item => { for (const key of ['Mon', 'Tue', 'Wed', 'Thu', 'Sat', 'Sun']) Object.assign(item.schedule, { [key]: item.schedule.Fri }); });
-  const options = { database: db, dailyIntentCalls: 100, dailyPlanCalls: 100,
+  const options = { database: db,
     context: async () => ({ ...intent.context, planning: { catalog: places.input.catalog, visit_policy: places.input.visit_policy,
       point_area: { south: 55, north: 56, west: 37, east: 38 }, modes: ['walking'] as const, data_mode: 'test' as const } }),
     provider: async () => { calls++; return intent.response; },
@@ -44,7 +44,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL)('resumes on another instance, uses one
 it.skipIf(!process.env.TEST_DATABASE_URL)('exact greetings consume no category or LLM calls, with durable replay', async () => {
   const db = PlanningDatabase.connect(process.env.TEST_DATABASE_URL!), owner = 'integration:' + randomUUID();
   await db.migrate();
-  const planning = new DurablePlanning({ database: db, dailyIntentCalls: 1, dailyPlanCalls: 1,
+  const planning = new DurablePlanning({ database: db,
     context: async () => { throw new Error('Unexpected catalog call'); },
     provider: async () => { throw new Error('Unexpected LLM call'); },
     plan: async () => { throw new Error('Unexpected planner call'); } });

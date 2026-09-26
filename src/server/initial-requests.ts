@@ -13,7 +13,6 @@ type Receipt = { hash: string; expires: number; pending: boolean; task: Promise<
 /** Single-process coordinator. Deliberately not mounted in Serverless until shared state exists. */
 export class InitialRequests {
   readonly #receipts = new Map<string, Receipt>();
-  readonly #attempts = new Map<string, number[]>();
   readonly #active = new Set<string>();
   constructor(readonly options: { sessions: PlanningSessions; provider: IntentProvider; now: () => Date;
     context: () => InitialContext & { planning: PlanningContext } }) {}
@@ -23,10 +22,6 @@ export class InitialRequests {
     if (!parsed.success) throw new InitialIntentError('INVALID_REQUEST_TEXT', 400);
     const body = parsed.data, now = this.options.now().getTime();
     for (const [key, receipt] of this.#receipts) if (!receipt.pending && receipt.expires <= now) this.#receipts.delete(key);
-    for (const [key, times] of this.#attempts) {
-      const kept = times.filter(t => now - t < 600_000);
-      if (kept.length) this.#attempts.set(key, kept); else this.#attempts.delete(key);
-    }
     const key = JSON.stringify([owner, body.event_id]), hash = createHash('sha256').update(body.user_text).digest('hex');
     const old = this.#receipts.get(key);
     if (old) {
@@ -35,10 +30,8 @@ export class InitialRequests {
       return result.status === 'draft' ? { ...result, view: this.options.sessions.get(owner, result.view.id) } : result;
     }
     if (this.#active.has(owner)) throw new InitialIntentError('INTENT_IN_PROGRESS', 409);
-    if (this.#active.size >= 2 || this.#receipts.size >= 200) throw new InitialIntentError('INTENT_BUSY', 429);
-    const attempts = this.#attempts.get(owner) ?? [];
-    if (attempts.length >= 3) throw new InitialIntentError('INTENT_RATE_LIMIT', 429);
-    this.#attempts.set(owner, [...attempts, now]); this.#active.add(owner);
+    if (this.#active.size >= 2) throw new InitialIntentError('INTENT_BUSY', 429);
+    this.#active.add(owner);
     const receipt: Receipt = { hash, expires: now + 1_800_000, pending: true, task: Promise.resolve({ status: 'off_topic' }) };
     // Start on the next microtask so the receipt exists before any provider await.
     receipt.task = Promise.resolve().then(async (): Promise<Result> => {

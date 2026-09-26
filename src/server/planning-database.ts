@@ -7,12 +7,18 @@ export type DurableReceipt = { hash: string; status: 'pending' | 'done' | 'faile
   draftId?: string; offTopic?: boolean; error?: string };
 export type ChatPending =
   | { kind: 'city'; requestText: string; requestId: string; nonce: string;
-      choices?: { name: string; token: string }[] }
+      routeId?: string; choices?: { name: string; token: string }[] }
   | { kind: 'origin' | 'destination'; draftId: string }
+  | { kind: 'origin_address'; draftId: string; query?: string; nonce?: string }
   | { kind: 'party'; draftId: string };
 export type OwnerState = { checkpoint?: PlanningCheckpoint; receipts: Record<string, DurableReceipt>; attempts: number[];
   chat?: { pending?: ChatPending; welcomed?: boolean;
     seen: Record<string, { at: number; status: 'pending' | 'done' }> } };
+export type SavedRoute = { id: string; createdAt: string; title: string; requestText: string;
+  localityName: string; draftId: string; status: 'draft' | 'planned' };
+export type BotNavigation = { welcomed: boolean; mode: 'idle' | 'awaiting_request' | 'planning';
+  activeRouteId?: string; deletePendingRouteId?: string; routes: SavedRoute[] };
+const emptyNavigation = (): BotNavigation => ({ welcomed: false, mode: 'idle', routes: [] });
 
 /** One short-lived owner actor per DB connection. Session advisory locks, NOT open SQL transactions
  * during HTTP calls. try-lock returns immediately; disconnect releases the lock. Requires direct
@@ -61,11 +67,30 @@ export class PlanningDatabase {
       client.release(broken);
     }
   }
-  async reserve(client: PoolClient, kind: string, maximum: number) {
-    // A reservation is never refunded on timeout: billing outcome can be unknown.
-    const result = await client.query(`INSERT INTO planning_daily_usage(day,kind,calls) VALUES (CURRENT_DATE,$1,1)
-      ON CONFLICT(day,kind) DO UPDATE SET calls=planning_daily_usage.calls+1 WHERE planning_daily_usage.calls < $2 RETURNING calls`, [kind, maximum]);
-    if (!result.rowCount) throw new PlanningSessionError('DAILY_LIMIT', 429);
+  async withNavigation<T>(owner: string, work: (state: BotNavigation, save: () => Promise<void>) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect(); let locked = false, broken = false;
+    try {
+      const lock = await client.query('SELECT pg_try_advisory_lock(hashtextextended($1, 782003)) AS acquired', [owner]);
+      if (!lock.rows[0]?.acquired) throw new PlanningSessionError('OPERATION_IN_PROGRESS');
+      locked = true;
+      const row = await client.query('SELECT state FROM bot_navigation WHERE owner = $1 AND expires_at > now()', [owner]);
+      const state: BotNavigation = row.rows[0]?.state ?? emptyNavigation();
+      const save = async () => {
+        const json = JSON.stringify(state);
+        if (Buffer.byteLength(json) > 100_000) throw new PlanningSessionError('ROUTE_CAPACITY', 429);
+        await client.query(`INSERT INTO bot_navigation(owner,state,expires_at) VALUES ($1,$2,now()+interval '30 days')
+          ON CONFLICT(owner) DO UPDATE SET state=excluded.state,expires_at=excluded.expires_at`, [owner, json]);
+      };
+      return await work(state, save);
+    } finally {
+      if (locked) { try { await client.query('SELECT pg_advisory_unlock_all()'); } catch { broken = true; } }
+      client.release(broken);
+    }
+  }
+  async recordUsage(client: PoolClient, kind: string) {
+    // Record attempts for cost visibility. Never gate a user's request on the count.
+    await client.query(`INSERT INTO planning_daily_usage(day,kind,calls) VALUES (CURRENT_DATE,$1,1)
+      ON CONFLICT(day,kind) DO UPDATE SET calls=planning_daily_usage.calls+1`, [kind]);
   }
   async withSlot<T>(client: PoolClient, kind: 'intent' | 'plan', work: () => Promise<T>): Promise<T> {
     let slot: number | null = null;
@@ -82,5 +107,6 @@ export class PlanningDatabase {
     // Run at startup and periodically; no provider snapshots are retained as a reusable cache.
     await this.pool.query('DELETE FROM planning_owners WHERE expires_at <= now()');
     await this.pool.query("DELETE FROM planning_daily_usage WHERE day < CURRENT_DATE - 2");
+    await this.pool.query('DELETE FROM bot_navigation WHERE expires_at <= now()');
   }
 }

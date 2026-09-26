@@ -48,10 +48,10 @@ export async function retrievePlaceCandidates(
   if (groups.size * maxPages > maxRequests) throw new DgisProviderError('Retrieval exceeds the explicit request budget.');
   const places = new Map<string, Place & { fetched_at: string }>();
   const searches: { rubric_ids: string[]; targets: { day_id: string; activity_id: string }[];
-    status: 'OK' | 'PROVIDER_ERROR'; truncated: boolean; pages: number; received: number }[] = [];
+    status: 'OK' | 'PROVIDER_ERROR'; failure_code: string | null; truncated: boolean; pages: number; received: number }[] = [];
   let calls = 0;
   for (const [, group] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
-    let status: 'OK' | 'PROVIDER_ERROR' = 'OK', truncated = true, received = 0, pages = 0;
+    let status: 'OK' | 'PROVIDER_ERROR' = 'OK', failureCode: string | null = null, truncated = true, received = 0, pages = 0;
     for (let page = 1; page <= maxPages; page++) {
       calls++;
       try {
@@ -65,10 +65,18 @@ export async function retrievePlaceCandidates(
         }
       } catch (error) {
         if (!(error instanceof DgisProviderError)) throw error;
-        status = 'PROVIDER_ERROR'; break;
+        status = 'PROVIDER_ERROR';
+        const code = /^2GIS returned HTTP (\d{3})\.$/u.exec(error.message)?.[1];
+        const providerCode = /^2GIS Places provider code (\d{3}); type ([A-Z]+); hints ([a-z_]+)\.$/u.exec(error.message);
+        const schemaPath = /^2GIS Places response schema failed at ([a-zA-Z0-9.*]+)\.$/u.exec(error.message)?.[1];
+        failureCode = code ? `HTTP_${code}` : providerCode ? `PROVIDER_${providerCode[1]}_${providerCode[2]}_${(providerCode[3] ?? 'none').toUpperCase()}`
+          : schemaPath ? `SCHEMA_${schemaPath.replace(/[^A-Za-z0-9]/gu, '_').toUpperCase()}`
+          : error.message.includes('timed out') || error.message.includes('request failed')
+            ? 'TRANSPORT' : 'INVALID_PROVIDER_RESPONSE';
+        break;
       }
     }
-    searches.push({ rubric_ids: group.rubricIds, targets: group.targets, status, truncated, pages, received });
+    searches.push({ rubric_ids: group.rubricIds, targets: group.targets, status, failure_code: failureCode, truncated, pages, received });
   }
   return { places: [...places.values()].sort((a, b) => a.id.localeCompare(b.id)), searches, requests: calls,
     coverage: searches.some(s => s.status === 'PROVIDER_ERROR' || s.truncated) ? 'PARTIAL' as const : 'BOUNDED_RESULTS' as const,

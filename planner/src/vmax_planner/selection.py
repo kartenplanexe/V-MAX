@@ -180,6 +180,18 @@ def prepare(job, *, enforce_option_limit=True):
     if not isinstance(durations, dict):
         raise ValueError("duration policy required")
     for value in durations.values(): integer(value, "visit duration", 1, 1440)
+    activity_durations = policy.get("by_activity", {})
+    if not isinstance(activity_durations, dict) or any(not isinstance(key, str) or not key for key in activity_durations):
+        raise ValueError("activity duration policy required")
+    for value in activity_durations.values(): integer(value, "activity visit duration", 1, 1440)
+    multi_stop = policy.get("max_stops_by_activity", {})
+    if not isinstance(multi_stop, dict) or any(not isinstance(key, str) or not key for key in multi_stop):
+        raise ValueError("multi-stop policy required")
+    for value in multi_stop.values(): integer(value, "maximum stops", 2, 3)
+    if set(multi_stop) - set(activity_durations):
+        raise ValueError("multi-stop activity duration required")
+    tentative_schedule_categories = set(ids(policy.get("tentative_schedule_category_ids", []),
+                                            "tentative_schedule_category_ids"))
     buffer = integer(policy.get("arrival_buffer_minutes"), "arrival buffer", 0, 120)
     catalog = job.get("catalog", {})
     leaves = set(ids(catalog.get("leaf_ids"), "catalog.leaf_ids"))
@@ -193,6 +205,9 @@ def prepare(job, *, enforce_option_limit=True):
     ids([d.get("day_id") for d in days], "days")
     ids([d.get("date") for d in days], "dates")
     days = sorted(days, key=lambda d: (d["date"], d["day_id"]))
+    all_activity_ids = {a["id"] for day in days for a in day.get("activities") or []}
+    if set(multi_stop) - all_activity_ids or (multi_stop and mode != "walking"):
+        raise ValueError("multi-stop policy does not match a walking activity")
     precedence = {}
     for day in days:
         parsed_date = date.fromisoformat(day["date"])
@@ -258,12 +273,26 @@ def prepare(job, *, enforce_option_limit=True):
                 if place.get("region_id") != region: reasons.append("REGION_MISMATCH")
                 if not point_valid(place.get("point")): reasons.append("POINT_UNKNOWN")
                 if not fresh(place.get("source"), now): reasons.append("STALE_OR_UNKNOWN_SOURCE")
-                if any(c not in durations for c in matching): reasons.append("DURATION_UNKNOWN")
-                duration = max((durations.get(c, 0) for c in matching), default=0)
+                # Category matches are OR alternatives. A place may carry several matching
+                # rubrics; one known visit estimate is enough to schedule it. Unknown
+                # secondary rubrics must not veto a known applicable estimate.
+                category_duration = max((durations.get(c, 0) for c in matching), default=0)
+                # A generic walk is not reduced to a 15–20 minute photo stop
+                # merely because the selected POI has a shorter category estimate.
+                duration = (activity_durations[activity["id"]] if activity["id"] in multi_stop
+                            else max(category_duration, activity_durations.get(activity["id"], 0)))
+                if matching and not duration: reasons.append("DURATION_UNKNOWN")
                 raw_windows = (place.get("opening_intervals") or {}).get(day["date"])
                 windows = []
                 if raw_windows is None:
-                    reasons.append("SCHEDULE_UNKNOWN")
+                    # Only for a walkable outdoor rubric explicitly allowed by
+                    # the server: a tentative stop is possible, not a claim
+                    # that the place is open. Keep the warning through output.
+                    if activity["id"] in activity_durations and matching & tentative_schedule_categories and duration <= end - start:
+                        windows.append((start, end - duration))
+                        warnings.append("OPENING_HOURS_UNVERIFIED")
+                    else:
+                        reasons.append("SCHEDULE_UNKNOWN")
                 else:
                     for opening, closing in raw_windows:
                         integer(opening, "opening", 0, 1440); integer(closing, "closing", 0, 1440)
@@ -292,8 +321,9 @@ def prepare(job, *, enforce_option_limit=True):
                 if reasons:
                     excluded.append({"day_id": day["day_id"], "activity_id": activity["id"], "place_id": pid, "reasons": sorted(set(reasons))})
                 else:
+                    evidence = ("CATEGORY_MATCH", "SCHEDULE_UNVERIFIED") if "OPENING_HOURS_UNVERIFIED" in warnings else ("CATEGORY_MATCH", "OPEN_FOR_FULL_VISIT")
                     options.append(Option(day["day_id"], activity["id"], pid, duration, tuple(sorted(windows)), expected, upper,
-                                          charged or 0, preferred, _quality(place), ("CATEGORY_MATCH", "OPEN_FOR_FULL_VISIT"), tuple(warnings)))
+                                          charged or 0, preferred, _quality(place), evidence, tuple(warnings)))
                     day_count += 1
         if day_count > MAX_OPTIONS_PER_DAY and enforce_option_limit and "candidate_pool" not in job:
             issues.append("CANDIDATE_POOL_TOO_LARGE")
@@ -332,7 +362,8 @@ def prepare(job, *, enforce_option_limit=True):
         legs[key] = leg | {"cost_upper_minor": cost}
     return dict(job=job, intent=intent, days=days, places=places, options=options, excluded=excluded,
                 route_issues=sorted(route_issues, key=lambda r: (r['day_id'], r['from_id'], r['to_id'])), issues=sorted(set(issues)), legs=legs, buffer=buffer,
-                budget_limit=budget_limit, period=period, budget_policy=budget_policy, destination=destination, precedence=precedence)
+                budget_limit=budget_limit, period=period, budget_policy=budget_policy, destination=destination,
+                precedence=precedence, multi_stop=multi_stop)
 
 
 def _leg(p, day, before, after):
@@ -342,7 +373,7 @@ def _leg(p, day, before, after):
 
 
 def _sum_known(values):
-    return None if any(v is None for v in values) else sum(values)
+    return None if not values or any(v is None for v in values) else sum(values)
 
 
 def select_places(job, *, time_limit_seconds=3.0):
@@ -365,7 +396,9 @@ def select_places(job, *, time_limit_seconds=3.0):
         for activity in day["activities"]:
             group = [i for i in index if options[i].activity_id == activity["id"]]
             present = model.new_bool_var(f"covered_{did}_{activity['id']}")
-            model.add(sum(chosen[i] for i in group) == present)
+            cap = p["multi_stop"].get(activity["id"], 1)
+            model.add(sum(chosen[i] for i in group) >= present)
+            model.add(sum(chosen[i] for i in group) <= cap * present)
             covered.append(present)
         for pid in {options[i].place_id for i in index}:
             model.add(sum(chosen[i] for i in index if options[i].place_id == pid) <= 1)
@@ -383,7 +416,8 @@ def select_places(job, *, time_limit_seconds=3.0):
         for a in [None, *index]:
             for b in [*index, None]:
                 if a == b: continue
-                if a is not None and b is not None and (options[a].place_id == options[b].place_id or options[a].activity_id == options[b].activity_id): continue
+                if a is not None and b is not None and (options[a].place_id == options[b].place_id or
+                    options[a].activity_id == options[b].activity_id and options[a].activity_id not in p["multi_stop"]): continue
                 source = "@origin" if a is None else options[a].place_id
                 target = "@destination" if b is None else options[b].place_id
                 leg = _leg(p, did, source, target)
@@ -404,7 +438,10 @@ def select_places(job, *, time_limit_seconds=3.0):
             model.add(sum(costs) <= p["budget_limit"])
     # True lexicographic stages: no arbitrary coefficient trades hard constraints
     # or one requested activity against rating, distance, or provider rank.
-    objectives = [sum(covered), sum(o.preference * chosen[i] for i, o in enumerate(options)),
+    objectives = [sum(covered)]
+    if p["multi_stop"]:
+        objectives.append(sum(chosen[i] for i, o in enumerate(options) if o.activity_id in p["multi_stop"]))
+    objectives += [sum(o.preference * chosen[i] for i, o in enumerate(options)),
                   -sum(travel * take for _, _, _, take, travel, _ in arcs),
                   sum(o.quality * chosen[i] for i, o in enumerate(options)),
                   -sum(ends.values())]
@@ -450,9 +487,11 @@ def _output(p, selected):
             transport_costs.append(leg["cost_upper_minor"])
             sources.extend([place["source"], leg["source"]])
             visits.append({"activity_id": o.activity_id, "place_id": o.place_id, "name": place["name"],
-                           "point": place["point"], "starts_at": selected[i], "ends_at": selected[i] + o.duration,
+                           "location_label": place.get("location_label"), "point": place["point"],
+                           "starts_at": selected[i], "ends_at": selected[i] + o.duration,
                            "duration_minutes": o.duration, "duration_source": p["job"]["visit_policy"]["version"],
-                           "travel_before_minutes": leg["safe_minutes"], "arrival_buffer_minutes": p["buffer"],
+                           "travel_before_minutes": leg["safe_minutes"], "distance_before_meters": leg.get("distance_meters"),
+                           "arrival_buffer_minutes": p["buffer"],
                            "price_expected_minor": o.expected, "price_upper_minor": o.upper,
                            "source": place["source"], "reasons": list(o.reasons), "warnings": list(o.warnings)})
             warnings.update(o.warnings)
@@ -463,19 +502,27 @@ def _output(p, selected):
         travel += returned["safe_minutes"]
         transport_costs.append(returned["cost_upper_minor"])
         if "source" in returned: sources.append(returned["source"])
-        expected.extend(transport_costs); uppers.extend(transport_costs)
+        # An empty day has no priced itinerary. Zero route cost alone is not a
+        # zero-ruble estimate for a plan that contains no place at all.
+        if indices:
+            expected.extend(transport_costs); uppers.extend(transport_costs)
         if any(c is None for c in transport_costs): warnings.add("TRANSPORT_COST_UNKNOWN")
         ids_selected = {v["activity_id"] for v in visits}
         missing = [a["id"] for a in day["activities"] if a["id"] not in ids_selected]
+        short_walk = any(0 < sum(v["activity_id"] == aid for v in visits) < cap
+                         for aid, cap in p["multi_stop"].items() if aid in {a["id"] for a in day["activities"]})
+        if short_walk: warnings.add("WALK_WAYPOINTS_INCOMPLETE")
         ends_at = visits[-1]["ends_at"] + returned["safe_minutes"] if visits else clock(day["window"]["start"])
-        days.append({"day_id": did, "date": day["date"], "status": "AVAILABLE" if not missing else "LIMITED" if visits else "UNAVAILABLE",
+        tentative = any("OPENING_HOURS_UNVERIFIED" in v["warnings"] for v in visits)
+        days.append({"day_id": did, "date": day["date"], "status": "AVAILABLE" if not missing and not tentative and not short_walk else "LIMITED" if visits else "UNAVAILABLE",
                      "visits": visits, "ends_at": ends_at, "total_safe_travel_minutes": travel, "missing_activity_ids": missing})
     count = sum(len(d["visits"]) for d in days)
     status = "AVAILABLE" if all(d["status"] == "AVAILABLE" for d in days) else "LIMITED" if count else "UNAVAILABLE"
     if p["budget_limit"] is not None and p["budget_policy"] == "estimate": warnings.add("BUDGET_ESTIMATED_NOT_GUARANTEED")
     if p["job"].get("retrieval", {}).get("coverage") == "PARTIAL": warnings.add("RETRIEVAL_PARTIAL")
     return {"schema_version": POLICY_VERSION, "policy_version": POLICY_VERSION,
-            "intent_revision": p["intent"]["draft_revision"], "status": status, "days": days,
+            "intent_revision": p["intent"]["draft_revision"], "status": status,
+            "origin": p["intent"]["points"]["origin"], "days": days,
             "total_expected_cost_minor": _sum_known(expected), "total_budget_upper_minor": _sum_known(uppers),
             "data_mode": "live" if sources and all(s["data_mode"] == "live" for s in sources) else "test" if any(s["data_mode"] == "test" for s in sources) else "prepared",
             "warnings": sorted(warnings), "excluded": p["excluded"], "route_issues": p["route_issues"],
@@ -492,19 +539,21 @@ def validate_selection(job, result):
     lookup = {(o.day_id, o.activity_id, o.place_id): i for i, o in enumerate(p["options"])}
     for day, output in zip(p["days"], result["days"], strict=True):
         did, before, current = day["day_id"], "@origin", clock(day["window"]["start"])
-        used_places, used_activities, positions, cost = set(), set(), {}, 0
+        used_places, activity_counts, positions, cost = set(), {}, {}, 0
         for position, visit in enumerate(output["visits"]):
             key = (did, visit["activity_id"], visit["place_id"])
             if key not in lookup: raise ValueError("ineligible selection")
             i = lookup[key]; o = p["options"][i]
-            if o.place_id in used_places or o.activity_id in used_activities: raise ValueError("duplicate visit")
-            used_places.add(o.place_id); used_activities.add(o.activity_id)
+            activity_counts[o.activity_id] = activity_counts.get(o.activity_id, 0) + 1
+            if o.place_id in used_places or activity_counts[o.activity_id] > p["multi_stop"].get(o.activity_id, 1):
+                raise ValueError("duplicate visit")
+            used_places.add(o.place_id)
             at = integer(visit["starts_at"], "visit start", 0, 1440)
             leg = _leg(p, did, before, o.place_id)
             if leg is None or at < current + leg["safe_minutes"] + p["buffer"]: raise ValueError("impossible transition")
             if not any(a <= at <= b for a, b in o.windows): raise ValueError("outside opening hours")
             if visit["ends_at"] != at + o.duration: raise ValueError("wrong duration")
-            selected[i] = at; positions[o.activity_id] = position
+            selected[i] = at; positions.setdefault(o.activity_id, []).append(position)
             cost += o.charged + (leg["cost_upper_minor"] or 0)
             current, before = at + o.duration, o.place_id
         if output["visits"]:
@@ -513,7 +562,7 @@ def validate_selection(job, result):
             current += leg["safe_minutes"]; cost += leg["cost_upper_minor"] or 0
         if current > clock(day["window"]["end"]): raise ValueError("outside day")
         for a, b in p["precedence"][did]:
-            if a in positions and b in positions and positions[a] >= positions[b]: raise ValueError("order violation")
+            if a in positions and b in positions and max(positions[a]) >= min(positions[b]): raise ValueError("order violation")
         if p["budget_limit"] is not None and p["period"] == "per_day" and cost > p["budget_limit"]: raise ValueError("daily budget exceeded")
         charges.append(cost)
     if p["budget_limit"] is not None and p["period"] == "whole_trip" and sum(charges) > p["budget_limit"]: raise ValueError("trip budget exceeded")

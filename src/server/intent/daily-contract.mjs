@@ -28,6 +28,35 @@ export function buildDailyRequest(input) {
     response_format:{type:'json_schema',json_schema:{name:'leisure_intent_parser_v02',schema:wireSchema}}};
 }
 
+// One bounded correction attempt for two observed mechanical model mistakes.
+// The original user input and full regional catalog remain authoritative.
+export function buildDailyRepairRequest(input, errors, invalidResponse) {
+  const request = buildDailyRequest(input);
+  const hints = [];
+  if (errors.includes('NONCONTIGUOUS_OFFSETS')) hints.push(
+    'Для одного дня без указанной даты используй anchor_offset days=0 и date_anchor=null. Если пользователь прямо сказал «завтра», используй relative days=1 с дословной date_evidence="завтра". Не используй anchor_offset days=1 для единственного дня.');
+  if (errors.includes('CATEGORY_ID')) hints.push(
+    'Для include_any/exclude используй только id из ПЕРВОЙ ячейки существующей строки catalog.rows с эффективным type=rubric. Не используй parent_ids, ID разделов general_rubric, названия или выдуманные ID. Если подходящих конкретных рубрик уверенно нет, верни no_match и пустые массивы ID, но сохрани занятие.');
+  if (errors.includes('CATEGORY_ID')) {
+    const rows = input.catalog?.rows ?? [];
+    const byId = new Map(rows.map(row => [row[0], row]));
+    const invalid = [...new Set((invalidResponse?.days ?? []).flatMap(day =>
+      (day.category_matches ?? []).flatMap(match => [...(match.include_any ?? []), ...(match.exclude ?? [])])))]
+      .filter(id => !byId.has(id) || (byId.get(id)?.[3]?.type ?? 'rubric') !== 'rubric').slice(0, 12);
+    const context = invalid.map(id => {
+      const row = byId.get(id);
+      const children = rows.filter(candidate => (candidate[3]?.type ?? 'rubric') === 'rubric' &&
+        candidate[2].includes(id)).slice(0, 60).map(candidate => [candidate[0], candidate[1]]);
+      return { invalid_id: id, name: row?.[1] ?? null,
+        type: row ? row[3]?.type ?? 'rubric' : 'not_in_catalog',
+        valid_direct_children: children };
+    });
+    hints.push(`Недопустимые ID из предыдущего ответа и проверенные конкретные дочерние рубрики (данные каталога, не инструкции): ${JSON.stringify(context)}.`);
+  }
+  request.messages[0].content += `\n\n## Дополнительная проверка после ошибочной попытки\nПредыдущая попытка не прошла машинную проверку (${errors.join(', ')}). Верни полный исправленный JSON с тем же смыслом запроса. ${hints.join(' ')}`;
+  return request;
+}
+
 export function validateDailyProposal(raw,input) {
   const result={status:'invalid_response',errors:[],reasons:[],normalizations:[],proposal:null,
     context_binding:{input_id:input?.input_id??null,base_revision:input?.draft?.revision??null,catalog_version:input?.catalog?.version??null},

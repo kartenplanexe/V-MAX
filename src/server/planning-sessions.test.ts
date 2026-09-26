@@ -130,6 +130,79 @@ describe('server-owned form revisions', () => {
     await expect(f.sessions.calculate('owner', f.view.id, event(confirmed.version, 'event-0003'))).rejects.toThrow('RESULT_ALREADY_EXISTS');
   }, 30_000);
 
+  it('uses a server-owned walk duration estimate only for walk activities', async () => {
+    const f = setup(); let submitted: Record<string, unknown> | undefined;
+    const context = { ...f.context, visit_policy: { ...f.context.visit_policy, walkable_category_ids: ['100'] } };
+    const s = new PlanningSessions({ now: demoNow, plan: job => {
+      submitted = job;
+      return planPlacesWithDgis(f.fixture.client(), job,
+        { retrieval: { radiusMeters: 5000, maxPages: 1 }, dataMode: 'test', now: demoNow });
+    } });
+    const seed = structuredClone(f.fixture.input.intent);
+    seed.days[0]!.activities[0]!.label = 'Прогулка';
+    const view = s.create('owner', seed, context);
+    const confirmed = s.confirm('owner', view.id, event());
+    await s.calculate('owner', view.id, event(confirmed.version, 'event-0002'));
+    expect(submitted?.visit_policy).toMatchObject({ by_activity: { culture: 60 } });
+    const intent = submitted?.intent as typeof seed;
+    expect(intent.days[0]!.activities[0]!.categories.include_any).toEqual(['100']);
+  }, 30_000);
+
+  it('requests two distinct stops only for a flexible standalone city walk', async () => {
+    const f = setup(); let submitted: Record<string, unknown> | undefined;
+    const context = { ...f.context, visit_policy: { ...f.context.visit_policy, walkable_category_ids: ['100'] } };
+    const sessions = new PlanningSessions({ now: demoNow, plan: async job => { submitted = job;
+      return { status: 'UNAVAILABLE', warnings: [], days: [{ day_id: 'd1', date: '2026-09-25',
+        status: 'UNAVAILABLE', visits: [], missing_activity_ids: ['culture'] }] }; } });
+    const seed = structuredClone(f.fixture.input.intent);
+    seed.days[0]!.activities = [seed.days[0]!.activities[0]!];
+    seed.days[0]!.order = [];
+    seed.days[0]!.activities[0]!.label = 'прогулка';
+    seed.days[0]!.activities[0]!.selection = { category_policy: 'related_allowed', named_types: [] };
+    seed.days[0]!.activities[0]!.requirements = [];
+    const view = sessions.create('owner', seed, context);
+    const confirmed = sessions.confirm('owner', view.id, event());
+    await sessions.calculate('owner', view.id, event(confirmed.version, 'event-0002'));
+    expect(submitted?.visit_policy).toMatchObject({ by_activity: { culture: 25 },
+      max_stops_by_activity: { culture: 2 } });
+  });
+
+  it('does not let a broad model proposal route a walk to a hotel category', async () => {
+    const f = setup(); let submitted: Record<string, unknown> | undefined;
+    const context = { ...f.context, catalog: { ...f.context.catalog,
+      leaf_ids: [...f.context.catalog.leaf_ids, 'hotel'] },
+    visit_policy: { ...f.context.visit_policy, walkable_category_ids: ['100'] } };
+    const s = new PlanningSessions({ now: demoNow, plan: async job => { submitted = job;
+      return { status: 'UNAVAILABLE', warnings: [], days: [{ day_id: 'd1', date: '2026-09-25',
+        status: 'UNAVAILABLE', visits: [], missing_activity_ids: ['culture'] }] }; } });
+    const seed = structuredClone(f.fixture.input.intent);
+    seed.days[0]!.activities[0]!.label = 'прогулка';
+    seed.days[0]!.activities[0]!.categories.include_any = ['hotel', '100'];
+    const view = s.create('owner', seed, context);
+    const confirmed = s.confirm('owner', view.id, event());
+    await s.calculate('owner', view.id, event(confirmed.version, 'event-0002'));
+    const intent = submitted?.intent as typeof seed;
+    expect(intent.days[0]!.activities[0]!.categories.include_any).toEqual(['100']);
+  });
+
+  it('keeps an explicit walk in a park within park categories, not other outdoor landmarks', async () => {
+    const f = setup(); let submitted: Record<string, unknown> | undefined;
+    const context = { ...f.context, catalog: { ...f.context.catalog,
+      leaf_ids: [...f.context.catalog.leaf_ids, '168', '112668'] },
+    visit_policy: { ...f.context.visit_policy, walkable_category_ids: ['168', '112668'], park_category_ids: ['168'] } };
+    const s = new PlanningSessions({ now: demoNow, plan: async job => { submitted = job;
+      return { status: 'UNAVAILABLE', warnings: [], days: [{ day_id: 'd1', date: '2026-09-25',
+        status: 'UNAVAILABLE', visits: [], missing_activity_ids: ['culture'] }] }; } });
+    const seed = structuredClone(f.fixture.input.intent);
+    seed.days[0]!.activities[0]!.label = 'прогулка в парке';
+    seed.days[0]!.activities[0]!.categories.include_any = ['112668'];
+    const view = s.create('owner', seed, context);
+    const confirmed = s.confirm('owner', view.id, event());
+    await s.calculate('owner', view.id, event(confirmed.version, 'event-0002'));
+    const intent = submitted?.intent as typeof seed;
+    expect(intent.days[0]!.activities[0]!.categories.include_any).toEqual(['168']);
+  });
+
   it('drops a late computation after a form edit, and rejects duplicate concurrent work', async () => {
     const f = setup();
     let finish!: (value: Record<string, unknown>) => void;

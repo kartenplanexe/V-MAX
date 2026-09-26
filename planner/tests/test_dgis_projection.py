@@ -55,3 +55,16 @@ def test_absent_prices_are_unknown_not_free():
 def test_expired_seasonal_schedule_is_not_applied_to_new_date():
     item = {"id": "1", "name": "Тест", "schedule": {"is_24x7": True, "date_to": "2026-08-31"}}
     assert project(item)["opening_intervals"] == {}
+
+
+def test_exact_object_link_and_location_disambiguate_same_name_places():
+    item = {"id": "70030077058045532", "name": "Шуховская Башня", "type": "attraction",
+            "city_alias": "n_novgorod", "adm_div": [{"type": "district", "name": "Канавинский район"}]}
+    out = project(item)
+    assert out["location_label"] == "Канавинский район"
+    assert out["source"]["url"] == "https://2gis.ru/n_novgorod/geo/70030077058045532"
+
+
+def test_untrusted_place_url_parts_are_not_reflected():
+    out = project({"id": "123", "name": "Тест", "city_alias": "bad/../place"})
+    assert out["source"]["url"] is None

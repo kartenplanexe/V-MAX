@@ -36,3 +36,13 @@ it('requires typed fields and explicit confirmation after extraction; unknown bu
   expect(() => sessions.confirm('owner-a', result.view.id, { base_version: 0, event_id: 'confirmation' })).toThrow('INCOMPLETE_DRAFT');
   expect(() => sessions.get('owner-b', result.view.id)).toThrow('DRAFT_NOT_FOUND');
 });
+
+it('accepts repeated new requests without a per-owner attempt quota', async () => {
+  const f = intentFixture(); let calls = 0;
+  const { initial } = setup(async () => { calls++; return f.response; });
+  for (let i = 0; i < 21; i++) {
+    const result = await initial.start('owner-a', { event_id: `request-${String(i).padStart(3, '0')}`, user_text: f.text });
+    expect(result.status).toBe('draft');
+  }
+  expect(calls).toBe(21);
+});

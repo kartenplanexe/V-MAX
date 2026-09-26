@@ -3,29 +3,27 @@ import type { Change, PlanningView } from '../shared/planning-form';
 import type { PublicConfig } from '../shared/public-config';
 import './planner-form.css';
 import { PointPicker } from './PointPicker';
+import { AddressPicker, type AddressChoice } from './AddressPicker';
 import { PlanMap } from './PlanMap';
 import { readMaxLaunchData, waitForMaxLaunchData } from './max-launch-data';
 
 type Draft = PlanningView['draft'];
-type Bootstrap = { token: string; view: PlanningView | null };
-let bootstrap: Promise<Bootstrap> | undefined;
+type Bootstrap = { token: string; view: PlanningView | null; expiredRoute?: string };
 const messages: Record<string, string> = {
   PLANNER_NOT_CONFIGURED: 'Планировщик пока недоступен. Попробуйте открыть его позже.',
   GEOGRAPHY_UNAVAILABLE: 'Не удалось получить города из 2ГИС. Проверьте подключение и повторите поиск.',
-  GEOGRAPHY_RATE_LIMIT: 'Слишком частый поиск города. Подождите минуту.',
+  ADDRESS_QUERY_REQUIRED: 'Укажите улицу и номер дома — от 4 до 120 символов.',
   LOCALITY_SELECTION_EXPIRED: 'Выберите город ещё раз — время выбора истекло.',
-  DAILY_LIMIT: 'Сегодня доступный лимит запросов исчерпан. Сохранённые параметры можно посмотреть и изменить.',
   OPERATION_IN_PROGRESS: 'Предыдущее действие ещё выполняется. Дождитесь результата.',
   INTENT_INTERRUPTED: 'Разбор был прерван. Напишите новый запрос; предыдущий автоматически не повторяется.',
   PLAN_INTERRUPTED: 'Расчёт прервался. Можно запустить его снова.',
-  CATALOG_UNAVAILABLE: 'Справочник мест этого города сейчас недоступен. План не был составлен.',
+  CATALOG_UNAVAILABLE: 'Каталог категорий 2ГИС сейчас недоступен. Новый план не составлен; сохранённые маршруты можно открыть позже.',
   INVALID_REQUEST_TEXT: 'Напишите пожелания — не более 4000 символов.',
   INTENT_INVALID_RESPONSE: 'Не удалось надёжно разобрать пожелания. План не создан.',
   INTENT_NEEDS_CLARIFICATION: 'В запросе есть неоднозначное или неподдержанное условие. Мы не стали его угадывать.',
   INTENT_PROVIDER_FAILED: 'Сервис разбора запроса не ответил. Автоматического повтора не было.',
   INTENT_TRUNCATED: 'Ответ оборвался. Неполные параметры не сохранялись.',
-  INTENT_RUN_LIMIT: 'Лимит обращений к нейросети на этот запуск закончился.',
-  INTENT_RATE_LIMIT: 'Слишком много новых запросов. Подождите десять минут; поля уже созданного плана можно менять без нейросети.',
+  INTENT_RUN_LIMIT: 'Не удалось завершить разбор запроса. Попробуйте снова.',
   INTENT_IN_PROGRESS: 'Разбор уже выполняется. Дождитесь результата.',
   INTENT_BUSY: 'Разбор запросов занят. Попробуйте позже.',
   LOCALITY_RESOLUTION_REQUIRED: 'Город в пожеланиях отличается от выбранного. Выберите нужный город перед отправкой.',
@@ -48,7 +46,6 @@ const messages: Record<string, string> = {
   POINT_OUTSIDE_AREA: 'Точка вне области выбранного города. Выберите другой старт или город.',
   POINT_VERIFICATION_UNAVAILABLE: 'Проверка выбранной точки пока недоступна.',
   PLAN_IN_PROGRESS: 'Расчёт уже выполняется. Подождите и загрузите сохранённую версию.',
-  PLAN_RATE_LIMIT: 'Доступны три расчёта за десять минут. Попробуйте позже.',
   PLANNER_BUSY: 'Планировщик занят. Попробуйте немного позже.',
   PLANNING_FAILED: 'Сервис расчёта сейчас недоступен. Ваши параметры сохранены.',
   SESSION_CAPACITY: 'Слишком много открытых планов. Вернитесь к последнему или подождите.',
@@ -67,6 +64,8 @@ const warningText = (code: string) => ({
   ROUTE_MATRIX_INCOMPLETE: 'Не все переходы удалось проверить. Такие переходы исключены из плана.',
   ROUTING_PROVIDER_FAILURE: 'Часть запросов маршрутов завершилась ошибкой.',
   ROUTE_TIME_IS_ESTIMATE: 'Время дороги рассчитано с запасом, но не гарантирует прибытие.',
+  OPENING_HOURS_UNVERIFIED: 'Часы работы прогулочного места не указаны. Проверьте доступность перед выходом.',
+  WALK_WAYPOINTS_INCOMPLETE: 'Для прогулки найден только один подходящий ориентир. Это неполный маршрут, попробуйте увеличить радиус поиска или время.',
   CROWDING_NOT_USED_WITHOUT_TIME_SPECIFIC_FACT: 'Загруженность на выбранное время неизвестна и не учитывалась.',
   AVERAGE_CHECK_UNIT_UNVERIFIED: 'Средний чек не подтверждает стоимость вашего посещения.',
 }[code] ?? (code.startsWith('PREFERENCE_NOT_VERIFIED:') ? `Пожелание не подтверждено: ${code.slice(24)}` : 'Часть сведений о месте требует уточнения.'));
@@ -112,6 +111,7 @@ export function PlannerForm() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [mapOpen, setMapOpen] = useState(false);
+  const [addressOpen, setAddressOpen] = useState(false);
   const [resultMode, setResultMode] = useState<'list' | 'map'>('list');
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [mapsAvailable, setMapsAvailable] = useState(false);
@@ -123,9 +123,9 @@ export function PlannerForm() {
     void waitForMaxLaunchData(() => readMaxLaunchData(window.WebApp?.initData, window.location.hash)).then(token => {
       if (!active) return;
       if (!token) { setBusy(''); setError('MAX не передал данные для входа. Закройте мини-приложение и откройте его снова из чата с ботом.'); return; }
-      bootstrap ??= request<{ view: PlanningView | null }>('/api/planning/bootstrap', token).then(value => ({ ...value, token }));
-      bootstrap.then(value => { if (active) { setSession(value); setDraft(value.view ? structuredClone(value.view.draft) : null); setBusy(''); } })
-        .catch(e => { bootstrap = undefined; if (active) { setBusy(''); setError(e instanceof Error ? e.message : 'Не удалось открыть планировщик.'); } });
+      request<{ view: PlanningView | null; expiredRoute?: string }>('/api/planning/bootstrap', token)
+        .then(value => { if (active) { setSession({ ...value, token }); setDraft(value.view ? structuredClone(value.view.draft) : null); setBusy(''); } })
+        .catch(e => { if (active) { setBusy(''); setError(e instanceof Error ? e.message : 'Не удалось открыть планировщик.'); } });
     });
     return () => { active = false; };
   }, []);
@@ -182,6 +182,12 @@ export function PlannerForm() {
     await quickSave({ op: 'point', field: 'origin', point: { lat: position.coords.latitude,
       lon: position.coords.longitude, label: 'Моё местоположение', source: 'user_geolocation' } });
   }
+  async function searchAddress(query: string): Promise<AddressChoice[]> {
+    if (!session?.view) return [];
+    const result = await request<{ choices: AddressChoice[] }>('/api/planning/addresses', session.token,
+      'POST', { draft_id: session.view.id, q: query });
+    return result.choices;
+  }
 
   return <main className="planner-page">
     <header className="planner-header">
@@ -193,9 +199,9 @@ export function PlannerForm() {
     <p className="planner-progress" role="status" aria-live="polite">{busy}</p>
     {session && !view && <section className="planner-card planner-empty">
       <div className="planner-empty-icon" aria-hidden="true">✦</div>
-      <h2>Сначала напишите боту</h2>
-      <p>Например: «Завтра с 16 до 19 хочу погулять в Казани и зайти в кафе».</p>
-      <p>Бот разберёт пожелания и составит план в чате. Здесь можно будет уточнить детали и посмотреть маршрут на карте.</p>
+      <h2>{session.expiredRoute ? 'Маршрут нужно обновить' : 'Сначала выберите маршрут в чате'}</h2>
+      {session.expiredRoute ? <p>Черновик «{session.expiredRoute}» устарел. Вернитесь в чат и нажмите «Обновить маршрут» — места будут проверены заново.</p>
+        : <p>Нажмите «Новый маршрут» или «Мои маршруты» в чате с ботом. Здесь появятся детали выбранного плана.</p>}
     </section>}
     {view && draft && <>
       <section className="planner-card planner-overview" aria-label="Сводка маршрута">
@@ -209,11 +215,17 @@ export function PlannerForm() {
           {draft.shared.mobility?.[0] ? ` · ${modeLabels[draft.shared.mobility[0]] ?? draft.shared.mobility[0]}` : ''}</p>
         {view.issues[0]?.code === 'ORIGIN_REQUIRED' ? <>
           <h2>Откуда удобнее начать?</h2>
-          <p className="muted">{mapsAvailable ? 'Можно отправить текущее местоположение или указать точку на карте.' : 'Отправьте текущее местоположение — оно нужно для расчёта дороги.'}</p>
+          <p className="muted">Выберите удобный способ указать точку старта.</p>
           <div className="planner-quick-actions">
             <button className="primary-button" disabled={!!busy} onClick={() => void act('Определяем местоположение…', quickLocate)}>Моё местоположение</button>
             {mapsAvailable && <button className="secondary-button" disabled={!!busy} onClick={() => setMapOpen(true)}>Выбрать на карте</button>}
+            <button className="secondary-button" disabled={!!busy} onClick={() => setAddressOpen(true)}>Ввести адрес</button>
           </div>
+          {addressOpen && !detailsOpen && <AddressPicker city={draft.locality.name} search={searchAddress} disabled={!!busy}
+            onClose={() => setAddressOpen(false)} onSelect={choice => void act('Сохраняем адрес…', async () => {
+              await quickSave({ op: 'point', field: 'origin', point: { ...choice.point, label: choice.label, source: 'place_choice' } });
+              setAddressOpen(false);
+            })} />}
           {mapOpen && (view.capabilities.map_center || draft.points.origin) && <PointPicker
             center={draft.points.origin ?? view.capabilities.map_center!} onClose={() => setMapOpen(false)}
             onSelect={point => { setMapOpen(false); void act('Сохраняем точку…', () => quickSave({ op: 'point', field: 'origin',
@@ -286,6 +298,12 @@ export function PlannerForm() {
               <p className="selected-point">⌖ {draft.points.origin?.label ?? 'Точка не выбрана'}</p>
               <button className="secondary-button" type="button" onClick={() => void act('Определяем местоположение…', locate)}>Моё местоположение</button>
               {mapsAvailable && <button className="secondary-button" type="button" onClick={() => setMapOpen(true)}>Выбрать на карте</button>}
+              <button className="secondary-button" type="button" onClick={() => setAddressOpen(true)}>Ввести адрес</button>
+              {addressOpen && detailsOpen && <AddressPicker city={draft.locality.name} search={searchAddress} disabled={!!busy}
+                onClose={() => setAddressOpen(false)} onSelect={choice => {
+                  patch(d => { d.points.origin = { ...choice.point, locality_id: d.locality.id, label: choice.label, source: 'place_choice' }; });
+                  setAddressOpen(false); setNotice('Адрес выбран. Сохраните изменения, чтобы учесть его в плане.');
+                }} />}
               {mapOpen && (view.capabilities.map_center || draft.points.origin) && <PointPicker
                 center={draft.points.origin ?? view.capabilities.map_center!} onClose={() => setMapOpen(false)}
                 onSelect={point => { patch(d => { d.points.origin = { ...point, locality_id: d.locality.id, label: 'Выбранная точка на карте', source: 'user_map' }; }); setMapOpen(false); }} />}
@@ -326,11 +344,19 @@ export function PlannerForm() {
         {!!view.result.issues?.length && <ul className="form-issues">{view.result.issues.map(issue => <li key={issue}>{humanError(issue)}</li>)}</ul>}
         {view.result.days.map(day => <div key={day.day_id}>
           <h3>{displayDate(day.date)}</h3>
-          {resultMode === 'map' ? <PlanMap day={day} /> : <ol className="plan-timeline">{day.visits.map(visit => <li key={visit.activity_id}>
-            <div className="timeline-travel">В пути {visit.travel_before_minutes} мин · запас перед посещением {visit.arrival_buffer_minutes} мин</div>
+          {resultMode === 'map' ? <PlanMap day={day} origin={view.result?.origin ?? draft.points.origin} /> : <ol className="plan-timeline">
+            {day.visits.length > 0 && (view.result?.origin ?? draft.points.origin) && <li className="timeline-origin" key="origin">
+              <div className="timeline-visit"><time>{draft.days.find(d => d.day_id === day.day_id)?.window?.start ?? 'Старт'}</time>
+                <div><h4>Начало маршрута</h4><p>{(view.result?.origin ?? draft.points.origin)?.label ?? 'Выбранная точка'}</p></div></div>
+            </li>}
+            {day.visits.map(visit => <li key={`${visit.activity_id}:${visit.place_id}`}>
+            <div className="timeline-travel">В пути {visit.travel_before_minutes} мин{visit.distance_before_meters == null ? '' : ` · ≈${Math.round(visit.distance_before_meters / 100) / 10} км`} · запас перед посещением {visit.arrival_buffer_minutes} мин</div>
             <div className="timeline-visit"><time>{clock(visit.starts_at)}<span>{clock(visit.ends_at)}</span></time>
-              <div><h4>{visit.name}</h4><p>{visit.ends_at - visit.starts_at} мин на посещение</p><p>{visit.price_expected_minor == null ? 'Стоимость неизвестна' : `${visit.price_expected_minor / 100} ₽ — оценка`}</p>
-                <p>{visit.source?.data_mode === 'test' ? 'Источник: учебный набор' : visit.source ? `Источник: ${visit.source.provider === '2gis' ? '2ГИС' : visit.source.provider}` : 'Источник не указан'}</p></div>
+              <div><h4>{visit.name}</h4>{visit.location_label && <p>{visit.location_label}</p>}
+                <p>{visit.ends_at - visit.starts_at} мин на посещение</p><p>{visit.price_expected_minor == null ? 'Стоимость неизвестна' : `${visit.price_expected_minor / 100} ₽ — оценка`}</p>
+                <p>{visit.source?.data_mode === 'test' ? 'Источник: учебный набор' : visit.source ? `Источник: ${visit.source.provider === '2gis' ? '2ГИС' : visit.source.provider}` : 'Источник не указан'}</p>
+                {visit.source?.provider === '2gis' && visit.source.url?.startsWith('https://2gis.ru/') &&
+                  <a href={visit.source.url} target="_blank" rel="noopener noreferrer">Проверить точное место в 2ГИС ↗</a>}</div>
             </div>
           </li>)}</ol>}
           {day.visits.length > 0 && day.ends_at != null && <p className="field-hint">{draft.points.destination ? 'Прибытие к финишу' : 'Завершение плана'} в {clock(day.ends_at)}. Всего на дорогу с запасом: {day.total_safe_travel_minutes ?? '—'} мин.</p>}

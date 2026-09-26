@@ -97,6 +97,46 @@ describe('DgisClient', () => {
     await expect(request).rejects.not.toThrow(/do-not-leak/u);
   });
 
+  it('falls back once on an explicit Places quota error without moving Routing', async () => {
+    const requests: URL[] = [];
+    const client = new DgisClient({ placesApiKey: 'primary-places', routingApiKey: 'primary-routing',
+      backupApiKey: 'backup', fetchImpl: async input => {
+        const url = new URL(String(input)); requests.push(url);
+        if (url.hostname === 'routing.api.2gis.com')
+          return Response.json({ result: [], status: 'OK', type: 'result' });
+        if (url.searchParams.get('key') === 'primary-places')
+          return Response.json({ meta: { code: 403, error: { type: 'quotaExceeded' } } }, { status: 403 });
+        return Response.json({ meta: { code: 200 }, result: { items: [{ id: '1', name: 'Парк' }] } });
+      } });
+    const input = { center: { lat: 55, lon: 37 }, query: 'парк' };
+    await expect(client.searchPlaces(input)).resolves.toHaveLength(1);
+    await expect(client.searchPlaces(input)).resolves.toHaveLength(1);
+    await client.buildRoute({ points: [{ lat: 55, lon: 37 }, { lat: 55.01, lon: 37.01 }], transport: 'walking' });
+    expect(requests.map(url => url.searchParams.get('key')))
+      .toEqual(['primary-places', 'backup', 'backup', 'primary-routing']);
+  });
+
+  it('tries a backup for a denied key but does not loop if both keys are denied', async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ meta: { code: 403, error: { type: 'invalidKey' } } }, { status: 403 }))
+      .mockResolvedValueOnce(Response.json({ meta: { code: 429 } }, { status: 429 }));
+    const client = new DgisClient({ placesApiKey: 'primary', routingApiKey: 'primary', backupApiKey: 'backup', fetchImpl });
+    const input = { center: { lat: 55, lon: 37 }, query: 'парк' };
+    await expect(client.searchPlaces(input)).rejects.toThrow('HTTP 429');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('distinguishes a provider application code from a response-shape error without exposing payloads', async () => {
+    const client = new DgisClient({ placesApiKey: 'secret', routingApiKey: 'secret',
+      fetchImpl: vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(Response.json({ meta: { code: 400 }, error: 'sensitive provider detail' }))
+        .mockResolvedValueOnce(Response.json({ meta: { code: 200 }, result: { items: [{ id: '1', name: 'Кафе', point: null }] } })),
+    });
+    const input = { center: { lat: 56.32, lon: 44.0 }, query: 'кафе' };
+    await expect(client.searchPlaces(input)).rejects.toThrow('provider code 400');
+    await expect(client.searchPlaces(input)).rejects.toThrow('schema failed at result.items.*.point');
+  });
+
   it('validates provider limits before making a request', async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const client = new DgisClient({

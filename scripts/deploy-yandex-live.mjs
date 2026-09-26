@@ -12,11 +12,12 @@ const registryId = 'crphfddv12abu4qe4qs1';
 const networkId = 'enp2df7tk8j68tctofcj';
 const serviceAccountId = 'aje2uk33pjbmmifon5mn';
 const secretId = 'e6qus5g3d4k2uk9b4vo0';
-const secretVersionId = 'e6qdjd7lalv5fqgpl7oh';
+const secretVersionId = 'e6qrub72d26af9qa4ud2';
 const baseUrl = `https://${containerId}.containers.yandexcloud.net/`;
 const secretKeys = [
   'MAX_BOT_TOKEN', 'YANDEX_API_KEY', 'YANDEX_FOLDER_ID',
   'DGIS_PLACES_API_KEY', 'DGIS_ROUTING_API_KEY', 'DGIS_MAPGL_API_KEY',
+  'DGIS_BACKUP_API_KEY',
   'DATABASE_URL', 'DATABASE_CA_PEM',
 ];
 const publicEnvironment = {

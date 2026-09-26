@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { FormDraft, type PlanningView } from '../shared/planning-form.js';
-import { buildDailyRequest } from './intent/daily-contract.mjs';
+import { buildDailyRepairRequest, buildDailyRequest } from './intent/daily-contract.mjs';
 import { projectNewDailyIntent } from './intent/daily-time.mjs';
 
 export type CatalogRow = [string, string, string[], { type?: string; caption?: string; declared_parent_ids?: string[] }?];
@@ -10,7 +10,9 @@ export interface InitialContext {
   catalog: { format: string; version: string; region_id: string; complete: boolean; roots: string[]; rows: CatalogRow[] };
 }
 export class InitialIntentError extends Error {
-  constructor(readonly code: string, readonly status = 422) { super(code); }
+  constructor(readonly code: string, readonly status = 422,
+    readonly diagnostic?: { stage: string; status?: string; errors?: string[]; reasons?: string[];
+      schema?: { path: string; keyword: string }[]; fields?: { path: string; code: string }[] }) { super(code); }
 }
 export type IntentProvider = (request: Record<string, unknown>) => Promise<unknown>;
 export type InitialResult = { status: 'off_topic' } | {
@@ -40,19 +42,34 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
     throw new InitialIntentError('CATALOG_UNAVAILABLE', 503);
   const input = { input_id: context.inputId, mode: 'parse', now: context.now,
     locality_context: context.locality, catalog: context.catalog, user_text: text, draft: null, pending_question: null };
-  const raw = await provider(buildDailyRequest(input));
-  // A new city needs a trusted resolver/catalog, not the LLM's unverified city text.
+  let raw = await provider(buildDailyRequest(input));
+  let projection = projectNewDailyIntent(raw, input);
+  const firstErrors = projection.guard.errors;
+  if (raw && typeof raw === 'object' && 'action' in raw && raw.action === 'new_request' &&
+      firstErrors.length > 0 && firstErrors.every((error: string) =>
+        error === 'CATEGORY_ID' || error === 'NONCONTIGUOUS_OFFSETS')) {
+    // Reserve/bill a second call through the provider callback. Never loop or silently
+    // accept an invalid category/date merely to make a plan appear.
+    raw = await provider(buildDailyRepairRequest(input, firstErrors, raw));
+    projection = projectNewDailyIntent(raw, input);
+  }
+  // Check the final response too: a repair must never bypass trusted city resolution.
   if (raw && typeof raw === 'object' && 'shared_updates' in raw && Array.isArray(raw.shared_updates)) {
     const city = raw.shared_updates.find((u: unknown) => u && typeof u === 'object' && 'field' in u && u.field === 'locality_text');
     if (city && (typeof city.value !== 'string' || name(city.value) !== name(context.locality.name)))
       throw new InitialIntentError('LOCALITY_RESOLUTION_REQUIRED');
   }
-  const projection = projectNewDailyIntent(raw, input);
   const proposal = projection.guard.proposal as ValidatedProposal | null;
   if (proposal?.action === 'off_topic') return { status: 'off_topic' };
-  if (!proposal) throw new InitialIntentError(projection.guard.status === 'needs_clarification' ? 'INTENT_NEEDS_CLARIFICATION' : 'INTENT_INVALID_RESPONSE');
+  const schemaIssues = 'schema_errors' in projection.guard && Array.isArray(projection.guard.schema_errors)
+    ? projection.guard.schema_errors : [];
+  if (!proposal) throw new InitialIntentError(projection.guard.status === 'needs_clarification' ? 'INTENT_NEEDS_CLARIFICATION' : 'INTENT_INVALID_RESPONSE', 422,
+    { stage: 'guard', status: projection.guard.status, errors: projection.guard.errors.slice(0, 12),
+      reasons: projection.guard.reasons.slice(0, 12),
+      schema: schemaIssues.slice(0, 12).map((issue: { instancePath: string; keyword: string }) =>
+        ({ path: issue.instancePath, keyword: issue.keyword })) });
   if (proposal.action !== 'new_request' || projection.days.length !== proposal.days.length || !projection.days.length)
-    throw new InitialIntentError('INTENT_INVALID_RESPONSE');
+    throw new InitialIntentError('INTENT_INVALID_RESPONSE', 422, { stage: 'projection', status: projection.status });
   const shared: Record<string, unknown> = {}, provenance: Record<string, string> = {};
   for (const update of proposal.shared_updates) {
     if (update.op !== 'set') throw new InitialIntentError('INTENT_INVALID_RESPONSE');
@@ -90,6 +107,7 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
     };
   });
   const draft = FormDraft.safeParse({ locality: context.locality, shared, points: {}, days });
-  if (!draft.success) throw new InitialIntentError('INTENT_INVALID_RESPONSE');
+  if (!draft.success) throw new InitialIntentError('INTENT_INVALID_RESPONSE', 422,
+    { stage: 'draft', fields: draft.error.issues.slice(0, 12).map(issue => ({ path: issue.path.join('.'), code: issue.code })) });
   return { status: 'draft', draft: draft.data, provenance };
 }

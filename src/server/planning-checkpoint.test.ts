@@ -16,4 +16,18 @@ describe('durable planning checkpoint', () => {
     expect(restored.edit('max:1', view.id, input).version).toBe(1);
     expect(() => restored.get('max:2', view.id)).toThrow('DRAFT_NOT_FOUND');
   });
+  it('removes a selected owner draft from the persisted checkpoint', () => {
+    const fixture = planningFixture();
+    const options = { now: () => new Date('2026-09-24T09:00:00Z'), plan: async () => ({}) };
+    const sessions = new PlanningSessions(options);
+    const context = { catalog: fixture.input.catalog, visit_policy: fixture.input.visit_policy,
+      modes: ['walking'] as const, data_mode: 'live' as const };
+    const first = sessions.create('max:1', fixture.input.intent, context);
+    const second = sessions.create('max:1', fixture.input.intent, context);
+    expect(() => sessions.remove('max:2', first.id)).toThrow('DRAFT_NOT_FOUND');
+    sessions.remove('max:1', first.id);
+    const restored = new PlanningSessions({ ...options, checkpoint: sessions.checkpoint() });
+    expect(() => restored.get('max:1', first.id)).toThrow('DRAFT_NOT_FOUND');
+    expect(restored.get('max:1', second.id).id).toBe(second.id);
+  });
 });

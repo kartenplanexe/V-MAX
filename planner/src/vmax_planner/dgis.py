@@ -7,6 +7,28 @@ from .selection import clock, nonempty, point_valid
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
+def _location_label(item):
+    for field in ("address_name", "full_address_name"):
+        label = item.get(field)
+        if isinstance(label, str) and label.strip(): return label.strip()[:160]
+    for division in item.get("adm_div") or []:
+        if isinstance(division, dict) and division.get("type") == "district":
+            label = division.get("name")
+            if isinstance(label, str) and label.strip(): return label.strip()[:160]
+    return None
+
+
+def _place_url(item, pid):
+    alias = item.get("city_alias")
+    if not isinstance(alias, str):
+        alias = next((division.get("city_alias") for division in item.get("adm_div") or []
+                      if isinstance(division, dict) and isinstance(division.get("city_alias"), str)), None)
+    if not isinstance(alias, str) or not re.fullmatch(r"[a-z0-9_-]{1,80}", alias): return None
+    if not re.fullmatch(r"[0-9]{1,30}", pid): return None
+    kind = "firm" if item.get("type") == "branch" else "geo"
+    return f"https://2gis.ru/{alias}/{kind}/{pid}"
+
+
 def _hours(day):
     if not isinstance(day, dict): return None
     if day.get("is_24x7") is True: return [[0, 1440]]
@@ -71,12 +93,13 @@ def normalize_place(item, *, dates, requested_region_id, fetched_at, valid_until
             warnings.append("AVERAGE_CHECK_UNIT_UNVERIFIED")
     reviews = item.get("reviews") or {}
     rating, count = reviews.get("general_rating"), reviews.get("general_review_count")
-    return {"id": pid, "name": name, "region_id": str(item.get("region_id") or requested_region_id),
+    return {"id": pid, "name": name, "location_label": _location_label(item),
+            "region_id": str(item.get("region_id") or requested_region_id),
             "rubric_ids": sorted({str(r["id"]) for r in item.get("rubrics") or [] if isinstance(r, dict) and r.get("id")}),
             "point": item.get("point") if point_valid(item.get("point")) else None,
             "opening_intervals": windows, "price": price, "facts": {},
             "reviews": {"rating": rating, "count": count} if rating is not None and count is not None else {},
             "crowding": {"state": "PRESENT_UNMAPPED"} if item.get("congestion") is not None else None,
-            "source": {"provider": "2gis", "url": "https://2gis.ru/firm/" + pid,
+            "source": {"provider": "2gis", "url": _place_url(item, pid),
                        "data_mode": data_mode, "fetched_at": fetched_at, "valid_until": valid_until},
             "normalization_warnings": sorted(set(warnings))}
