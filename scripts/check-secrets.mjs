@@ -31,7 +31,20 @@ function scan(mode, directory, name) {
     '--no-banner', '--no-color', '--log-level', 'error', '--timeout', '120',
     '--report-format', 'json', '--report-path', `/reports/${name}.json`],
   { cwd: root, encoding: 'utf8', timeout: 180_000, maxBuffer: 10 * 1024 * 1024, windowsHide: true });
-  if (![0, 1].includes(result.status) || !existsSync(report)) throw new Error(`Secret scan ${name} did not complete; raw output suppressed.`);
+  if (![0, 1].includes(result.status) || !existsSync(report)) {
+    // A clean runner can fail before gitleaks starts. Expose only fixed categories
+    // and process metadata; Docker/gitleaks text can contain scanned source data.
+    const diagnostic = `${result.stderr ?? ''}\n${result.stdout ?? ''}`;
+    const reason = /toomanyrequests|too many requests|rate limit/i.test(diagnostic) ? 'registry-rate-limit'
+      : /manifest unknown|no matching manifest|pull access denied|unauthorized|failed to resolve reference/i.test(diagnostic) ? 'image-unavailable'
+      : /permission denied|operation not permitted|dubious ownership/i.test(diagnostic) ? 'filesystem-permission'
+      : /cannot connect to the docker daemon|is the docker daemon running/i.test(diagnostic) ? 'docker-unavailable'
+      : /unknown flag|unknown command/i.test(diagnostic) ? 'unsupported-command'
+      : 'unclassified';
+    console.error(JSON.stringify({ scope: name, status: result.status, signal: result.signal,
+      process_error: result.error?.code ?? null, report_exists: existsSync(report), reason }));
+    throw new Error(`Secret scan ${name} did not complete; raw output suppressed.`);
+  }
   const findings = JSON.parse(readFileSync(report, 'utf8'));
   if (!Array.isArray(findings) || (result.status === 1 && !findings.length)) throw new Error(`Invalid secret scan report: ${name}.`);
   console.log(JSON.stringify({ scope: name, findings: findings.length, locations: findings.map(item => ({
