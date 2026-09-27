@@ -23,6 +23,10 @@ function scan(mode, directory, name) {
   const report = resolve(output, `${name}.json`);
   if (existsSync(report)) rmSync(report);
   const result = spawnSync('docker', ['run', '--rm', '--network', 'none', '--cap-drop', 'ALL', '--read-only',
+    // Dropped root capabilities do not grant access to a Linux runner's private
+    // Git files or write access to its report directory. Use the checkout owner.
+    ...(typeof process.getuid === 'function' && typeof process.getgid === 'function'
+      ? ['--user', `${process.getuid()}:${process.getgid()}`] : []),
     '--security-opt', 'no-new-privileges', '--tmpfs', '/tmp',
     '-e', 'GIT_CONFIG_COUNT=1', '-e', 'GIT_CONFIG_KEY_0=safe.directory', '-e', 'GIT_CONFIG_VALUE_0=/source',
     '--mount', `type=bind,source=${directory},target=/source,readonly`,
