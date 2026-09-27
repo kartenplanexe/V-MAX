@@ -1,16 +1,20 @@
 // Pure research compatibility/safety layer. Legacy guard, prompts and live reports stay frozen.
 import {isDeepStrictEqual as equal} from 'node:util';
 import {validateDailyProposal} from './daily-contract.mjs';
-export const postprocessingVersion='daily-postprocessing.v1';
+import {inspectSemanticCoverage} from './semantic-coverage.mjs';
+export const postprocessingVersion='daily-postprocessing.v2';
 
 export function reviewDailyResponse(raw,input) {
   const original=validateDailyProposal(raw,input);
   let checked=original;
   const repairs=[];
-  if(original.errors.includes('ANCHOR_WITHOUT_OFFSETS')&&raw.action==='new_request'&&raw.days.length===1&&
-    raw.date_anchor&&raw.days[0].date?.kind!=='anchor_offset'&&equal(raw.date_anchor.value,raw.days[0].date)) {
+  // An anchor unused by every day has no effect on the meaning of dates. Drop
+  // it for any number of independently dated days; mixed representations still
+  // fail validation and require the bounded model correction.
+  if(original.errors.includes('ANCHOR_WITHOUT_OFFSETS')&&raw.action==='new_request'&&raw.days.length>0&&
+    raw.date_anchor&&raw.days.every(day=>day.date?.kind!=='anchor_offset')) {
     const copy=structuredClone(raw);
-    repairs.push({kind:'redundant_identical_date_anchor',path:'/date_anchor',from:copy.date_anchor,to:null});
+    repairs.push({kind:'unused_date_anchor',path:'/date_anchor',from:copy.date_anchor,to:null});
     copy.date_anchor=null;
     checked=validateDailyProposal(copy,input);
   }
@@ -58,6 +62,9 @@ export function reviewDailyResponse(raw,input) {
       if(mismatch)result.errors.push('STRICT_CATEGORY_MISMATCH');
     }
   }
+  const semantic=inspectSemanticCoverage(result.proposal,input);
+  result.semantic_review=semantic;
+  result.errors.push(...semantic.issues.map(issue=>issue.code));
   result.errors=[...new Set(result.errors)];result.reasons=[...new Set(result.reasons)];
   if(result.errors.length){result.status='invalid_response';result.proposal=null;}
   else if(result.reasons.length){result.status='needs_clarification';result.proposal=null;}

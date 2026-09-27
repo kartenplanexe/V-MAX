@@ -38,7 +38,8 @@ it.skipIf(!process.env.TEST_DATABASE_URL)('resumes on another instance, uses one
     expect((await first.calculate(owner, edited.id, event)).result).toEqual(result.result);
     expect(calls).toBe(1);
     await expect(first.get('someone-else', edited.id)).rejects.toMatchObject({ code: 'DRAFT_NOT_FOUND' });
-  } finally { await db.pool.query('DELETE FROM planning_owners WHERE owner=$1', [owner]); await db.pool.end(); }
+  } finally { await db.pool.query('DELETE FROM planning_owners WHERE owner=$1', [owner]);
+    await db.pool.query('DELETE FROM saved_user_conditions WHERE owner=$1', [owner]); await db.pool.end(); }
 }, 60_000);
 
 it.skipIf(!process.env.TEST_DATABASE_URL)('exact greetings consume no category or LLM calls, with durable replay', async () => {
@@ -52,5 +53,6 @@ it.skipIf(!process.env.TEST_DATABASE_URL)('exact greetings consume no category o
     const body = { event_id: randomUUID(), user_text: 'Привет!', locality_token: 'unused-for-greeting' };
     expect(await planning.start(owner, body)).toEqual({ status: 'off_topic' });
     expect(await planning.start(owner, body)).toEqual({ status: 'off_topic' });
-  } finally { await db.pool.query('DELETE FROM planning_owners WHERE owner=$1', [owner]); await db.pool.end(); }
+  } finally { await db.pool.query('DELETE FROM planning_owners WHERE owner=$1', [owner]);
+    await db.pool.query('DELETE FROM saved_user_conditions WHERE owner=$1', [owner]); await db.pool.end(); }
 });

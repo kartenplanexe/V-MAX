@@ -14,9 +14,11 @@ import time
 from zoneinfo import ZoneInfo
 
 from ortools.sat.python import cp_model
+from .replacement import roster, filter_options, slot_index, validate_roster
+from .events import event_target, validate_event_candidate, event_window, event_display, event_candidate_id
 
 POLICY_VERSION = "place-selection.v1"
-SUPPORTED_MODES = {"walking", "driving", "cycling"}
+SUPPORTED_MODES = {"walking", "driving", "cycling", "public_transport"}
 MAX_OPTIONS_PER_DAY = 120
 
 
@@ -59,6 +61,16 @@ def point_valid(point):
         for key, limit in (("lat", 90), ("lon", 180)))
 
 
+def direct_meters(a, b):
+    """Great-circle distance is an eligibility bound, never a travel estimate."""
+    if not point_valid(a) or not point_valid(b):
+        raise ValueError("valid coordinates required for distance")
+    lat1, lat2 = math.radians(a["lat"]), math.radians(b["lat"])
+    delta_lat, delta_lon = lat2 - lat1, math.radians(b["lon"] - a["lon"])
+    value = math.sin(delta_lat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2) ** 2
+    return 6371000 * 2 * math.asin(math.sqrt(min(1, value)))
+
+
 def same_point(a, b):
     return point_valid(a) and point_valid(b) and all(a[k] == b[k] for k in ("lat", "lon"))
 
@@ -91,17 +103,26 @@ class Option:
     warnings: tuple[str, ...]
 
 
-def _price(place, party):
+def _price(place, party, average_bill_per_person=False):
     price = place.get("price")
     if price is None:
         return None, None
-    if not isinstance(price, dict) or price.get("basis") not in {"per_person", "whole_party"}:
+    if not isinstance(price, dict):
         return None, None
-    multiplier = party if price["basis"] == "per_person" else 1
+    basis = price.get("basis")
+    assumed = average_bill_per_person and basis == "unknown" and price.get("estimate_kind") == "average_bill"
+    if assumed:
+        basis = "per_person"
+    if basis not in {"per_person", "whole_party"}:
+        return None, None
+    multiplier = party if basis == "per_person" else 1
     if multiplier is None:
         return None, None
     values = [None if price.get(key) is None else integer(price[key], key) * multiplier
               for key in ("expected_minor", "upper_minor")]
+    # User consent allows an estimate, never manufactures provider certainty.
+    if assumed:
+        values[1] = None
     if all(v is not None for v in values) and values[0] > values[1]:
         raise ValueError("price estimate exceeds upper bound")
     return tuple(values)
@@ -134,7 +155,7 @@ def prepare(job, *, enforce_option_limit=True):
     timezone = ZoneInfo(nonempty(locality.get("timezone"), "timezone"))
     local_now = now.astimezone(timezone)
     issues = []
-    for field in set(shared) - {"mobility", "party", "budget", "locality_text", "origin_text", "destination_text", "exploratory"}:
+    for field in set(shared) - {"mobility", "party", "budget", "search_radius_meters", "locality_text", "origin_text", "destination_text", "exploratory"}:
         issues.append(f"UNSUPPORTED_SHARED_FIELD:{field}")
     modes = shared.get("mobility", [])
     if not isinstance(modes, list) or len(modes) != 1 or modes[0] not in SUPPORTED_MODES:
@@ -143,6 +164,17 @@ def prepare(job, *, enforce_option_limit=True):
     points = intent.get("points", {})
     if not point_valid(points.get("origin")):
         issues.append("ORIGIN_REQUIRED")
+    retrieval = job.get("retrieval") or {}
+    if not isinstance(retrieval, dict):
+        raise ValueError("invalid retrieval policy")
+    requested_radius, retrieved_radius = shared.get("search_radius_meters"), retrieval.get("radius_meters")
+    if "search_radius_meters" in shared:
+        integer(requested_radius, "confirmed search radius", 1, 50_000)
+    if retrieved_radius is not None:
+        integer(retrieved_radius, "search radius", 1, 50_000)
+    if requested_radius is not None and retrieved_radius is not None and requested_radius != retrieved_radius:
+        raise ValueError("search radius must match confirmed condition")
+    search_radius = requested_radius if requested_radius is not None else retrieved_radius
     destination = points.get("destination")
     if shared.get("destination_text") and destination is None:
         issues.append("DESTINATION_REQUIRED")
@@ -154,9 +186,10 @@ def prepare(job, *, enforce_option_limit=True):
     party = (shared.get("party") or {}).get("total")
     if party is not None:
         integer(party, "party.total", 1, 100)
-    # No inference of age suitability from the mere absence of an age restriction.
-    if (shared.get("party") or {}).get("child_ages"):
-        issues.append("AGE_ELIGIBILITY_NOT_IMPLEMENTED")
+    child_ages = (shared.get("party") or {}).get("child_ages", [])
+    if not isinstance(child_ages, list) or len(child_ages) > 99: raise ValueError('invalid child ages')
+    for age in child_ages: integer(age, 'child age', 0, 17)
+    if party is not None and len(child_ages) > party: issues.append('PARTY_CONFLICT')
     budget = shared.get("budget") or {"kind": "unspecified"}
     if budget.get("kind") not in {"unspecified", "unlimited", "limit"}:
         raise ValueError("unknown budget kind")
@@ -171,9 +204,21 @@ def prepare(job, *, enforce_option_limit=True):
         if budget.get("basis") == "per_person" and party is None:
             issues.append("PARTY_REQUIRED")
         budget_limit = int(amount * 100) * (party if budget.get("basis") == "per_person" and party else 1)
-    budget_policy = job.get("budget_policy", "upper_bound")
+    enforcement = budget.get("enforcement", "strict")
+    if enforcement not in {"strict", "estimated"}:
+        raise ValueError("invalid budget enforcement")
+    inferred_policy = "estimate" if budget_limit is not None and enforcement == "estimated" else "upper_bound"
+    budget_policy = job.get("budget_policy", inferred_policy)
     if budget_policy not in {"upper_bound", "estimate"}:
         raise ValueError("invalid budget policy")
+    if budget_limit is not None and budget_policy != inferred_policy:
+        raise ValueError("budget policy must match confirmed budget enforcement")
+    average_bill_per_person = budget_limit is not None and enforcement == "estimated" and budget.get("price_basis_assumption") == "per_person"
+    if budget_limit is not None and enforcement == "estimated":
+        if not average_bill_per_person:
+            issues.append("BUDGET_PRICE_BASIS_REQUIRED")
+        if party is None:
+            issues.append("PARTY_REQUIRED")
     policy = job.get("visit_policy", {})
     nonempty(policy.get("version"), "visit_policy.version")
     durations = policy.get("by_category", {})
@@ -187,9 +232,15 @@ def prepare(job, *, enforce_option_limit=True):
     multi_stop = policy.get("max_stops_by_activity", {})
     if not isinstance(multi_stop, dict) or any(not isinstance(key, str) or not key for key in multi_stop):
         raise ValueError("multi-stop policy required")
-    for value in multi_stop.values(): integer(value, "maximum stops", 2, 3)
+    # A bound derived from the day window is not a product cap of two/three
+    # stops. The solver's actual limit is feasibility within that window.
+    for value in multi_stop.values(): integer(value, "maximum stops", 2, MAX_OPTIONS_PER_DAY)
     if set(multi_stop) - set(activity_durations):
         raise ValueError("multi-stop activity duration required")
+    walk_targets = policy.get("walk_travel_target_minutes_by_day", {})
+    if not isinstance(walk_targets, dict) or any(not isinstance(key, str) or not key for key in walk_targets):
+        raise ValueError("walk travel target policy required")
+    for value in walk_targets.values(): integer(value, "walk travel target", 1, 240)
     tentative_schedule_categories = set(ids(policy.get("tentative_schedule_category_ids", []),
                                             "tentative_schedule_category_ids"))
     buffer = integer(policy.get("arrival_buffer_minutes"), "arrival buffer", 0, 120)
@@ -203,6 +254,8 @@ def prepare(job, *, enforce_option_limit=True):
     if sum(len(d.get("activities", [])) for d in days) > 120:
         raise ValueError("too many activities per planning job")
     ids([d.get("day_id") for d in days], "days")
+    if set(walk_targets) - {d["day_id"] for d in days}:
+        raise ValueError("walk travel target references an unknown day")
     ids([d.get("date") for d in days], "dates")
     days = sorted(days, key=lambda d: (d["date"], d["day_id"]))
     all_activity_ids = {a["id"] for day in days for a in day.get("activities") or []}
@@ -241,15 +294,19 @@ def prepare(job, *, enforce_option_limit=True):
                 if intermediate in closure[a]: closure[a].update(closure[intermediate])
         precedence[day["day_id"]] = [(a, b) for a in sorted(closure) for b in sorted(closure[a])]
         for activity in activities:
-            selection = activity.get("selection") or {}
-            if selection.get("category_policy") not in {"related_allowed", "named_types_only"}:
-                issues.append("CATEGORY_POLICY_REQUIRED")
-            if selection.get("category_policy") == "named_types_only" and not selection.get("named_types"):
-                issues.append("STRICT_TYPES_REQUIRED")
-            c = activity.get("categories") or {}
-            include, exclude = ids(c.get("include_any"), "include_any"), ids(c.get("exclude"), "exclude")
-            if c.get("state") != "matched" or c.get("region_id") != region or c.get("catalog_version") != catalog.get("version") or not include or not set(include + exclude) <= leaves or set(include) & set(exclude):
-                issues.append("CATALOG_MISMATCH")
+            target = event_target(activity)
+            if target is None:
+                selection = activity.get("selection") or {}
+                if selection.get("category_policy") not in {"related_allowed", "named_types_only"}:
+                    issues.append("CATEGORY_POLICY_REQUIRED")
+                if selection.get("category_policy") == "named_types_only" and not selection.get("named_types"):
+                    issues.append("STRICT_TYPES_REQUIRED")
+                c = activity.get("categories") or {}
+                include, exclude = ids(c.get("include_any"), "include_any"), ids(c.get("exclude"), "exclude")
+                if c.get("state") != "matched" or c.get("region_id") != region or c.get("catalog_version") != catalog.get("version") or not include or not set(include + exclude) <= leaves or set(include) & set(exclude):
+                    issues.append("CATALOG_MISMATCH")
+            elif activity['id'] in multi_stop:
+                raise ValueError('selected event cannot be a multi-stop activity')
             for requirement in activity.get("requirements", []):
                 nonempty(requirement.get("text"), "requirement")
                 if requirement.get("strength") not in {"required", "preferred"}: raise ValueError("invalid requirement strength")
@@ -257,34 +314,55 @@ def prepare(job, *, enforce_option_limit=True):
     if not isinstance(places, list) or len(places) > 2000: raise ValueError("invalid candidate pool")
     ids([p.get("id") for p in places], "places")
     if any(p["id"].startswith("@") for p in places): raise ValueError("reserved place ID")
+    for candidate in places:
+        if candidate.get('kind') == 'event': validate_event_candidate(candidate)
+        elif candidate.get('kind') not in (None, 'place') or 'event_ref' in candidate:
+            raise ValueError('unknown or mixed candidate kind')
     places = {p["id"]: p for p in sorted(places, key=lambda p: p["id"])}
     options, excluded = [], []
     for day in days:
         start, end = clock(day["window"]["start"]), clock(day["window"]["end"])
         day_count = 0
         for activity in sorted(day["activities"], key=lambda a: a["id"]):
-            include, exclude = set(activity["categories"]["include_any"]), set(activity["categories"]["exclude"])
-            for pid, place in places.items():
+            target = event_target(activity)
+            include, exclude = (set(activity['categories']['include_any']), set(activity['categories']['exclude'])) if target is None else (set(), set())
+            candidates = [(pid, place) for pid, place in places.items() if
+                          place.get('kind') == 'event' and place['activity_id'] == activity['id'] and place['day_id'] == day['day_id']]
+            if target is None:
+                candidates = [(pid, place) for pid, place in places.items() if place.get('kind') != 'event']
+            if target is not None and not candidates:
+                excluded.append({'day_id': day['day_id'], 'activity_id': activity['id'],
+                                 'place_id': event_candidate_id(target, day['day_id'], activity['id']), 'reasons': ['EVENT_CANDIDATE_REQUIRED']})
+            for pid, place in candidates:
                 reasons, warnings = [], list(place.get("normalization_warnings") or [])
-                categories = set(ids(place.get("rubric_ids", []), "place.rubric_ids"))
-                matching = include & categories
-                if not matching: reasons.append("CATEGORY_MISMATCH")
-                if categories & exclude: reasons.append("EXCLUDED_CATEGORY")
+                if target is None:
+                    categories = set(ids(place.get("rubric_ids", []), "place.rubric_ids"))
+                    matching = include & categories
+                    if not matching: reasons.append("CATEGORY_MISMATCH")
+                    if categories & exclude: reasons.append("EXCLUDED_CATEGORY")
                 if place.get("region_id") != region: reasons.append("REGION_MISMATCH")
                 if not point_valid(place.get("point")): reasons.append("POINT_UNKNOWN")
+                elif search_radius is not None and point_valid(points.get("origin")) and \
+                        direct_meters(points["origin"], place["point"]) > search_radius:
+                    reasons.append("OUTSIDE_SEARCH_RADIUS")
                 if not fresh(place.get("source"), now): reasons.append("STALE_OR_UNKNOWN_SOURCE")
+                if target is not None and place.get('venue_source') and not fresh(place['venue_source'], now):
+                    reasons.append('STALE_OR_UNKNOWN_SOURCE')
                 # Category matches are OR alternatives. A place may carry several matching
                 # rubrics; one known visit estimate is enough to schedule it. Unknown
                 # secondary rubrics must not veto a known applicable estimate.
-                category_duration = max((durations.get(c, 0) for c in matching), default=0)
+                category_duration = max((durations.get(c, 0) for c in matching), default=0) if target is None else 0
                 # A generic walk is not reduced to a 15–20 minute photo stop
                 # merely because the selected POI has a shorter category estimate.
                 duration = (activity_durations[activity["id"]] if activity["id"] in multi_stop
                             else max(category_duration, activity_durations.get(activity["id"], 0)))
-                if matching and not duration: reasons.append("DURATION_UNKNOWN")
+                if target is None and matching and not duration: reasons.append("DURATION_UNKNOWN")
                 raw_windows = (place.get("opening_intervals") or {}).get(day["date"])
                 windows = []
-                if raw_windows is None:
+                if target is not None:
+                    duration, windows, event_reasons, event_warnings = event_window(place, target, day, locality, timezone, start, end)
+                    reasons.extend(event_reasons); warnings.extend(event_warnings)
+                elif raw_windows is None:
                     # Only for a walkable outdoor rubric explicitly allowed by
                     # the server: a tentative stop is possible, not a claim
                     # that the place is open. Keep the warning through output.
@@ -300,6 +378,12 @@ def prepare(job, *, enforce_option_limit=True):
                         low, high = max(start, opening), min(end, closing) - duration
                         if low <= high: windows.append((low, high))
                     if not windows: reasons.append("NO_VISIT_WINDOW")
+                minimum_age = (place.get('age') or {}).get('minimum_age')
+                if minimum_age is not None: integer(minimum_age, 'minimum age', 0, 18)
+                if child_ages:
+                    if minimum_age is None: reasons.append('AGE_ELIGIBILITY_UNKNOWN')
+                    elif any(age < minimum_age for age in child_ages): reasons.append('AGE_RESTRICTION')
+                elif target is not None and minimum_age is None: warnings.append('EVENT_AGE_UNKNOWN')
                 facts = place.get("facts") or {}
                 if any(type(v) is not bool for v in facts.values()): raise ValueError("facts must be verified booleans")
                 preferred = 0
@@ -310,8 +394,14 @@ def prepare(job, *, enforce_option_limit=True):
                     elif requirement["strength"] == "preferred":
                         preferred += int(known is True)
                         if known is not True: warnings.append("PREFERENCE_NOT_VERIFIED:" + requirement["text"])
-                expected, upper = _price(place, party)
-                charged = upper if budget_policy == "upper_bound" else expected
+                expected, upper = _price(place, party, average_bill_per_person)
+                price = place.get("price") or {}
+                if expected is not None and average_bill_per_person and price.get("basis") == "unknown" and price.get("estimate_kind") == "average_bill":
+                    warnings.append("AVERAGE_CHECK_BASIS_ASSUMED_PER_PERSON")
+                # A verified ceiling is sufficient in estimate mode too. Use it
+                # conservatively when no estimate exists; keep expected unknown
+                # in the result rather than relabeling that ceiling an average.
+                charged = upper if budget_policy == "upper_bound" else expected if expected is not None else upper
                 if budget_limit is not None and charged is None:
                     reasons.append("PRICE_UPPER_UNKNOWN" if budget_policy == "upper_bound" else "PRICE_ESTIMATE_UNKNOWN")
                 if expected is None: warnings.append("PRICE_UNKNOWN")
@@ -321,12 +411,19 @@ def prepare(job, *, enforce_option_limit=True):
                 if reasons:
                     excluded.append({"day_id": day["day_id"], "activity_id": activity["id"], "place_id": pid, "reasons": sorted(set(reasons))})
                 else:
-                    evidence = ("CATEGORY_MATCH", "SCHEDULE_UNVERIFIED") if "OPENING_HOURS_UNVERIFIED" in warnings else ("CATEGORY_MATCH", "OPEN_FOR_FULL_VISIT")
+                    evidence = ('SELECTED_EVENT_MATCH', 'OFFICIAL_SESSION' if place['schedule']['kind'] == 'fixed' else 'OPEN_FOR_FULL_VISIT') if target is not None else \
+                        ("CATEGORY_MATCH", "SCHEDULE_UNVERIFIED") if "OPENING_HOURS_UNVERIFIED" in warnings else ("CATEGORY_MATCH", "OPEN_FOR_FULL_VISIT")
                     options.append(Option(day["day_id"], activity["id"], pid, duration, tuple(sorted(windows)), expected, upper,
                                           charged or 0, preferred, _quality(place), evidence, tuple(warnings)))
                     day_count += 1
         if day_count > MAX_OPTIONS_PER_DAY and enforce_option_limit and "candidate_pool" not in job:
             issues.append("CANDIDATE_POOL_TOO_LARGE")
+    replacement = roster(job, days)
+    if replacement is not None and any(slot['replacing'] and event_target(activity) is not None
+            for day in days for slot in replacement[day['day_id']] for activity in day['activities'] if activity['id'] == slot['activity_id']):
+        issues.append('EVENT_EXPLICIT_SELECTION_REQUIRED')
+    options, replacement_issues = filter_options(replacement, options)
+    issues.extend(replacement_issues)
     if "candidate_pool" in job:
         pool = job["candidate_pool"]
         if not isinstance(pool, list): raise ValueError("invalid candidate pool filter")
@@ -363,7 +460,7 @@ def prepare(job, *, enforce_option_limit=True):
     return dict(job=job, intent=intent, days=days, places=places, options=options, excluded=excluded,
                 route_issues=sorted(route_issues, key=lambda r: (r['day_id'], r['from_id'], r['to_id'])), issues=sorted(set(issues)), legs=legs, buffer=buffer,
                 budget_limit=budget_limit, period=period, budget_policy=budget_policy, destination=destination,
-                precedence=precedence, multi_stop=multi_stop)
+                precedence=precedence, multi_stop=multi_stop, walk_targets=walk_targets, replacement=replacement)
 
 
 def _leg(p, day, before, after):
@@ -402,6 +499,16 @@ def select_places(job, *, time_limit_seconds=3.0):
             covered.append(present)
         for pid in {options[i].place_id for i in index}:
             model.add(sum(chosen[i] for i in index if options[i].place_id == pid) <= 1)
+        if p['replacement'] is not None:
+            slots = p['replacement'][did]
+            groups = [[i for i in index if slot_index(slots, options[i].activity_id, options[i].place_id) == slot]
+                      for slot in range(len(slots))]
+            for group in groups:
+                model.add(sum(chosen[i] for i in group) == 1)
+            for before, after in zip(groups, groups[1:]):
+                for i in before:
+                    for j in after:
+                        model.add(starts[j] >= starts[i] + options[i].duration).only_enforce_if([chosen[i], chosen[j]])
         for before, after in p["precedence"][did]:
             for i in index:
                 for j in index:
@@ -441,8 +548,16 @@ def select_places(job, *, time_limit_seconds=3.0):
     objectives = [sum(covered)]
     if p["multi_stop"]:
         objectives.append(sum(chosen[i] for i, o in enumerate(options) if o.activity_id in p["multi_stop"]))
-    objectives += [sum(o.preference * chosen[i] for i, o in enumerate(options)),
-                  -sum(travel * take for _, _, _, take, travel, _ in arcs),
+    objectives.append(sum(o.preference * chosen[i] for i, o in enumerate(options)))
+    if p["walk_targets"]:
+        deviations = []
+        for did, target in sorted(p["walk_targets"].items()):
+            travel = sum(minutes * take for day_id, _, _, take, minutes, _ in arcs if day_id == did)
+            deviation = model.new_int_var(0, 100_000, f"walk_travel_deviation_{did}")
+            model.add_abs_equality(deviation, travel - target)
+            deviations.append(deviation)
+        objectives.append(-sum(deviations))
+    objectives += [-sum(travel * take for _, _, _, take, travel, _ in arcs),
                   sum(o.quality * chosen[i] for i, o in enumerate(options)),
                   -sum(ends.values())]
     deadline, final_solver, stages = time.monotonic() + time_limit_seconds, None, []
@@ -489,11 +604,11 @@ def _output(p, selected):
             visits.append({"activity_id": o.activity_id, "place_id": o.place_id, "name": place["name"],
                            "location_label": place.get("location_label"), "point": place["point"],
                            "starts_at": selected[i], "ends_at": selected[i] + o.duration,
-                           "duration_minutes": o.duration, "duration_source": p["job"]["visit_policy"]["version"],
+                           "duration_minutes": o.duration, "duration_source": place['duration']['basis'] if place.get('kind') == 'event' else p["job"]["visit_policy"]["version"],
                            "travel_before_minutes": leg["safe_minutes"], "distance_before_meters": leg.get("distance_meters"),
                            "arrival_buffer_minutes": p["buffer"],
                            "price_expected_minor": o.expected, "price_upper_minor": o.upper,
-                           "source": place["source"], "reasons": list(o.reasons), "warnings": list(o.warnings)})
+                           "source": place["source"], "reasons": list(o.reasons), "warnings": list(o.warnings), **event_display(place)})
             warnings.update(o.warnings)
             expected.append(o.expected); uppers.append(o.upper)
             before = o.place_id
@@ -509,8 +624,10 @@ def _output(p, selected):
         if any(c is None for c in transport_costs): warnings.add("TRANSPORT_COST_UNKNOWN")
         ids_selected = {v["activity_id"] for v in visits}
         missing = [a["id"] for a in day["activities"] if a["id"] not in ids_selected]
-        short_walk = any(0 < sum(v["activity_id"] == aid for v in visits) < cap
-                         for aid, cap in p["multi_stop"].items() if aid in {a["id"] for a in day["activities"]})
+        # One waypoint is not a walking route. Fewer than the theoretical
+        # maximum is normal when travel or opening hours consume the window.
+        short_walk = any(0 < sum(v["activity_id"] == aid for v in visits) < 2
+                         for aid in p["multi_stop"] if aid in {a["id"] for a in day["activities"]})
         if short_walk: warnings.add("WALK_WAYPOINTS_INCOMPLETE")
         ends_at = visits[-1]["ends_at"] + returned["safe_minutes"] if visits else clock(day["window"]["start"])
         tentative = any("OPENING_HOURS_UNVERIFIED" in v["warnings"] for v in visits)
@@ -518,15 +635,34 @@ def _output(p, selected):
                      "visits": visits, "ends_at": ends_at, "total_safe_travel_minutes": travel, "missing_activity_ids": missing})
     count = sum(len(d["visits"]) for d in days)
     status = "AVAILABLE" if all(d["status"] == "AVAILABLE" for d in days) else "LIMITED" if count else "UNAVAILABLE"
+    missing = {(d["day_id"], aid) for d in days for aid in d["missing_activity_ids"]}
+    unknown_prices = {"PRICE_UPPER_UNKNOWN", "PRICE_ESTIMATE_UNKNOWN"}
+    price_data_required = p["budget_limit"] is not None and any(
+        (row["day_id"], row["activity_id"]) in missing and set(row["reasons"]) <= unknown_prices
+        for row in p["excluded"])
     if p["budget_limit"] is not None and p["budget_policy"] == "estimate": warnings.add("BUDGET_ESTIMATED_NOT_GUARANTEED")
     if p["job"].get("retrieval", {}).get("coverage") == "PARTIAL": warnings.add("RETRIEVAL_PARTIAL")
+    result_issues = {'BUDGET_PRICE_DATA_REQUIRED'} if price_data_required else set()
+    if any((day['day_id'], activity['id']) in missing and event_target(activity) is not None
+           for day in p['days'] for activity in day['activities']):
+        result_issues.add('EVENT_NOT_SCHEDULED')
+    for row in p['excluded']:
+        if (row['day_id'], row['activity_id']) not in missing: continue
+        if 'AGE_ELIGIBILITY_UNKNOWN' in row['reasons'] and set(row['reasons']) <= {
+                'AGE_ELIGIBILITY_UNKNOWN', 'PRICE_UPPER_UNKNOWN', 'PRICE_ESTIMATE_UNKNOWN', 'REQUIRED_FACT_UNKNOWN', 'REQUIRED_FACT_FALSE'}:
+            result_issues.add('AGE_ELIGIBILITY_DATA_REQUIRED')
+        result_issues.update(code for code in row['reasons'] if code.startswith('EVENT_'))
+        if any(event_target(activity) is not None and activity['id'] == row['activity_id']
+               for day in p['days'] if day['day_id'] == row['day_id'] for activity in day['activities']):
+            if 'STALE_OR_UNKNOWN_SOURCE' in row['reasons']: result_issues.add('EVENT_RECHECK_REQUIRED')
     return {"schema_version": POLICY_VERSION, "policy_version": POLICY_VERSION,
             "intent_revision": p["intent"]["draft_revision"], "status": status,
             "origin": p["intent"]["points"]["origin"], "days": days,
             "total_expected_cost_minor": _sum_known(expected), "total_budget_upper_minor": _sum_known(uppers),
             "data_mode": "live" if sources and all(s["data_mode"] == "live" for s in sources) else "test" if any(s["data_mode"] == "test" for s in sources) else "prepared",
             "warnings": sorted(warnings), "excluded": p["excluded"], "route_issues": p["route_issues"],
-            "recovery_options": [] if status == "AVAILABLE" else ["CHANGE_TIME_OR_DATE", "CHANGE_SEARCH_RADIUS"],
+            "issues": sorted(result_issues),
+            "recovery_options": [] if status == "AVAILABLE" else ["CHANGE_TIME_OR_DATE", "CHANGE_ORIGIN"],
             "coverage_scope": "provided_candidate_pool_only"}
 
 
@@ -535,6 +671,7 @@ def validate_selection(job, result):
     p = prepare(job)
     if p["issues"]: raise ValueError("cannot validate unresolved request")
     if [d["day_id"] for d in result.get("days", [])] != [d["day_id"] for d in p["days"]]: raise ValueError("day mismatch")
+    validate_roster(p['replacement'], result)
     selected, charges = {}, []
     lookup = {(o.day_id, o.activity_id, o.place_id): i for i, o in enumerate(p["options"])}
     for day, output in zip(p["days"], result["days"], strict=True):

@@ -23,4 +23,14 @@ describe.skipIf(!existsSync(python))('TypeScript -> Python -> OR-Tools', () => {
     expect(reply.status).toBe('ERROR');
     expect(JSON.stringify(reply)).not.toContain('must-not-appear');
   });
+
+  it('accepts internal recovery completion through the real CLI without leaking DONE as a public plan', async () => {
+    const input = JSON.parse(execFileSync(python, [resolve('planner/run.py'), '--demo-input'], { encoding: 'utf8', windowsHide: true }));
+    const prepared = await runPythonPlanner(input, { operation: 'prepare-routes' });
+    const job = { ...(prepared.job as Record<string, unknown>), route_legs: input.route_legs };
+    const result = await runPythonPlanner(job);
+    expect(result.status).toBe('AVAILABLE');
+    const recovered = await runPythonPlanner({ job, result, attempted: [] }, { operation: 'recover-routes' });
+    expect(recovered.status).toBe('DONE'); expect(recovered.stop_reason).toBe('COVERAGE_COMPLETE');
+  }, 15_000);
 });

@@ -33,6 +33,7 @@ export const config = {
   dgisPlacesApiKey: process.env.DGIS_PLACES_API_KEY?.trim() || '',
   dgisRoutingApiKey: process.env.DGIS_ROUTING_API_KEY?.trim() || '',
   dgisBackupApiKey: process.env.DGIS_BACKUP_API_KEY?.trim() || '',
+  dgisTertiaryApiKey: process.env.DGIS_TERTIARY_API_KEY?.trim() || '',
   host: process.env.HOST?.trim() || '0.0.0.0',
   isProduction: process.env.NODE_ENV === 'production',
   initDataTtlSeconds: parsePositiveInteger(

@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 const Reply = z.object({
   schema_version: z.literal('place-selection.v1'),
-  status: z.enum(['AVAILABLE', 'LIMITED', 'UNAVAILABLE', 'NEEDS_INPUT', 'ERROR']),
+  status: z.enum(['AVAILABLE', 'LIMITED', 'UNAVAILABLE', 'NEEDS_INPUT', 'ERROR', 'DONE']),
 }).passthrough();
 const MAX_BYTES = 8 * 1024 * 1024;
 
@@ -18,7 +18,7 @@ export function defaultPlannerPython(directory = resolve('planner')) {
 export async function runPythonPlanner(job: unknown, options: {
   plannerDirectory?: string;
   pythonExecutable?: string;
-  operation?: 'solve' | 'prepare-routes' | 'route-checks';
+  operation?: 'solve' | 'prepare-routes' | 'route-checks' | 'recover-routes';
 } = {}) {
   const directory = resolve(options.plannerDirectory ?? 'planner');
   const python = options.pythonExecutable ?? defaultPlannerPython(directory);
@@ -53,6 +53,7 @@ export async function runPythonPlanner(job: unknown, options: {
       if (settled) return;
       try {
         const reply = Reply.parse(JSON.parse(Buffer.concat(chunks).toString('utf-8')));
+        if (reply.status === 'DONE' && options.operation !== 'recover-routes') throw new Error('Unexpected internal planner status');
         if (code !== 0 && reply.status !== 'ERROR') throw new Error('Invalid process result');
         settled = true;
         clearTimeout(timer);

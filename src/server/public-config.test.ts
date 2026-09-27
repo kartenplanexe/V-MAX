@@ -24,4 +24,8 @@ describe('selectPublicMapglKey', () => {
       }),
     ).toBe('public-map-key');
   });
+  it.each(['backupApiKey', 'tertiaryApiKey'])('does not publish a %s used by server fallbacks', field => {
+    expect(selectPublicMapglKey({ isProduction: true, mapglApiKey: 'public-key', placesApiKey: 'main',
+      routingApiKey: 'main', [field]: ' public-key ' })).toBe('');
+  });
 });

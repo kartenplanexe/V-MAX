@@ -7,6 +7,19 @@ const row = (from = a, to = b) => ({ lat1: from.lat, lon1: from.lon, lat2: to.la
 const client = (fetchImpl: typeof fetch) => new DgisClient({ placesApiKey: 'secret-marker', routingApiKey: 'secret-marker', fetchImpl });
 
 describe('2GIS dated routing pairs wire contract', () => {
+  it('applies the same physical attempt hook to each routing fallback without consuming invalid input', async () => {
+    let calls = 0, consumed = 0;
+    const stop = new Error('synthetic-pair-budget-stop');
+    const instance = new DgisClient({ placesApiKey: 'test', routingApiKey: 'primary', backupApiKey: 'backup', fetchImpl: async () => {
+      calls++; return new Response(null, { status: 403 });
+    } });
+    const requestBudget = { consume() { if (consumed >= 1) throw stop; consumed++; } };
+    await expect(instance.buildRoutePairs({ ...request, pairs: [], requestBudget })).rejects.toThrow('Invalid');
+    expect(consumed).toBe(0);
+    await expect(instance.buildRoutePairs({ ...request, requestBudget })).rejects.toBe(stop);
+    expect(calls).toBe(1); expect(consumed).toBe(1);
+  });
+
   it('binds reordered responses by coordinates and sends UTC/statistics without saving routes', async () => {
     let body: any;
     const instance = client(async (_, init) => { body = JSON.parse(String(init!.body)); return Response.json([row(b, c), row()]); });

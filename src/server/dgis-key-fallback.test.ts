@@ -12,7 +12,7 @@ it('tries a backup for provider key denials even with HTTP 200, not malformed re
 
 it('switches only the limited service and periodically rechecks the primary', () => {
   let now = 0;
-  const keys = new DgisKeyFallback('primary', 'backup', () => now);
+  const keys = new DgisKeyFallback('primary', ['backup'], () => now);
   expect(keys.current('categories')).toBe('primary');
   expect(keys.backupAfterDenial('categories', 'primary')).toBe('backup');
   expect(keys.current('categories')).toBe('backup');
@@ -20,5 +20,20 @@ it('switches only the limited service and periodically rechecks the primary', ()
   expect(keys.backupAfterDenial('categories', 'backup')).toBeNull();
   now = 600_001;
   expect(keys.current('categories')).toBe('primary');
-  expect(new DgisKeyFallback('same', 'same').backupAfterDenial('places', 'same')).toBeNull();
+  expect(new DgisKeyFallback('same', ['same']).backupAfterDenial('places', 'same')).toBeNull();
+});
+
+it('tries three distinct keys in order, isolates service quotas, and does not retry all-denied keys until cooldown', () => {
+  let now = 0;
+  const keys = new DgisKeyFallback('primary', ['primary', 'backup', 'backup', 'third'], () => now);
+  expect(keys.backupAfterDenial('categories', 'primary')).toBe('backup');
+  expect(keys.role('backup')).toBe('backup_1');
+  expect(keys.backupAfterDenial('categories', 'backup')).toBe('third');
+  expect(keys.role('third')).toBe('backup_2');
+  expect(keys.current('categories')).toBe('third');
+  expect(keys.current('places')).toBe('primary');
+  expect(keys.backupAfterDenial('categories', 'third')).toBeNull();
+  expect(keys.current('categories')).toBeNull();
+  now = 600_001;
+  expect(keys.current('categories')).toBe('primary');
 });

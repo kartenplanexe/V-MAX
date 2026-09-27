@@ -3,12 +3,18 @@ import { request as httpsRequest } from 'node:https';
 import { getCACertificates } from 'node:tls';
 import type { FastifyInstance } from 'fastify';
 import type { PlanningView } from '../shared/planning-form.js';
+import { DEFAULT_SEARCH_RADIUS_METERS } from '../shared/search-radius.js';
 import { isExactGreeting } from './intent-start.js';
 import { InitialIntentError } from './intent-start.js';
 import { PlanningSessionError } from './planning-sessions.js';
 import type { BotNavigation, ChatPending, PlanningDatabase, SavedRoute } from './planning-database.js';
 import type { AddressChoice, VerifiedLocality } from './live-geography.js';
+import type { SavedConditionsView } from '../shared/saved-conditions.js';
+import { savedConditionsText } from '../shared/saved-conditions-text.js';
+import { partialSearchNotice, planFailureNotice, planWarningCodes, searchScopeNotice, shortlistNotice, unavailablePlanNotice } from '../shared/plan-evidence-text.js';
 import { russianTrustedRootCa } from './max-ca.js';
+import { mobilityText } from '../shared/route-travel-text.js';
+import { placeSourceLink, planDataEvidence, splitMaxText, travelSegmentText, eventVisitText, eventGapText } from './max-plan-text.js';
 
 type Button = { type: 'callback' | 'open_app' | 'request_geo_location'; text: string;
   payload?: string; web_app?: string };
@@ -27,6 +33,8 @@ export interface MaxChatDependencies {
     confirm(owner: string, id: string, input: unknown): Promise<PlanningView> | PlanningView;
     calculate(owner: string, id: string, input: unknown): Promise<PlanningView>;
     remove(owner: string, id: string): Promise<void> | void;
+    getSaved?(owner: string, id: string): Promise<SavedConditionsView>;
+    restore?(owner: string, id: string, input: unknown): Promise<PlanningView>;
   };
   transport: { send(userId: number, message: Message): Promise<void>; answer(callbackId: string): Promise<void> };
   botUsername: string;
@@ -112,10 +120,19 @@ function summary(view: PlanningView) {
     if (day.activities.length) parts.push(`✨ ${day.activities.map(a => a.label).join(' → ')}`);
   }
   const mobility = view.draft.shared.mobility?.[0];
-  if (mobility) parts.push(`🚶 ${mobility === 'walking' ? 'Пешком' : mobility === 'driving' ? 'На машине' : 'На велосипеде'}`);
+  if (view.draft.shared.party?.total) parts.push(`Участников: ${view.draft.shared.party.total}`);
+  const childAges = view.draft.shared.party?.child_ages;
+  if (childAges) parts.push(childAges.length ? `Возраст детей: ${childAges.join(', ')} лет` : 'Группа без детей');
+  if (mobility) parts.push(`🚶 ${mobilityText(mobility)}`);
   const budget = view.draft.shared.budget;
-  if (budget?.kind === 'limit') parts.push(`💳 До ${budget.amount_rub} ₽`);
+  if (budget?.kind === 'limit') {
+    const scope = `${budget.basis === 'whole_party' ? 'на всех' : budget.basis === 'per_person' ? 'на человека' : '(единицу уточним)'} ${budget.period === 'whole_trip' ? 'за поездку' : budget.period === 'per_day' ? 'за день' : '(срок уточним)'}`;
+    parts.push(budget.enforcement === 'estimated'
+      ? `💳 Ориентир ${budget.amount_rub} ₽ ${scope}. Цены оценим по среднему чеку на человека; соблюдение суммы не гарантируется.`
+      : `💳 До ${budget.amount_rub} ₽ ${scope} — строгий лимит`);
+  }
   if (view.draft.points.origin) parts.push(`↗️ Старт: ${view.draft.points.origin.label ?? 'выбранная точка'}`);
+  parts.push(`Радиус от старта: ${new Intl.NumberFormat('ru-RU').format((view.draft.shared.search_radius_meters ?? DEFAULT_SEARCH_RADIUS_METERS) / 1000)} км. Можно изменить в условиях мини-приложения.`);
   if (Object.values(view.provenance).includes('suggested')) parts.push('Время без точных часов — наше предложение, его можно изменить.');
   return parts.join('\n').slice(0, 3900);
 }
@@ -125,15 +142,52 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
   if (!result) return [{ text: 'План ещё не рассчитан.' }];
   const routeCheckFailed = result.warnings.some(warning =>
     ['ROUTING_PROVIDER_FAILURE', 'ROUTE_MATRIX_INCOMPLETE'].includes(warning));
-  const searchIncomplete = result.warnings.includes('RETRIEVAL_PARTIAL');
+  const searchIncomplete = planWarningCodes(result).includes('RETRIEVAL_PARTIAL');
   const tentative = result.warnings.includes('OPENING_HOURS_UNVERIFIED');
+  const warnings = new Set(result.warnings);
+  const segments = result.days.flatMap(day => day.travel_segments ?? []);
+  const timezone = view.draft.locality.timezone;
+  const unknownFare = ['TRANSIT_PRICE_UNKNOWN', 'TRANSPORT_COST_UNKNOWN'].some(code => warnings.has(code));
   const lead = result.status === 'AVAILABLE' ? 'Готово — вот план:' : result.status === 'LIMITED'
     ? tentative ? 'Предварительный план: доступность места на это время не подтверждена.' : 'Удалось составить часть плана:' : result.status === 'ERROR'
-      ? 'Сервис мест или маршрутов временно не ответил.' : routeCheckFailed
+      ? planFailureNotice(result) : routeCheckFailed
         ? 'Места могли найтись, но сейчас не удалось проверить путь до них.'
         : searchIncomplete ? 'Поиск мест завершился не полностью; проверенного плана пока нет.'
           : 'Пока нет проверенного плана для этих условий.';
   const messages: Message[] = [{ text: lead }];
+  if (result.days.some(day => day.visits.length)) messages.push({ text:
+    `${mobilityText(view.draft.shared.mobility?.[0])}. Время в плане расчётное; прибытие и доступность не гарантируются.` });
+  if (result.data_mode === 'test' || result.days.some(day => day.visits.some(visit => visit.source?.data_mode === 'test')) ||
+      segments.some(segment => segment.source.data_mode === 'test')) messages.push({ text: 'Учебный расчёт: использованы тестовые данные.' });
+  if (warnings.has('PT_SCHEDULE_SEARCH_BOUNDED')) messages.push({ text:
+    'Проверены отдельные отправления в заданном окне. Между ними могут быть другие рейсы; можно изменить время или старт.' });
+  if (warnings.has('PT_SCHEDULE_UNVERIFIED') || segments.some(segment => segment.transit &&
+      !segment.transit.pedestrian && segment.transit.scheduleEvidence === 'unknown')) messages.push({ text:
+    'Расписание не подтверждено данными провайдера; уточните отправление перед выходом.' });
+  if (unknownFare) messages.push({ text: 'Стоимость проезда неизвестна; итоговые расходы на всю поездку не подтверждены.' });
+  if (warnings.has('PT_WALKING_SEGMENT') && !segments.some(segment => segment.transit?.pedestrian))
+    messages.push({ text: 'Часть переходов в режиме ОТ выполняется полностью пешком.' });
+  if (warnings.has('ROUTE_GEOMETRY_UNAVAILABLE')) messages.push({ text:
+    'Геометрия части переходов недоступна: на карте может не быть линии пути.' });
+  const scope = searchScopeNotice(result);
+  if (scope) messages.push({ text: scope });
+  if (result.days.some(day => day.visits.length) && searchIncomplete) messages.push({ text: partialSearchNotice });
+  if (result.shortlist?.groups.some(group => group.truncated)) messages.push({ text: shortlistNotice });
+  if (result.issues?.includes('ROUTING_SCOPE_TOO_LARGE')) messages.push({ text:
+    'В одном расчёте не удалось проверить пути для всех занятий. Разделите их по дням или уменьшите число занятий в условиях маршрута.' });
+  if (result.issues?.includes('BUDGET_PRICE_DATA_REQUIRED')) messages.push({ text:
+    'Для части мест нет цены, по которой можно проверить ваш бюджет. Средний чек не гарантирует итоговую стоимость. Можно явно выбрать приблизительный расчёт по среднему чеку на человека; места без известной цены останутся исключены.' });
+  if (result.issues?.includes('TRANSPORT_COST_POLICY_REQUIRED')) messages.push({ text:
+    'Цена проезда неизвестна, поэтому общий лимит расходов проверить нельзя. Можно выбрать пеший режим или явно убрать ограничение бюджета.' });
+  if (result.warnings.includes('BUDGET_ESTIMATED_NOT_GUARANTEED')) messages.push({ text:
+    'Вы выбрали приблизительный бюджет. Расходы рассчитаны по оценкам; фактическая сумма может оказаться выше лимита.' });
+  if (result.days.some(day => day.visits.some(visit => visit.event))) messages.push({ text:
+    'План не покупает билеты и не оформляет бронирование. Наличие мест и условия посещения уточните у организатора.' });
+  for (const text of new Set((result.event_gaps ?? []).map(gap => {
+    const day = view.draft.days.find(item => item.day_id === gap.day_id);
+    const label = day?.activities.find(activity => activity.id === gap.activity_id)?.label ?? 'Выбранное событие';
+    return `${day?.date ?? 'Выбранный день'} · ${label}: ${eventGapText(gap.code)}`;
+  }))) messages.push({ text });
   const planOrigin = result.origin ?? view.draft.points.origin;
   for (const day of result.days) {
     const lines = [`📅 ${day.date}`];
@@ -141,33 +195,44 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
     if (day.visits.length && planOrigin) {
       lines.push(`📍 Старт${draftDay?.window ? ` ${draftDay.window.start}` : ''}: ${planOrigin.label ?? 'выбранная точка'}`);
     }
+    let previous = '@origin';
     for (const visit of day.visits) {
+      const segment = day.travel_segments?.find(candidate => candidate.from_id === previous && candidate.to_id === visit.place_id);
+      lines.push(...travelSegmentText(segment, timezone));
       lines.push(`${clock(visit.starts_at)}–${clock(visit.ends_at)}  ${visit.name}`);
+      lines.push(...eventVisitText(visit, timezone));
       if (visit.location_label) lines.push(`📍 ${visit.location_label}`);
       lines.push(`В пути ${visit.travel_before_minutes} мин${visit.distance_before_meters == null ? '' : ` / ≈${Math.round(visit.distance_before_meters / 100) / 10} км`} · запас ${visit.arrival_buffer_minutes} мин · ${visit.price_expected_minor == null ? 'цена неизвестна' : `≈ ${visit.price_expected_minor / 100} ₽`}`);
       if (visit.warnings.includes('OPENING_HOURS_UNVERIFIED')) lines.push('Часы работы не указаны; проверьте доступность перед выходом.');
-      if (visit.source) lines.push(`Источник: ${visit.source.provider}`);
-      if (visit.source?.provider === '2gis' && visit.source.url?.startsWith('https://2gis.ru/'))
-        lines.push(`Место в 2ГИС: ${visit.source.url}`);
+      const url = placeSourceLink(visit.source);
+      if (url) lines.push(`Место в 2ГИС: ${url}`);
+      previous = visit.place_id;
+    }
+    const last = day.visits.at(-1), destination = view.draft.points.destination;
+    if (last && destination) {
+      lines.push(`🏁 Финиш: ${destination.label ?? 'выбранная точка'}`);
+      const finalSegment = day.travel_segments?.find(segment => segment.from_id === last.place_id && segment.to_id === '@destination');
+      lines.push(...travelSegmentText(finalSegment, timezone));
+      if (day.ends_at !== undefined && Number.isFinite(day.ends_at) && day.ends_at >= last.ends_at)
+        lines.push(`В пути ${day.ends_at - last.ends_at} мин · расчётное прибытие ${clock(day.ends_at)}.`);
+      else lines.push('Расчётное время прибытия не указано.');
     }
     if (result.warnings.includes('WALK_WAYPOINTS_INCOMPLETE') && day.visits.length === 1)
       lines.push('Пока удалось подобрать только один ориентир прогулки; это не полный прогулочный маршрут.');
-    if (day.missing_activity_ids.length) lines.push('Не все пожелания удалось включить.');
-    if (!day.visits.length) lines.push(routeCheckFailed
-      ? 'Не будем выдавать непроверенный маршрут. Повторите расчёт позже.'
-      : searchIncomplete ? 'Поиск охватил только часть мест. Для этих условий проверенный маршрут не получился.'
-        : 'В проверенной части поиска подходящий маршрут не получился. Можно изменить время или точку старта.');
-    let chunk = '';
-    for (const line of lines) {
-      if ((chunk + '\n' + line).length > 3800 && chunk) { messages.push({ text: chunk }); chunk = ''; }
-      chunk += (chunk ? '\n' : '') + line.slice(0, 3800);
+    if (day.missing_activity_ids.length) {
+      const labels = day.missing_activity_ids.map(id => draftDay?.activities.find(activity => activity.id === id)?.label ?? 'часть пожеланий');
+      lines.push(`Не удалось включить: ${labels.join(', ')}.`);
+      lines.push('Это неполный маршрут — оставшиеся пожелания не считаем выполненными.');
     }
-    if (chunk) messages.push({ text: chunk });
+    if (!day.visits.length) lines.push(unavailablePlanNotice(result));
+    messages.push({ text: lines.join('\n') });
   }
-  if (result.days.some(day => day.visits.length) && result.total_expected_cost_minor != null)
+  const evidence = planDataEvidence(result, timezone);
+  if (evidence.length) messages.push({ text: evidence.join('\n') });
+  if (result.days.some(day => day.visits.length) && result.total_expected_cost_minor != null && !unknownFare)
     messages.push({ text: `Ожидаемые расходы: ≈ ${result.total_expected_cost_minor / 100} ₽. Время и расходы могут быть приблизительными.` });
   if (messages.length === 1) messages[0]!.text += '\nМожно изменить время или точку старта.';
-  return messages;
+  return messages.flatMap(message => splitMaxText(message.text).map(text => ({ ...message, text })));
 }
 
 export class MaxChatController {
@@ -279,8 +344,30 @@ export class MaxChatController {
     } catch (error) {
       if (!(error instanceof PlanningSessionError) || error.code !== 'DRAFT_NOT_FOUND') throw error;
       const state = await this.navigation(owner);
-      await this.send(userId, { text: `Маршрут «${route.title}» открыт. Его данные устарели; для нового расчёта нужно ещё раз проверить город и места.`,
-        buttons: [[callback('🔄 Обновить маршрут', `nav:refresh:${route.id}`)], ...navigationButtons(state, 'draft')] });
+      const saved = await this.readSaved(owner, route.draftId);
+      if (saved) {
+        const summary = savedConditionsText(saved);
+        await this.send(userId, { text: `${summary.slice(0, 3400)}${summary.length > 3400 ? '\nПолные условия доступны в мини-приложении.' : ''}`,
+          buttons: [[callback('Продолжить с этими условиями', `nav:refresh:${route.id}`)],
+            [appButton(this.deps.botUsername, 'Посмотреть сохранённые условия')], ...navigationButtons(state, 'draft')] });
+        return;
+      }
+      if (!route.requestText.trim()) {
+        await this.send(userId, { text: `Условия маршрута «${route.title}» больше не сохранены. Исходного пожелания в этой записи нет. Чтобы составить новый маршрут, напишите новое пожелание.`,
+          buttons: [[callback('Написать новое пожелание', 'nav:new')], ...navigationButtons(state, 'draft')] });
+        return;
+      }
+      await this.send(userId, { text: `Данные маршрута «${route.title}» устарели. В этой записи сохранился только исходный запрос; прежние правки восстановить нельзя. Можно явно начать заново по исходному запросу.`,
+        buttons: [[callback('Начать по исходному запросу', `nav:restart:${route.id}`)], ...navigationButtons(state, 'draft')] });
+    }
+  }
+
+  private async readSaved(owner: string, draftId: string): Promise<SavedConditionsView | null> {
+    if (!this.deps.planning.getSaved) return null;
+    try { return await this.deps.planning.getSaved(owner, draftId); }
+    catch (error) {
+      if (error instanceof PlanningSessionError && ['SAVED_CONDITIONS_NOT_FOUND', 'DRAFT_NOT_FOUND'].includes(error.code)) return null;
+      throw error;
     }
   }
 
@@ -291,6 +378,10 @@ export class MaxChatController {
     if (route) messages[0]!.text = `Маршрут: ${route.title}\n\n${messages[0]!.text}`;
     messages.at(-1)!.buttons = [[appButton(this.deps.botUsername,
       this.deps.mapEnabled ? 'Открыть ленту и карту' : 'Открыть подробный план')], ...navigationButtons(state, 'result')];
+    if (view.result?.issues?.includes('BUDGET_PRICE_DATA_REQUIRED') && view.draft.shared.budget?.kind === 'limit' &&
+        view.draft.shared.budget.enforcement !== 'estimated') {
+      messages.at(-1)!.buttons!.unshift([callback('Считать приблизительно по среднему чеку', `budget-policy:${view.id}:${view.version}:estimated`)]);
+    }
     for (let i = 0; i < messages.length; i++) {
       if (i) await new Promise(resolve => setTimeout(resolve, 550));
       await this.send(userId, messages[i]!);
@@ -325,13 +416,31 @@ export class MaxChatController {
       if (error instanceof InitialIntentError || error instanceof PlanningSessionError) {
         if (error instanceof InitialIntentError)
           this.deps.onIntentDiagnostic?.(error.code, error.diagnostic ?? { stage: 'control' });
-        const text = error.code === 'INTENT_INVALID_RESPONSE' ? 'Не удалось надёжно понять пожелание. Попробуйте написать его другими словами.'
+        const savedErrorText: Record<string, string> = {
+          SAVED_CONDITIONS_NOT_FOUND: 'Сохранённые условия удалены или срок их хранения истёк. Выберите маршрут в «Моих маршрутах».',
+          SAVED_CONDITIONS_STALE: 'Условия изменились. Откройте маршрут ещё раз перед восстановлением.',
+          SAVED_RESTORE_FAILED: 'Не удалось обновить данные. Сохранённые условия остались доступны; откройте маршрут и повторите действие позже.',
+          RESTORE_INTERRUPTED: 'Обновление было прервано. Откройте сохранённые условия и явно начните новую попытку.',
+          SAVED_CATEGORY_RECONFIRM_REQUIRED: 'Не удалось безопасно восстановить категории мест. Ваши условия сохранены и доступны в деталях; для нового подбора уточните занятия в новом маршруте.',
+          SAVED_EXCLUSIONS_RECONFIRM_REQUIRED: 'Ограничения выбора мест нужно уточнить заново. Сохранённые условия остаются доступны; автоматически убирать запреты не будем.',
+          SAVED_SEMANTIC_POLICY_CHANGED: 'Правила подбора изменились. Сохранённые условия нужно уточнить заново перед расчётом.',
+          SAVED_UNSUPPORTED_CONDITIONS: 'Часть сохранённых условий требует нового уточнения. Автоматически убирать их из запроса не будем.',
+          BUDGET_ASSUMPTION_RECONFIRM_REQUIRED: 'Для приблизительного бюджета нужно заново подтвердить способ расчёта. Сохранённые условия остаются доступны.',
+          POINT_RECONFIRM_REQUIRED: 'Сохранённую точку нужно выбрать заново в выбранном городе.',
+          SAVED_RESTORE_UNAVAILABLE: 'Восстановление условий пока недоступно. Исходный запрос автоматически не отправлялся на новый разбор.',
+        };
+        const text = savedErrorText[error.code] ?? (error.code === 'INTENT_INVALID_RESPONSE' ? 'Не получилось надёжно сопоставить пожелание с данными 2ГИС. Это ошибка разбора, а не вашего текста. Можно повторить попытку или отправить новое пожелание.'
           : error.code === 'INTENT_PROVIDER_FAILED' ? 'Сервис разбора сейчас не отвечает. Попробуйте написать запрос позже.'
             : error.code === 'CATALOG_UNAVAILABLE' ? 'Каталог 2ГИС сейчас недоступен. Новый маршрут пока не создать; сохранённые маршруты можно открыть через «Мои маршруты».'
             : error.code === 'POINT_OUTSIDE_AREA' ? 'Точка за пределами выбранного города. Укажите другой адрес, местоположение или точку на карте.'
               : error.code === 'GEOGRAPHY_UNAVAILABLE' ? 'Сейчас не получилось проверить адрес в 2ГИС. Попробуйте позже или отправьте местоположение.'
-                : 'Не получилось обработать этот шаг. Проверьте условия и попробуйте ещё раз.';
-        await this.send(update.userId, { text });
+                : 'Не получилось обработать этот шаг. Проверьте условия и попробуйте ещё раз.');
+        const retry = await this.pending(owner);
+        const state = await this.navigation(owner);
+        await this.send(update.userId, { text,
+          buttons: retry?.kind === 'intent_retry'
+            ? [[callback('🔄 Повторить разбор', `intent-retry:${retry.nonce}`)], ...navigationButtons(state)]
+            : navigationButtons(state) });
         await this.finish(owner, update.eventId);
         return 'handled' as const;
       }
@@ -353,6 +462,7 @@ export class MaxChatController {
       return;
     }
     const pending = await this.pending(owner);
+    if (pending?.kind === 'intent_retry') await this.setPending(owner, undefined);
     if ((pending?.kind === 'origin' || pending?.kind === 'origin_address' || pending?.kind === 'destination') && update.location) {
       const view = await this.deps.planning.get(owner, pending.draftId);
       const field = pending.kind === 'destination' ? 'destination' : 'origin';
@@ -426,9 +536,9 @@ export class MaxChatController {
       await this.send(userId, { text: 'Не нашёл этот населённый пункт в доступных данных. Уточните название и регион.' });
       return;
     }
-    if (choices.length === 1) { await this.beginPlan(owner, userId, requestText, requestId, choices[0]!.token, routeId); return; }
+    if (choices.length === 1) { await this.beginPlan(owner, userId, requestText, requestId, choices[0]!.token, routeId, cityText); return; }
     const nonce = randomUUID().slice(0, 8);
-    await this.setPending(owner, { kind: 'city', requestText, requestId, routeId, nonce,
+    await this.setPending(owner, { kind: 'city', requestText, requestId, routeId, nonce, localityQuery: cityText,
       choices: choices.map(c => ({ name: c.name, token: c.token })) });
     await this.send(userId, { text: 'Нашёл несколько населённых пунктов. Выберите нужный:',
       buttons: keyboard(choices.map((c, i) => [callback(c.name, `city:${nonce}:${i}`)])) });
@@ -459,12 +569,31 @@ export class MaxChatController {
     });
   }
 
-  private async beginPlan(owner: string, userId: number, text: string, requestId: string, localityToken: string, routeId?: string) {
+  private async beginPlan(owner: string, userId: number, text: string, requestId: string, localityToken: string, routeId?: string, localityQuery?: string) {
     const nav = await this.navigation(owner);
     if (routeId && (nav.activeRouteId !== routeId || !nav.routes.some(route => route.id === routeId))) {
       await this.listRoutes(owner, userId); return;
     }
-    const result = await this.deps.planning.start(owner, { event_id: requestId, user_text: text, locality_token: localityToken });
+    let result: Awaited<ReturnType<MaxChatDependencies['planning']['start']>>;
+    try {
+      const route = routeId ? nav.routes.find(item => item.id === routeId) : undefined;
+      const saved = route ? await this.readSaved(owner, route.draftId) : null;
+      if (saved && !this.deps.planning.restore) throw new PlanningSessionError('SAVED_RESTORE_UNAVAILABLE', 503);
+      result = saved
+        ? { status: 'draft', view: await this.deps.planning.restore!(owner, saved.id,
+          { event_id: requestId, base_revision: saved.revision, locality_token: localityToken }) }
+        : await this.deps.planning.start(owner, { event_id: requestId, user_text: text, locality_token: localityToken,
+          ...(localityQuery ? { locality_query: localityQuery } : {}) });
+    } catch (error) {
+      // A failed city-selected parse must not leave the chat waiting for another
+      // city. Preserve only a short-lived, explicit retry of the same request.
+      if (error instanceof InitialIntentError && ['INTENT_INVALID_RESPONSE', 'INTENT_NEEDS_CLARIFICATION',
+        'INTENT_PROVIDER_FAILED'].includes(error.code)) {
+        await this.setPending(owner, { kind: 'intent_retry', requestText: text, localityToken,
+          routeId, localityQuery, nonce: randomUUID().slice(0, 8) });
+      } else await this.setPending(owner, undefined);
+      throw error;
+    }
     await this.setPending(owner, undefined);
     if (result.status === 'off_topic') {
       const state = await this.navigation(owner);
@@ -506,9 +635,11 @@ export class MaxChatController {
       buttons.push([callback('Финиш не важен', `clear-destination:${view.id}:${view.version}`)]);
       if (this.deps.mapEnabled) buttons.push([appButton(this.deps.botUsername, 'Выбрать на карте')]);
       await this.setPending(owner, { kind: 'destination', draftId: view.id });
-    } else if (issue?.code === 'TRANSPORT_REQUIRED') {
-      question = '\n\nКак будем передвигаться?';
-      buttons.push(view.capabilities.modes.map(mode => callback(
+    } else if (issue?.code === 'TRANSPORT_REQUIRED' || issue?.code === 'WALK_ROUTE_REQUIRES_WALKING') {
+      question = issue.code === 'WALK_ROUTE_REQUIRES_WALKING'
+        ? '\n\nДля прогулки между местами нужен пеший маршрут. Смешивать поездку и пешую часть пока не умеем. Переключить на пеший?'
+        : '\n\nКак будем передвигаться?';
+      buttons.push(view.capabilities.modes.filter(mode => issue.code !== 'WALK_ROUTE_REQUIRES_WALKING' || mode === 'walking').map(mode => callback(
         mode === 'walking' ? 'Пешком' : mode === 'driving' ? 'Машина' : 'Велосипед',
         `mobility:${view.id}:${view.version}:${mode}`)));
       await this.setPending(owner, undefined);
@@ -522,6 +653,11 @@ export class MaxChatController {
     } else if (issue?.code === 'PARTY_REQUIRED') {
       question = '\n\nСколько будет человек? Напишите одно число.';
       await this.setPending(owner, { kind: 'party', draftId: view.id });
+    } else if (issue?.code === 'BUDGET_PRICE_BASIS_REQUIRED') {
+      question = '\n\nСредний чек можно использовать только как ориентир на человека. Итоговая сумма может быть выше бюджета. Как считать?';
+      buttons.push([callback('По среднему чеку на человека', `budget-policy:${view.id}:${view.version}:estimated`)]);
+      buttons.push([callback('Оставить строгий лимит', `budget-policy:${view.id}:${view.version}:strict`)]);
+      await this.setPending(owner, undefined);
     } else if (issue?.code === 'WINDOW_EXPIRED') {
       question = '\n\nЭто время уже прошло. Перенести тот же план на завтра?';
       buttons.push([callback('На завтра', `next-day:${view.id}:${view.version}`)]);
@@ -562,6 +698,22 @@ export class MaxChatController {
       const state = await this.navigation(owner);
       const route = state.routes.find(item => item.id === routeId);
       if (!route || state.activeRouteId !== routeId) { await this.listRoutes(owner, update.userId); return; }
+      const saved = await this.readSaved(owner, route.draftId);
+      if (saved) {
+        await this.setPending(owner, { kind: 'city', requestText: route.requestText, requestId: update.eventId,
+          routeId, nonce: randomUUID().slice(0, 8) });
+        await this.send(update.userId, { text: 'Ваши изменённые условия сохранены. В каком городе продолжить? Напишите название — получим свежие данные, затем проверим даты и точку старта.' });
+        return;
+      }
+      await this.openRoute(owner, update.userId, route.id);
+      return;
+    }
+    if (/^nav:restart:[0-9a-f-]{36}$/u.test(payload)) {
+      const routeId = payload.slice('nav:restart:'.length), state = await this.navigation(owner);
+      const route = state.routes.find(item => item.id === routeId);
+      if (!route || state.activeRouteId !== routeId) { await this.listRoutes(owner, update.userId); return; }
+      if (await this.readSaved(owner, route.draftId)) { await this.openRoute(owner, update.userId, route.id); return; }
+      if (!route.requestText.trim()) { await this.startNew(owner, update.userId); return; }
       await this.chooseCity(owner, update.userId, route.requestText, update.eventId, route.localityName, route.id);
       return;
     }
@@ -598,10 +750,16 @@ export class MaxChatController {
       return;
     }
     const pending = await this.pending(owner);
+    if (payload.startsWith('intent-retry:') && pending?.kind === 'intent_retry') {
+      if (payload.slice('intent-retry:'.length) !== pending.nonce) return;
+      await this.beginPlan(owner, update.userId, pending.requestText, update.eventId,
+        pending.localityToken, pending.routeId, pending.localityQuery);
+      return;
+    }
     if (payload.startsWith('city:') && pending?.kind === 'city') {
       const [, nonce, rawIndex] = payload.split(':'); const index = Number(rawIndex);
       if (nonce !== pending.nonce || !Number.isSafeInteger(index) || index < 0 || !pending.choices?.[index]) return;
-      await this.beginPlan(owner, update.userId, pending.requestText, pending.requestId, pending.choices[index]!.token, pending.routeId);
+      await this.beginPlan(owner, update.userId, pending.requestText, pending.requestId, pending.choices[index]!.token, pending.routeId, pending.localityQuery);
       return;
     }
     if (payload.startsWith('origin-address-choice:') && pending?.kind === 'origin_address' && pending.query && pending.nonce) {
@@ -619,7 +777,7 @@ export class MaxChatController {
       return;
     }
     const [action, id, version, ...rest] = payload.split(':');
-    if (!['origin-address', 'mobility', 'window', 'budget', 'next-day', 'clear-destination', 'plan'].includes(action ?? '') || !id || !/^\d+$/u.test(version ?? '')) return;
+    if (!['origin-address', 'mobility', 'window', 'budget', 'budget-policy', 'next-day', 'clear-destination', 'plan'].includes(action ?? '') || !id || !/^\d+$/u.test(version ?? '')) return;
     const nav = await this.navigation(owner);
     if (!nav.routes.some(route => route.id === nav.activeRouteId && route.draftId === id)) {
       await this.send(update.userId, { text: 'Эта кнопка относится к другому маршруту. Откройте нужный из списка.',
@@ -637,7 +795,10 @@ export class MaxChatController {
       return;
     }
     if (action === 'plan') {
-      const confirmed = await this.deps.planning.confirm(owner, id, { base_version: view.version, event_id: update.eventId + '-confirm' });
+      if (view.result) { await this.sendPlan(update.userId, view); return; }
+      const confirmed = view.phase === 'DRAFT'
+        ? await this.deps.planning.confirm(owner, id, { base_version: view.version, event_id: update.eventId + '-confirm' })
+        : view;
       const planned = await this.deps.planning.calculate(owner, id, { base_version: confirmed.version, event_id: update.eventId + '-calculate' });
       await this.changeNavigation(owner, state => {
         const route = state.routes.find(item => item.id === state.activeRouteId && item.draftId === id);
@@ -652,6 +813,11 @@ export class MaxChatController {
     else if (action === 'budget' && view.draft.shared.budget?.kind === 'limit' &&
       ['whole_party', 'per_person'].includes(rest[0] ?? '') && ['per_day', 'whole_trip'].includes(rest[1] ?? ''))
       changes = [{ op: 'budget', value: { ...view.draft.shared.budget, basis: rest[0], period: rest[1] } }];
+    else if (action === 'budget-policy' && view.draft.shared.budget?.kind === 'limit' && ['strict', 'estimated'].includes(rest[0] ?? '')) {
+      const { price_basis_assumption: _previousAssumption, ...budget } = view.draft.shared.budget;
+      changes = [{ op: 'budget', value: { ...budget, enforcement: rest[0],
+        ...(rest[0] === 'estimated' ? { price_basis_assumption: 'per_person' } : {}) } }];
+    }
     else if (action === 'next-day') {
       const parts = new Intl.DateTimeFormat('en-GB', { timeZone: view.draft.locality.timezone,
         year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
@@ -684,11 +850,13 @@ export function registerMaxChatRoute(app: FastifyInstance, deps: MaxChatDependen
     if (!validMaxWebhookSecret(request.headers['x-max-bot-api-secret'], botToken))
       return reply.code(401).send({ status: 'unauthorized' });
     try {
-      const status = await controller.handle(request.body);
+      const update = parseUpdate(request.body);
+      const status = update ? await deps.database.withChatUpdate(`max:${update.userId}`, () => controller.handle(request.body)) : 'ignored';
       if (status === 'retry_later') return reply.code(503).send({ status });
       return { status };
     } catch (error) {
-      app.log.warn({ code: error instanceof Error ? error.message : 'UNKNOWN' }, 'MAX chat update failed');
+      const code = error instanceof Error && /^(?:MAX_SEND|INTENT|GEOGRAPHY|DATABASE|PLAN|SAVED|CHAT)_[A-Z0-9_]{1,70}$/u.test(error.message) ? error.message : 'OTHER';
+      app.log.warn({ code }, 'MAX chat update failed');
       return reply.code(503).send({ status: 'retry_later' });
     }
   });

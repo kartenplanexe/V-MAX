@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { FormDraft, type PlanningView } from '../shared/planning-form.js';
 import { buildDailyRepairRequest, buildDailyRequest } from './intent/daily-contract.mjs';
 import { projectNewDailyIntent } from './intent/daily-time.mjs';
+import { classifyActivityIntent, hasWalkingRequest } from './activity-intent.js';
 
 export type CatalogRow = [string, string, string[], { type?: string; caption?: string; declared_parent_ids?: string[] }?];
 export interface InitialContext {
@@ -26,7 +27,8 @@ export const isExactGreeting = (text: string) => greetings.has(name(text).replac
 interface ValidatedProposal {
   action: string;
   shared_updates: { op: string; field: string; value: unknown }[];
-  days: { day_id: string; activity_edits: { activity_id: string; label: string; selection: unknown; requirements: unknown[] }[];
+  days: { day_id: string; activity_edits: { activity_id: string; label: string; evidence: string;
+    selection: { named_types: string[]; category_policy: string }; requirements: unknown[] }[];
     category_matches: { activity_id: string; state: string; include_any: string[]; exclude: string[] }[];
     order_changes: { op: string; before: string; after: string }[] }[];
 }
@@ -45,9 +47,12 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
   let raw = await provider(buildDailyRequest(input));
   let projection = projectNewDailyIntent(raw, input);
   const firstErrors = projection.guard.errors;
+  const repairable = new Set(['SCHEMA', 'CATEGORY_ID', 'NONCONTIGUOUS_OFFSETS',
+    'ANCHOR_WITHOUT_OFFSETS', 'UNSUPPORTED_EVIDENCE', 'DATE_WITHOUT_EVIDENCE',
+    'STRICT_CATEGORY_MISMATCH', 'SEMANTIC_ACTIVITY_MISSING', 'SEMANTIC_ACTIVITY_MERGED',
+    'SEMANTIC_ACTIVITY_NEGATED', 'SEMANTIC_CATEGORY_MISMATCH', 'SEMANTIC_ORDER_MISSING']);
   if (raw && typeof raw === 'object' && 'action' in raw && raw.action === 'new_request' &&
-      firstErrors.length > 0 && firstErrors.every((error: string) =>
-        error === 'CATEGORY_ID' || error === 'NONCONTIGUOUS_OFFSETS')) {
+      firstErrors.length > 0 && firstErrors.every((error: string) => repairable.has(error))) {
     // Reserve/bill a second call through the provider callback. Never loop or silently
     // accept an invalid category/date merely to make a plan appear.
     raw = await provider(buildDailyRepairRequest(input, firstErrors, raw));
@@ -63,7 +68,8 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
   if (proposal?.action === 'off_topic') return { status: 'off_topic' };
   const schemaIssues = 'schema_errors' in projection.guard && Array.isArray(projection.guard.schema_errors)
     ? projection.guard.schema_errors : [];
-  if (!proposal) throw new InitialIntentError(projection.guard.status === 'needs_clarification' ? 'INTENT_NEEDS_CLARIFICATION' : 'INTENT_INVALID_RESPONSE', 422,
+  if (!proposal) throw new InitialIntentError(projection.guard.status === 'needs_clarification' ||
+    projection.guard.errors.some((error: string) => error.startsWith('SEMANTIC_')) ? 'INTENT_NEEDS_CLARIFICATION' : 'INTENT_INVALID_RESPONSE', 422,
     { stage: 'guard', status: projection.guard.status, errors: projection.guard.errors.slice(0, 12),
       reasons: projection.guard.reasons.slice(0, 12),
       schema: schemaIssues.slice(0, 12).map((issue: { instancePath: string; keyword: string }) =>
@@ -79,14 +85,6 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
     else shared[head!] = update.value;
     provenance[`shared.${update.field}`] = 'user';
   }
-  // A walking outing implies a walking route unless the user explicitly chose
-  // another way to travel between places. Do not require a second form question
-  // for the most ordinary interpretation of «хочу погулять».
-  if (!shared.mobility && /(?:по|про)гуля(?:ть|ться|ю|ем)|пройтись|пешую\s+прогулку/iu.test(text) &&
-      !/машин|автомобил|такси|автобус|метро|трамва|велосипед|велике|общественн\w*\s+транспорт/iu.test(text)) {
-    shared.mobility = ['walking'];
-    provenance['shared.mobility'] = 'inferred_walk';
-  }
   const days = proposal.days.map((day, index) => {
     const projected = projection.days[index]!, dayId = `day-${index + 1}`;
     const ids = new Map(day.activity_edits.map((a, i) => [a.activity_id, `${dayId}-activity-${i + 1}`]));
@@ -99,13 +97,23 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
       ...(projected.duration_constraint_minutes != null ? { duration_constraint_minutes: projected.duration_constraint_minutes } : {}),
       activities: day.activity_edits.map(a => {
         const match = day.category_matches.find(c => c.activity_id === a.activity_id)!;
-        return { id: ids.get(a.activity_id), label: a.label, selection: a.selection, requirements: a.requirements,
+        return { id: ids.get(a.activity_id), label: a.label,
+          intent_kind: classifyActivityIntent({ label: a.label, evidence: a.evidence,
+            namedTypes: a.selection.named_types }), selection: a.selection, requirements: a.requirements,
           categories: { state: match.state, include_any: match.include_any, exclude: match.exclude,
             region_id: context.catalog.region_id, catalog_version: context.catalog.version } };
       }),
       order: day.order_changes.filter(e => e.op === 'add').map(e => [ids.get(e.before), ids.get(e.after)]),
     };
   });
+  // A verified walking activity implies walking between places unless the user
+  // specified another mode. The decision is based on typed activities, not on
+  // one exact spelling of the whole user request.
+  if (!shared.mobility && (hasWalkingRequest(text) || days.some(day => day.activities.some(a => a.intent_kind !== 'place_visit'))) &&
+      !/машин|автомобил|такси|автобус|метро|трамва|велосипед|велике|общественн\w*\s+транспорт/iu.test(text)) {
+    shared.mobility = ['walking'];
+    provenance['shared.mobility'] = 'inferred_walk';
+  }
   const draft = FormDraft.safeParse({ locality: context.locality, shared, points: {}, days });
   if (!draft.success) throw new InitialIntentError('INTENT_INVALID_RESPONSE', 422,
     { stage: 'draft', fields: draft.error.issues.slice(0, 12).map(issue => ({ path: issue.path.join('.'), code: issue.code })) });

@@ -1,15 +1,58 @@
+import { changesFor } from '../shared/planning-edits';
 import { useEffect, useState } from 'react';
 import type { Change, PlanningView } from '../shared/planning-form';
+import { DEFAULT_SEARCH_RADIUS_METERS } from '../shared/search-radius';
 import type { PublicConfig } from '../shared/public-config';
 import './planner-form.css';
 import { PointPicker } from './PointPicker';
 import { AddressPicker, type AddressChoice } from './AddressPicker';
-import { PlanMap } from './PlanMap';
+import { PlanResult } from './PlanResult';
+import { ConditionsPanel, type ConditionSectionId } from './ConditionsPanel';
+import { InitialRequestForm } from './InitialRequestForm';
+import { Action, Icon, Sheet } from './PlannerUi';
 import { readMaxLaunchData, waitForMaxLaunchData } from './max-launch-data';
+import type { SavedConditionsView } from '../shared/saved-conditions';
+import { SavedConditionsPanel } from './SavedConditionsPanel';
+import { partialSearchNotice } from '../shared/plan-evidence-text';
+import { useColorScheme } from '@maxhub/max-ui';
+import { AlternativePanel } from './AlternativePanel';
+import type { AlternativePreview, AlternativeTarget } from '../shared/route-alternatives';
+import type { ShareCreated, SharePreview } from '../shared/route-sharing';
+import { SharePanel, SharedRoutePreview } from './SharePanel';
+import { SavedRoutesPanel } from './SavedRoutesPanel';
+import type { SavedRouteActivation, SavedRouteList } from '../shared/saved-route-list';
+import type { ManualChoices } from '../shared/manual-planning';
+import type { EventSearchPreview, EventAvailabilityPreview } from '../shared/event-selection';
+import { EventPanel, type EventPanelTarget } from './EventPanel';
+import { eventFactDeadline, selectedEventDisplay, SelectedEventItem } from './EventFacts';
+import { useExpired } from './PlannerUi';
 
 type Draft = PlanningView['draft'];
-type Bootstrap = { token: string; view: PlanningView | null; expiredRoute?: string };
+type Bootstrap = { token: string; view: PlanningView | null; expiredRoute?: string; saved?: SavedConditionsView };
 const messages: Record<string, string> = {
+  ACTIVITY_REQUIRED: 'Выберите хотя бы одно занятие или событие для этого дня.',
+  ACTIVITIES_REQUIRED: 'Выберите хотя бы одно занятие или событие для этого дня.',
+  EVENT_RECHECK_REQUIRED: 'Сохранённый выбор события нужно перепроверить перед расчётом.',
+  AGE_ELIGIBILITY_DATA_REQUIRED: 'Источник не подтвердил возрастное ограничение для вашей группы. Выберите другое событие или уточните данные у организатора.',
+  EVENT_PREVIEW_EXPIRED: 'Срок проверки афиши истёк. Обновите афишу и выберите вариант снова.',
+  EVENT_PREVIEW_STALE: 'Условия плана изменились. Откройте актуальные условия и повторите выбор.',
+  EVENT_SELECTION_CHANGED: 'Выбранный сеанс или площадка изменились. Ваше пожелание сохранено — перепроверьте или выберите событие заново.',
+  EVENT_DURATION_REQUIRED: 'Для посещения выставки укажите свою оценку длительности: от 5 до 720 минут.',
+  EVENT_LOCALITY_UNSUPPORTED: 'Для этого города пока нет подключённой афиши. Можно выбрать другие занятия.',
+  EVENT_OUTSIDE_LOCALITY: 'Площадка события находится вне выбранного города. Выберите другое событие.',
+  UNKNOWN_EVENT_ACTIVITY: 'Выбранное занятие изменилось. Откройте актуальные условия.',
+  EVENT_RESELECT_REQUIRED: 'Для события выберите другой сеанс через афишу — обычная замена места к нему не применяется.',
+  EVENT_DURATION_NOT_APPLICABLE: 'У этого сеанса официальная длительность. Выберите его без своей оценки времени.',
+  EVENT_DURATION_OUTSIDE_WINDOW: 'Указанная длительность не помещается в часы посещения. Измените её или выберите другой вариант.',
+  EVENT_LOCATION_CHANGED: 'Площадка события изменилась. Выберите событие заново и подтвердите новое место.',
+  EVENT_PROVIDER_ERROR: 'Не удалось связаться с афишей. Условия сохранены; повторите проверку позже.',
+  EVENT_PROVIDER_SCHEMA_ERROR: 'Источник не подтвердил пригодные сведения о событии. Условия сохранены.',
+  EVENT_HTTP_BUDGET_EXHAUSTED: 'Проверка афиши остановлена по лимиту запросов. Условия сохранены; можно повторить позже.',
+  EVENT_DEADLINE_EXCEEDED: 'Проверка афиши заняла слишком много времени. Условия сохранены; повторите позже.',
+  EVENT_PREVIEW_NOT_FOUND: 'Эта подборка больше недоступна. Обновите афишу.',
+  EVENT_PREVIEW_CAPACITY: 'Сейчас слишком много проверок афиши. Подождите немного и повторите.',
+  EVENT_CHOICE_NOT_FOUND: 'Выбранного варианта нет в текущей подборке. Обновите афишу.',
+  INTENT_CONFIG_REQUIRED: 'Разбор текста сейчас недоступен. Выберите город и нажмите «Выбрать вручную».',
   PLANNER_NOT_CONFIGURED: 'Планировщик пока недоступен. Попробуйте открыть его позже.',
   GEOGRAPHY_UNAVAILABLE: 'Не удалось получить города из 2ГИС. Проверьте подключение и повторите поиск.',
   ADDRESS_QUERY_REQUIRED: 'Укажите улицу и номер дома — от 4 до 120 символов.',
@@ -28,9 +71,21 @@ const messages: Record<string, string> = {
   INTENT_BUSY: 'Разбор запросов занят. Попробуйте позже.',
   LOCALITY_RESOLUTION_REQUIRED: 'Город в пожеланиях отличается от выбранного. Выберите нужный город перед отправкой.',
   BUDGET_SCOPE_REQUIRED: 'Уточните: бюджет на человека или на всех, на день или на весь план.',
+  BUDGET_PRICE_BASIS_REQUIRED: 'Для приблизительного бюджета явно выберите расчёт по среднему чеку на человека.',
+  BUDGET_PRICE_DATA_REQUIRED: 'Для части мест нет цены, позволяющей проверить бюджет. Можно выбрать приблизительный расчёт по среднему чеку на человека; соблюдение лимита тогда не гарантируется.',
   DESTINATION_REQUIRED: 'В запросе указан финиш. Выберите его или явно отмените это условие.',
   AUTH_REQUIRED: 'Не удалось подтвердить сеанс MAX. Закройте мини-приложение и откройте снова из чата с ботом.',
-  DRAFT_NOT_FOUND: 'Этот черновик больше недоступен. Обновите страницу.',
+  DRAFT_NOT_FOUND: 'Этот черновик больше недоступен. Загрузите сохранённые условия, чтобы продолжить.',
+  SAVED_CONDITIONS_NOT_FOUND: 'Срок хранения условий истёк или запись удалена. Выберите другой маршрут в чате.',
+  SAVED_CONDITIONS_STALE: 'Сохранённые условия уже изменились. Обновите страницу перед восстановлением.',
+  SAVED_RESTORE_FAILED: 'Не удалось обновить данные. Сохранённые условия остались доступны; повторите действие позже.',
+  RESTORE_INTERRUPTED: 'Обновление было прервано. Откройте сохранённые условия и явно начните новую попытку.',
+  SAVED_CATEGORY_RECONFIRM_REQUIRED: 'Часть ограничений выбора мест нельзя безопасно восстановить. Условия сохранены здесь; уточните эти пожелания в новом маршруте. Автоматически менять ограничения не будем.',
+  SAVED_SEMANTIC_POLICY_CHANGED: 'Правила подбора изменились. Сохранённые условия требуют нового уточнения.',
+  SAVED_EXCLUSIONS_RECONFIRM_REQUIRED: 'Запреты на выбор мест нужно уточнить заново. Ваши условия сохранены; автоматически убирать запреты не будем.',
+  SAVED_UNSUPPORTED_CONDITIONS: 'Часть сохранённых условий требует нового уточнения. Автоматически убирать их из запроса не будем.',
+  BUDGET_ASSUMPTION_RECONFIRM_REQUIRED: 'Сохранённый приблизительный бюджет требует явного согласия на способ расчёта.',
+  POINT_RECONFIRM_REQUIRED: 'Точку нужно выбрать заново в выбранном городе.',
   STALE_VERSION: 'Параметры уже изменились. Загрузите сохранённую версию и проверьте её.',
   STALE_RESULT: 'Параметры изменились во время расчёта. Подтвердите новую версию.',
   INVALID_ACTION: 'Проверьте даты, время и числовые значения. Начало должно быть раньше окончания.',
@@ -40,9 +95,11 @@ const messages: Record<string, string> = {
   TIME_CONFLICT: 'Время начала и окончания не соответствует продолжительности.',
   DUPLICATE_DATE: 'У каждого дня должна быть своя дата.',
   TRANSPORT_REQUIRED: 'Выберите доступный способ передвижения.',
+  WALK_ROUTE_REQUIRES_WALKING: 'Для прогулки между местами выберите пеший маршрут. Смешивать поездку и пешую часть пока не умеем.',
   UNSUPPORTED_TRANSPORT: 'Этот способ передвижения пока не подключён.',
-  PARTY_REQUIRED: 'Для бюджета на человека укажите число участников.',
-  TRANSPORT_COST_POLICY_REQUIRED: 'Пока не можем проверить общий бюджет поездки на машине. Выберите пеший маршрут или не задавайте лимит.',
+  PARTY_REQUIRED: 'Укажите общее число участников, включая детей.',
+  PARTY_SIZE_CONFLICT: 'Число участников не может быть меньше числа детей. Проверьте состав группы.',
+  TRANSPORT_COST_POLICY_REQUIRED: 'Не можем подтвердить общий бюджет вместе со стоимостью транспорта. Выберите пеший маршрут или уберите лимит расходов.',
   POINT_OUTSIDE_AREA: 'Точка вне области выбранного города. Выберите другой старт или город.',
   POINT_VERIFICATION_UNAVAILABLE: 'Проверка выбранной точки пока недоступна.',
   PLAN_IN_PROGRESS: 'Расчёт уже выполняется. Подождите и загрузите сохранённую версию.',
@@ -54,320 +111,354 @@ const messages: Record<string, string> = {
   ROUTE_RECHECK_FAILED: 'Время дороги изменилось: прежний план больше не помещается. Попробуйте расширить свободное окно.',
   PLAN_EXPIRED_OR_INVALID: 'Данные устарели во время расчёта. Этот план не выдаём как проверенный.',
   ROUTING_BUDGET_EXCEEDED: 'Для такого плана требуется слишком много расчётов маршрута. Сократите число занятий.',
+  ROUTING_BUDGET_OR_DEADLINE_EXCEEDED: 'Не удалось закончить проверку переходов за один расчёт. Можно повторить попытку или разделить занятия по дням.',
+  ROUTING_SCOPE_TOO_LARGE: 'Не удалось проверить все сочетания мест в одном расчёте. Уменьшите число занятий или разделите их по дням.',
+  ALTERNATIVE_EXPIRED: 'Срок проверки замены истёк. Подберите альтернативу ещё раз.',
+  ALTERNATIVE_NOT_FOUND: 'Эта замена больше недоступна. Подберите новую.',
+  ALTERNATIVE_PREVIEW_FAILED: 'Не удалось проверить замену. Текущий маршрут сохранён.',
+  RESULT_REQUIRED: 'Для замены сначала нужен актуальный маршрут.',
+  UNKNOWN_STOP: 'Эта остановка уже изменилась. Откройте текущий маршрут.',
+  SHARE_NOT_FOUND: 'Ссылка недоступна: возможно, она отозвана или срок действия истёк.',
+  SHARE_EXPIRED: 'Срок действия ссылки истёк.',
+  SHARE_REVOKED: 'Автор отозвал эту ссылку.',
+  SHARED_PLAN_NOT_FOUND: 'Ссылка недоступна: возможно, она отозвана или срок действия истёк.',
+  SHARE_SOURCE_STALE: 'Условия уже изменились. Закройте панель и создайте ссылку заново.',
+  SHARE_CAPACITY: 'Достигнут предел активных ссылок. Отзовите ненужную ссылку перед созданием новой.',
+  SHARED_IMPORT_INTERRUPTED: 'Сохранение копии было прервано. Ваш прежний маршрут не изменился; повторите действие.',
+  SHARED_IMPORT_FAILED: 'Не удалось сохранить копию. Ваш прежний маршрут остался доступен.',
+  SHARED_IMPORT_EXPIRED: 'Черновик этой копии уже истёк. Откройте сохранённые условия в «Моих маршрутах».',
+  SHARED_IMPORT_NEEDS_INPUT: 'Условия плана нужно уточнить заново. Автоматически снимать ограничения не будем.',
+  INVALID_MANUAL_REQUEST: 'Проверьте даты, время и выбранные занятия.',
+  MANUAL_CATALOG_CHANGED: 'Каталог обновился. Выберите категории ещё раз.',
+  ACTIVITY_OPTIONS_UNAVAILABLE: 'В этом черновике из прежней версии добавление занятий недоступно. Создайте новый план или продолжите редактировать существующие условия.',
+  TOO_MANY_ACTIVITIES: 'В одном плане можно указать до 120 занятий. Уберите лишние перед добавлением.',
+  MANUAL_CATEGORY_UNAVAILABLE: 'Эта категория больше недоступна. Обновите список занятий.',
+  MANUAL_CREATION_FAILED: 'Не удалось сохранить ручной план. Попробуйте позже.',
+  MANUAL_WALK_UNAVAILABLE: 'Для этого города пока нет подходящих категорий для прогулки.',
 };
 const warningText = (code: string) => ({
+  EVENT_BOOKING_NOT_VERIFIED: 'Наличие билетов и регистрация не проверены. Уточните условия на странице события.',
+  EVENT_VISIT_DURATION_ESTIMATED: 'Длительность посещения события выбрана вами; это не продолжительность официального сеанса.',
+  EVENT_AGE_UNKNOWN: 'Источник не указал возрастное ограничение события. Уточните его у организатора.',
   PRICE_UNKNOWN: 'Не все цены известны: общий бюджет не подтверждён.',
   PRICE_ESTIMATED: 'Цена — ориентир, а не гарантированная стоимость.',
   BUDGET_ESTIMATED_NOT_GUARANTEED: 'Расходы оценены приблизительно. Соблюдение лимита не гарантируется.',
   TRANSPORT_COST_UNKNOWN: 'Стоимость транспорта неизвестна.',
-  RETRIEVAL_PARTIAL: 'Получена только часть мест. Подходящие варианты могут остаться за пределами поиска.',
+  RETRIEVAL_PARTIAL: partialSearchNotice,
   ROUTE_MATRIX_INCOMPLETE: 'Не все переходы удалось проверить. Такие переходы исключены из плана.',
   ROUTING_PROVIDER_FAILURE: 'Часть запросов маршрутов завершилась ошибкой.',
   ROUTE_TIME_IS_ESTIMATE: 'Время дороги рассчитано с запасом, но не гарантирует прибытие.',
+  ROUTE_GEOMETRY_UNAVAILABLE: 'Линия части маршрута недоступна. Порядок остановок и время в пути показаны в списке.',
+  TRANSIT_PRICE_UNKNOWN: 'Стоимость общественного транспорта неизвестна и не включена в оценку расходов.',
+  PT_SCHEDULE_SEARCH_BOUNDED: 'Расписание транспорта проверено только для рассчитанного времени отправления.',
+  PT_SCHEDULE_UNVERIFIED: 'Расписание транспорта не подтверждено. Проверьте отправление перед поездкой.',
+  PT_WALKING_SEGMENT: 'На части пути транспорт не требуется: этот участок проходит пешком.',
   OPENING_HOURS_UNVERIFIED: 'Часы работы прогулочного места не указаны. Проверьте доступность перед выходом.',
-  WALK_WAYPOINTS_INCOMPLETE: 'Для прогулки найден только один подходящий ориентир. Это неполный маршрут, попробуйте увеличить радиус поиска или время.',
+  WALK_WAYPOINTS_INCOMPLETE: 'Для прогулки найден только один подходящий ориентир. Это неполный маршрут. Можно изменить время, дату или точку старта.',
   CROWDING_NOT_USED_WITHOUT_TIME_SPECIFIC_FACT: 'Загруженность на выбранное время неизвестна и не учитывалась.',
   AVERAGE_CHECK_UNIT_UNVERIFIED: 'Средний чек не подтверждает стоимость вашего посещения.',
+  AVERAGE_CHECK_BASIS_ASSUMED_PER_PERSON: 'По вашему выбору средний чек принят как ориентир на человека, а не подтверждённая цена.',
 }[code] ?? (code.startsWith('PREFERENCE_NOT_VERIFIED:') ? `Пожелание не подтверждено: ${code.slice(24)}` : 'Часть сведений о месте требует уточнения.'));
 const humanError = (code: string) => messages[code] ?? 'Не удалось выполнить действие. Проверьте параметры и попробуйте ещё раз.';
-const modeLabels: Record<string, string> = { walking: 'Пешком', driving: 'На машине', cycling: 'На велосипеде' };
-const clock = (value: number) => `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
-const displayDate = (value: string) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' })
-  .format(new Date(`${value}T12:00:00Z`));
+const modeLabels: Record<string, string> = { walking: 'Пешком', driving: 'На машине', cycling: 'На велосипеде', public_transport: 'Общественным транспортом' };
+const displayDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/u.test(value) && Number.isFinite(new Date(`${value}T12:00:00Z`).getTime())
+  ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`)) : 'Выберите дату';
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const recoveryCodes = new Set(['DRAFT_NOT_FOUND', 'STALE_VERSION', 'PLAN_IN_PROGRESS', 'PLANNER_BUSY',
+  'CONNECTION_UNCERTAIN', 'INVALID_SERVER_RESPONSE']);
+const requestErrorCode = (cause: unknown) => cause && typeof cause === 'object' && 'code' in cause ? cause.code : null;
+const canReloadAfterError = (cause: unknown) => {
+  const code = requestErrorCode(cause); return typeof code === 'string' && recoveryCodes.has(code);
+};
 async function request<T>(path: string, token?: string, method = 'GET', body?: unknown): Promise<T> {
-  const response = await fetch(path, { method, credentials: 'omit', cache: 'no-store', headers: {
-    ...(token ? { 'X-Max-Init-Data': token } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}),
-  }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  const result = await response.json();
-  if (!response.ok) throw new Error(humanError(result.error));
+  let response: Response;
+  try {
+    response = await fetch(path, { method, credentials: 'omit', cache: 'no-store', headers: {
+      ...(token ? { 'X-Max-Init-Data': token } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}),
+    }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  } catch {
+    throw Object.assign(new Error(method === 'GET'
+      ? 'Не удалось связаться с сервисом. Проверьте соединение и попробуйте снова.'
+      : 'Нет ответа от сервиса. Проверьте соединение. Перед повторным расчётом откройте актуальные условия: предыдущее действие могло выполниться.'), { code: 'CONNECTION_UNCERTAIN' });
+  }
+  let result: { error?: string };
+  try {
+    const value: unknown = await response.json();
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid response');
+    result = value as { error?: string };
+  } catch {
+    throw Object.assign(new Error(method === 'GET'
+      ? 'Не удалось прочитать ответ сервиса. Попробуйте загрузить данные снова.'
+      : 'Не удалось прочитать ответ сервиса. Загрузите сохранённую версию перед повтором: предыдущее действие могло выполниться.'), { code: 'INVALID_SERVER_RESPONSE' });
+  }
+  if (!response.ok) throw Object.assign(new Error(humanError(result.error ?? 'UNKNOWN')), { code: result.error ?? 'UNKNOWN' });
   return result as T;
-}
-function changesFor(view: PlanningView, draft: Draft): Change[] {
-  const original = view.draft, changes: Change[] = [];
-  for (const day of draft.days) {
-    const before = original.days.find(d => d.day_id === day.day_id)!;
-    if (day.date !== before.date) changes.push({ op: 'date', day_id: day.day_id, date: day.date });
-    if (day.window && !same(day.window, before.window)) changes.push({ op: 'window', day_ids: [day.day_id], ...day.window });
-    if (!same(day.order, before.order)) changes.push({ op: 'order', day_id: day.day_id, activity_ids: day.activities.map(a => a.id) });
-  }
-  if (!same(draft.shared.mobility, original.shared.mobility)) changes.push({ op: 'mobility', mode: draft.shared.mobility?.[0] ?? '' });
-  if (!same(draft.shared.budget, original.shared.budget) && draft.shared.budget) changes.push({ op: 'budget', value: draft.shared.budget });
-  if (draft.shared.party?.total !== original.shared.party?.total) changes.push({ op: 'party', total: draft.shared.party?.total ?? null });
-  for (const field of ['origin', 'destination'] as const) {
-    const point = draft.points[field];
-    if (!same(point, original.points[field])) {
-      if (point) changes.push({ op: 'point', field, point: { lat: point.lat, lon: point.lon, label: point.label ?? 'Выбранная точка', source: point.source ?? 'place_choice' } });
-      else if (field === 'destination') changes.push({ op: 'clear_destination' });
-    }
-  }
-  return changes;
 }
 
 export function PlannerForm() {
-  const [session, setSession] = useState<Bootstrap | null>(null);
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [busy, setBusy] = useState('Загружаем…');
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [mapOpen, setMapOpen] = useState(false);
-  const [addressOpen, setAddressOpen] = useState(false);
-  const [resultMode, setResultMode] = useState<'list' | 'map'>('list');
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [mapsAvailable, setMapsAvailable] = useState(false);
+  const colorScheme = useColorScheme();
+  const [session, setSession] = useState<Bootstrap | null>(null), [draft, setDraft] = useState<Draft | null>(null);
+  const [busy, setBusy] = useState('Открываем план…'), [error, setError] = useState(''), [notice, setNotice] = useState('');
+  const [launchToken, setLaunchToken] = useState(''), [canRecover, setCanRecover] = useState(false);
+  const [pendingLaunchShare, setPendingLaunchShare] = useState('');
+  const [reloadRequested, setReloadRequested] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false), [newOpen, setNewOpen] = useState(false);
+  const [detailsSection, setDetailsSection] = useState<ConditionSectionId | null>(null);
+  const [pointEditor, setPointEditor] = useState<'address' | 'map' | null>(null), [mapsAvailable, setMapsAvailable] = useState(false);
+  const [alternative, setAlternative] = useState<AlternativePreview | null>(null);
+  const [shareOpen, setShareOpen] = useState(false), [shareCreated, setShareCreated] = useState<ShareCreated | null>(null);
+  const [incoming, setIncoming] = useState<{ token: string; preview: SharePreview } | null>(null);
+  const [savedOpen, setSavedOpen] = useState(false);
+  const [shareDraftId, setShareDraftId] = useState('');
+  const [dataOpen, setDataOpen] = useState(false);
+  const [eventPanel, setEventPanel] = useState<{ target?: EventPanelTarget } | null>(null);
+  const [eventPending, setEventPending] = useState(false);
   useEffect(() => {
     let active = true;
     void fetch('/api/public-config', { cache: 'no-store' }).then(response => response.ok ? response.json() : null)
-      .then((value: PublicConfig | null) => { if (active) setMapsAvailable(Boolean(value?.maps.enabled)); })
-      .catch(() => {});
+      .then((value: PublicConfig | null) => { if (active) setMapsAvailable(Boolean(value?.maps.enabled)); }).catch(() => {});
     void waitForMaxLaunchData(() => readMaxLaunchData(window.WebApp?.initData, window.location.hash)).then(token => {
       if (!active) return;
-      if (!token) { setBusy(''); setError('MAX не передал данные для входа. Закройте мини-приложение и откройте его снова из чата с ботом.'); return; }
-      request<{ view: PlanningView | null; expiredRoute?: string }>('/api/planning/bootstrap', token)
-        .then(value => { if (active) { setSession({ ...value, token }); setDraft(value.view ? structuredClone(value.view.draft) : null); setBusy(''); } })
-        .catch(e => { if (active) { setBusy(''); setError(e instanceof Error ? e.message : 'Не удалось открыть планировщик.'); } });
+      if (!token) { setBusy(''); setError('Откройте мини-приложение из чата с ботом — MAX передаст данные для входа.'); return; }
+      setLaunchToken(token);
+      const launch = new URLSearchParams(token).get('start_param');
+      const launchShare = launch && /^share_[A-Za-z0-9_-]{43}$/u.test(launch) ? launch.slice(6) : '';
+      setPendingLaunchShare(launchShare);
+      request<Omit<Bootstrap, 'token'>>('/api/planning/bootstrap', token)
+        .then(async value => { if (active) { setSession({ ...value, token }); setDraft(value.view ? structuredClone(value.view.draft) : null);
+          if (launchShare) {
+            try { const preview = await request<SharePreview>('/api/planning/shares/resolve', token, 'POST', { token: launchShare });
+              if (active) { setIncoming({ token: launchShare, preview }); setPendingLaunchShare(''); } }
+            catch (cause) { if (active) { setError(cause instanceof Error ? cause.message : 'Не удалось открыть ссылку.');
+              setCanRecover(canReloadAfterError(cause)); if (!canReloadAfterError(cause)) setPendingLaunchShare(''); } }
+          }
+          if (active) setBusy(''); } })
+        .catch(cause => { if (active) { setBusy(''); setError(cause instanceof Error ? cause.message : 'Не удалось открыть план.');
+          setCanRecover(requestErrorCode(cause) !== 'AUTH_REQUIRED'); } });
     });
     return () => { active = false; };
   }, []);
-  function accept(view: PlanningView) {
-    setSession(current => current ? { ...current, view } : null); setDraft(structuredClone(view.draft));
+  const view = session?.view, dirty = Boolean(view && draft && !same(view.draft, draft));
+  const eventDeadlines = Object.values(view?.event_previews ?? {}).map(value => Date.parse(eventFactDeadline(value))).filter(value => value > Date.now());
+  const eventDeadline = eventDeadlines.length ? new Date(Math.min(...eventDeadlines)).toISOString() : undefined;
+  useExpired(eventDeadline);
+  function accept(value: PlanningView) {
+    setSession(current => current ? { token: current.token, view: value } : null);
+    setDraft(structuredClone(value.draft)); setNewOpen(false); setIncoming(null);
   }
   async function act(label: string, work: () => Promise<void>) {
     if (busy) return;
-    setBusy(label); setError(''); setNotice('');
-    try { await work(); } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось выполнить действие.'); }
+    setBusy(label); setError(''); setNotice(''); setCanRecover(false);
+    try { await work(); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось выполнить действие. Попробуйте снова.'); setCanRecover(canReloadAfterError(cause)); }
     finally { setBusy(''); }
   }
-  const patch = (edit: (value: Draft) => void) => setDraft(current => {
-    if (!current) return current; const next = structuredClone(current); edit(next); return next;
-  });
-  const view = session?.view, dirty = view && draft ? !same(view.draft, draft) : false;
-  const base = view ? `/api/planning/drafts/${view.id}` : '';
-  async function save() {
-    if (!session?.view || !draft) return;
-    const changes = changesFor(session.view, draft);
-    if (!changes.length) return;
-    accept(await request<PlanningView>(base, session.token, 'PATCH', {
-      base_version: session.view.version, event_id: crypto.randomUUID(), changes,
-    }));
-    setNotice('Изменения сохранены. Проверьте параметры и подтвердите план.');
+  async function reloadSavedState() {
+    const token = session?.token || launchToken;
+    if (!token) return;
+    // Reading server state never retries a mutation or confirms a new plan.
+    // Keep local edits intact until this request has actually succeeded.
+    const value = await request<Omit<Bootstrap, 'token'>>('/api/planning/bootstrap', token);
+    setSession({ ...value, token }); setDraft(value.view ? structuredClone(value.view.draft) : null);
+    setDetailsOpen(false); setPointEditor(null); setEventPanel(null); setAlternative(null);
+    setNewOpen(false); setIncoming(null); setSavedOpen(false); setShareOpen(false); setReloadRequested(false);
+    if (pendingLaunchShare) {
+      try {
+        const preview = await request<SharePreview>('/api/planning/shares/resolve', token, 'POST', { token: pendingLaunchShare });
+        setIncoming({ token: pendingLaunchShare, preview }); setPendingLaunchShare('');
+      } catch (cause) { if (!canReloadAfterError(cause)) setPendingLaunchShare(''); throw cause; }
+      return;
+    }
+    setNotice(value.view || value.saved ? 'Загружена сохранённая версия. Проверьте условия перед расчётом.' : 'Сохранённого черновика нет. Можно начать новый маршрут.');
   }
-  async function calculate() {
-    if (!session?.view || dirty) return;
-    let current = session.view;
+  function requestReload() {
+    if (busy) return;
+    if (dirty) setReloadRequested(true);
+    else void act('Загружаем сохранённую версию…', reloadSavedState);
+  }
+  function errorNotice() {
+    return error && <div className="notice notice--error" role="alert"><Icon name="alert" /><div className="notice-content"><p>{error}</p>
+      {canRecover && (session?.token || launchToken) && <Action variant="secondary" stretched disabled={!!busy} onClick={requestReload}>
+        {session ? 'Загрузить сохранённую версию' : 'Попробовать снова'}</Action>}
+    </div></div>;
+  }
+  const patch = (edit: (value: Draft) => void) => setDraft(current => { if (!current) return current; const next = structuredClone(current); edit(next); return next; });
+  async function calculate(current = session?.view) {
+    if (!session || !current) return;
+    const base = `/api/planning/drafts/${current.id}`;
     if (current.phase === 'DRAFT') {
       current = await request<PlanningView>(base + '/confirm', session.token, 'POST', { base_version: current.version, event_id: crypto.randomUUID() });
       accept(current);
     }
+    setBusy('Подбираем места и проверяем маршрут…');
     accept(await request<PlanningView>(base + '/plan', session.token, 'POST', { base_version: current.version, event_id: crypto.randomUUID() }));
   }
-  async function locate() {
-    if (!navigator.geolocation) throw new Error('Геолокация недоступна. Выберите точку на карте.');
-    const position = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve,
-      () => reject(new Error('Не удалось получить местоположение. Выберите точку на карте.')), { timeout: 10_000, maximumAge: 60_000 }));
-    const { latitude: lat, longitude: lon } = position.coords;
-    patch(d => { d.points.origin = { lat, lon, locality_id: d.locality.id, label: 'Моё местоположение', source: 'user_geolocation' }; });
-    setNotice('Точка выбрана. Сохраните изменения, чтобы учесть её в плане.');
+  function openConditions(section: ConditionSectionId | null = null) { setDetailsSection(section); setDetailsOpen(true); }
+  async function save() {
+    if (!session?.view || !draft) return;
+    const changes = changesFor(session.view, draft);
+    if (!changes.length) return;
+    const next = await request<PlanningView>(`/api/planning/drafts/${session.view.id}`, session.token, 'PATCH', { base_version: session.view.version, event_id: crypto.randomUUID(), changes });
+    const hadResult = Boolean(session.view.result); accept(next); setDetailsOpen(false);
+    if (hadResult && !next.issues.length) await calculate(next);
+    else setNotice('Условия сохранены. Проверьте их перед расчётом.');
   }
   async function quickSave(change: Change) {
     if (!session?.view) return;
-    accept(await request<PlanningView>(base, session.token, 'PATCH', {
-      base_version: session.view.version, event_id: crypto.randomUUID(), changes: [change],
-    }));
+    accept(await request<PlanningView>(`/api/planning/drafts/${session.view.id}`, session.token, 'PATCH', { base_version: session.view.version, event_id: crypto.randomUUID(), changes: [change] }));
   }
-  async function quickLocate() {
-    if (!navigator.geolocation) throw new Error('Геолокация недоступна. Выберите точку на карте.');
+  async function locate(saveImmediately = false) {
+    if (!navigator.geolocation) throw new Error('Геолокация недоступна. Укажите адрес или выберите точку на карте.');
     const position = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve,
-      () => reject(new Error('Не удалось получить местоположение. Выберите точку на карте.')), { timeout: 10_000, maximumAge: 60_000 }));
-    await quickSave({ op: 'point', field: 'origin', point: { lat: position.coords.latitude,
-      lon: position.coords.longitude, label: 'Моё местоположение', source: 'user_geolocation' } });
+      () => reject(new Error('Не удалось получить местоположение. Укажите адрес или выберите точку на карте.')), { timeout: 10_000, maximumAge: 60_000 }));
+    const point = { lat: position.coords.latitude, lon: position.coords.longitude, label: 'Моё местоположение', source: 'user_geolocation' as const };
+    if (saveImmediately) await quickSave({ op: 'point', field: 'origin', point });
+    else patch(value => { value.points.origin = { ...point, locality_id: value.locality.id }; });
   }
   async function searchAddress(query: string): Promise<AddressChoice[]> {
     if (!session?.view) return [];
-    const result = await request<{ choices: AddressChoice[] }>('/api/planning/addresses', session.token,
-      'POST', { draft_id: session.view.id, q: query });
-    return result.choices;
+    return (await request<{ choices: AddressChoice[] }>('/api/planning/addresses', session.token, 'POST', { draft_id: session.view.id, q: query })).choices;
   }
-
-  return <main className="planner-page">
-    <header className="planner-header">
-      <span className="planner-header-mark" aria-hidden="true">✦</span>
-      <div><h1>{view?.result ? (view.draft.days.length > 1 ? 'План на несколько дней' : 'План на день') : view ? 'Уточнение условий' : 'План досуга'}</h1><p>{draft?.locality.name ?? 'Ваш маршрут в MAX'}</p></div>
+  async function searchLocality(query: string) {
+    return (await request<{ choices: { name: string; token: string }[] }>(`/api/planning/localities?q=${encodeURIComponent(query)}`, session?.token)).choices;
+  }
+  async function previewAlternative(target: AlternativeTarget) {
+    if (!session?.view) return;
+    setAlternative(await request<AlternativePreview>(`/api/planning/drafts/${session.view.id}/alternatives/preview`, session.token, 'POST', { ...target, base_version: session.view.version, event_id: crypto.randomUUID() }));
+  }
+  function browseEvents(target?: EventPanelTarget) { if (dirty || busy) return; setDetailsOpen(false); setEventPanel({ target }); }
+  async function recheckEvent(dayId: string, activityId: string) {
+    if (!session?.view) return;
+    accept(await request<PlanningView>(`/api/planning/drafts/${session.view.id}/events/recheck`, session.token, 'POST', { base_version: session.view.version, event_id: crypto.randomUUID(), day_id: dayId, activity_id: activityId }));
+    setNotice('Событие перепроверено. Проверьте условия перед расчётом.');
+  }
+  function activityTitle(dayId: string, activity: Draft['days'][number]['activities'][number]) {
+    return activity.intent_kind === 'event_visit' && view ? selectedEventDisplay(view, dayId, activity.id)?.title ?? activity.label : activity.label;
+  }
+  const showingNew = Boolean(session && (newOpen || !view && !session.saved));
+  const eventNeedsCheck = Boolean(view?.draft.days.some(day => day.activities.some(activity => activity.intent_kind === 'event_visit' && !selectedEventDisplay(view, day.day_id, activity.id))));
+  const firstIssue = view?.issues[0] ?? (eventNeedsCheck ? { code: 'EVENT_RECHECK_REQUIRED' } : undefined);
+  const ready = Boolean(view && !view.issues.length && !dirty && !eventNeedsCheck);
+  return <main data-theme={colorScheme} className={`planner-page ${view?.result && !newOpen ? 'planner-page--result' : ''}`}>
+    <header className="planner-header"><div className="planner-heading"><span className="header-route" aria-hidden="true"><Icon name="route" /></span><div>
+      <h1>{incoming ? 'Общий маршрут' : showingNew ? 'Новый маршрут' : session?.saved && !view ? 'Сохранённый маршрут' : view?.result ? (draft && draft.days.length > 1 ? 'Планы по дням' : 'План дня') : 'Ваш план'}</h1>
+      <p>{!showingNew && draft ? draft.locality.name : 'Досуг в вашем ритме'}</p></div></div>
+      <div className="header-actions">{session && <Action variant="ghost" className="header-action" disabled={!!busy} aria-label="Мои маршруты" onClick={() => setSavedOpen(true)}><Icon name="list" /><span>Мои</span></Action>}
+      {session && (view || session.saved) && <Action variant="ghost" className="header-action" aria-label={newOpen ? 'К плану' : 'Новый'} disabled={!!busy} onClick={() => { setNewOpen(!newOpen); setIncoming(null); setError(''); setNotice(''); }}>
+        <Icon name={newOpen ? 'close' : 'plus'} /><span>{newOpen ? 'К плану' : 'Новый'}</span></Action>}
+      </div>
     </header>
-    {error && <div className="planner-message planner-message--error" role="alert">{error}</div>}
-    {notice && <p className="planner-message" role="status">{notice}</p>}
-    <p className="planner-progress" role="status" aria-live="polite">{busy}</p>
-    {session && !view && <section className="planner-card planner-empty">
-      <div className="planner-empty-icon" aria-hidden="true">✦</div>
-      <h2>{session.expiredRoute ? 'Маршрут нужно обновить' : 'Сначала выберите маршрут в чате'}</h2>
-      {session.expiredRoute ? <p>Черновик «{session.expiredRoute}» устарел. Вернитесь в чат и нажмите «Обновить маршрут» — места будут проверены заново.</p>
-        : <p>Нажмите «Новый маршрут» или «Мои маршруты» в чате с ботом. Здесь появятся детали выбранного плана.</p>}
-    </section>}
-    {view && draft && <>
-      <section className="planner-card planner-overview" aria-label="Сводка маршрута">
-        <span className="planner-eyebrow">Маршрут</span>
-        <h2>{draft.locality.name} · {draft.days.length === 1 ? displayDate(draft.days[0]!.date) : `${draft.days.length} дня`}</h2>
-        <p>{draft.days.map(day => day.activities.map(activity => activity.label).join(' → ')).filter(Boolean).join(' · ') || 'Условия сохранены'}</p>
-      </section>
-      {!view.result && !dirty && <section className="planner-card planner-clarification" aria-label="Следующий шаг">
-        <span className="planner-eyebrow">Я правильно понял?</span>
-        <p className="planner-clarification-summary">{draft.days.map(day => `${displayDate(day.date)}${day.window ? ` · ${day.window.start}–${day.window.end}` : ''}`).join(' · ')}
-          {draft.shared.mobility?.[0] ? ` · ${modeLabels[draft.shared.mobility[0]] ?? draft.shared.mobility[0]}` : ''}</p>
-        {view.issues[0]?.code === 'ORIGIN_REQUIRED' ? <>
-          <h2>Откуда удобнее начать?</h2>
-          <p className="muted">Выберите удобный способ указать точку старта.</p>
-          <div className="planner-quick-actions">
-            <button className="primary-button" disabled={!!busy} onClick={() => void act('Определяем местоположение…', quickLocate)}>Моё местоположение</button>
-            {mapsAvailable && <button className="secondary-button" disabled={!!busy} onClick={() => setMapOpen(true)}>Выбрать на карте</button>}
-            <button className="secondary-button" disabled={!!busy} onClick={() => setAddressOpen(true)}>Ввести адрес</button>
-          </div>
-          {addressOpen && !detailsOpen && <AddressPicker city={draft.locality.name} search={searchAddress} disabled={!!busy}
-            onClose={() => setAddressOpen(false)} onSelect={choice => void act('Сохраняем адрес…', async () => {
-              await quickSave({ op: 'point', field: 'origin', point: { ...choice.point, label: choice.label, source: 'place_choice' } });
-              setAddressOpen(false);
-            })} />}
-          {mapOpen && (view.capabilities.map_center || draft.points.origin) && <PointPicker
-            center={draft.points.origin ?? view.capabilities.map_center!} onClose={() => setMapOpen(false)}
-            onSelect={point => { setMapOpen(false); void act('Сохраняем точку…', () => quickSave({ op: 'point', field: 'origin',
-              point: { ...point, label: 'Выбранная точка на карте', source: 'user_map' } })); }} />}
-        </> : view.issues[0]?.code === 'TRANSPORT_REQUIRED' ? <>
-          <h2>Как будем передвигаться?</h2>
-          <div className="planner-quick-actions">{view.capabilities.modes.map(mode => <button key={mode} className="secondary-button"
-            disabled={!!busy} onClick={() => void act('Сохраняем…', () => quickSave({ op: 'mobility', mode }))}>{modeLabels[mode] ?? mode}</button>)}</div>
-        </> : view.issues[0]?.code === 'WINDOW_REQUIRED' ? <>
-          <h2>Когда вы свободны?</h2>
-          <p className="muted">Это примерные окна — их можно изменить.</p>
-          <div className="planner-quick-actions">{[['09:00', '11:00'], ['13:00', '15:00'], ['18:00', '20:00']].map(([start, end]) => <button
-            key={start} className="secondary-button" disabled={!!busy} onClick={() => void act('Сохраняем…', () => quickSave({ op: 'window',
-              day_ids: draft.days.map(day => day.day_id), start: start!, end: end! }))}>{start}–{end}</button>)}</div>
-        </> : view.issues.length ? <><h2>{humanError(view.issues[0]!.code)}</h2><p className="muted">Измените только этот пункт в условиях ниже.</p></>
-          : <><h2>Всё верно?</h2><p className="muted">Составлю план с учётом времени в пути и расписания мест.</p>
-            <button className="primary-button" disabled={!!busy} onClick={() => void act('Подбираем места и проверяем расписание…', calculate)}>Составить план</button></>}
-      </section>}
-      <details className="parameters-panel" open={detailsOpen || !!dirty} onToggle={event => setDetailsOpen(event.currentTarget.open)}>
-      <summary>Изменить условия</summary>
-      <section className="planner-card">
-        <div className="section-heading"><h2>Я правильно понял?</h2><span>{draft.locality.name}</span></div>
-        <p className="muted">Проверьте время, способ передвижения и точку старта.</p>
-        <form onSubmit={e => { e.preventDefault(); void act('Сохраняем…', save); }}>
-          <fieldset disabled={!!busy}>
-            {draft.days.map((day, index) => <section className="day-fields" key={day.day_id} aria-label={`День ${index + 1}`}>
-              {draft.days.length > 1 && <h3>День {index + 1}</h3>}
-              <div className="field-row field-row--time">
-                <label>Дата<input aria-label={`Дата дня ${index + 1}`} type="date" required value={day.date}
-                  onChange={e => patch(d => { d.days[index]!.date = e.target.value; })} /></label>
-                <label>С<input aria-label={`Начало дня ${index + 1}`} type="text" inputMode="numeric" pattern="[0-2][0-9]:[0-5][0-9]" placeholder="16:00" required value={day.window?.start ?? ''}
-                  onChange={e => patch(d => { d.days[index]!.window = { start: e.target.value, end: day.window?.end ?? '' }; })} /></label>
-                <label>До<input aria-label={`Окончание дня ${index + 1}`} type="text" inputMode="numeric" pattern="[0-2][0-9]:[0-5][0-9]" placeholder="19:00" required value={day.window?.end ?? ''}
-                  onChange={e => patch(d => { d.days[index]!.window = { start: day.window?.start ?? '', end: e.target.value }; })} /></label>
-              </div>
-              {Object.entries(view.provenance).some(([path, source]) => path.startsWith(`days.${day.day_id}.`) && source.includes('suggested')) &&
-                <p className="field-hint">Часть даты или времени предложена системой. Проверьте её и при необходимости измените.</p>}
-              <div className="activity-order"><span className="muted">Порядок</span><ol>{day.activities.map(a => <li key={a.id}>{a.label}</li>)}</ol>
-                {day.activities.length > 1 && <button type="button" className="text-button" onClick={() => patch(d => {
-                  const target = d.days[index]!; target.activities.reverse(); target.order = target.activities.slice(1).map((a, i) => [target.activities[i]!.id, a.id]);
-                })}>Поменять порядок</button>}
-              </div>
-              {day.activities.some(a => a.requirements.length || a.selection.category_policy === 'named_types_only') && <ul className="activity-constraints">
-                {day.activities.map(a => <li key={a.id}><strong>{a.label}</strong>
-                  {a.selection.category_policy === 'named_types_only' && <p>Только: {a.selection.named_types.join(', ')}.</p>}
-                  {a.requirements.map((r, i) => <p key={i}>{r.strength === 'required' ? 'Обязательно' : 'Желательно'}: {r.text}</p>)}
-                </li>)}
-              </ul>}
-            </section>)}
-            <div className="field-row">
-              <label>Передвижение<select value={draft.shared.mobility?.[0] ?? ''} onChange={e => patch(d => { d.shared.mobility = [e.target.value]; })}>
-                <option value="" disabled>Выберите способ</option>{view.capabilities.modes.map(mode => <option key={mode} value={mode}>{modeLabels[mode] ?? mode}</option>)}
-              </select></label>
-              <label>Участников<input type="number" min="1" max="100" placeholder="Не указано" value={draft.shared.party?.total ?? ''}
-                onChange={e => patch(d => { if (e.target.value) d.shared.party = { ...d.shared.party, total: Number(e.target.value) }; else if (d.shared.party) delete d.shared.party.total; })} /></label>
-            </div>
-            <p className="field-hint">Общественный транспорт пока не подключён.</p>
-            <label>Бюджет<select value={draft.shared.budget?.kind ?? 'unspecified'} onChange={e => patch(d => {
-              d.shared.budget = e.target.value === 'limit' ? { kind: 'limit', amount_rub: 3000, basis: 'whole_party', period: 'per_day' } : { kind: e.target.value as 'unspecified' | 'unlimited' };
-            })}><option value="unspecified">Не указан</option><option value="unlimited">Без ограничения</option><option value="limit">Указать лимит</option></select></label>
-            {draft.shared.budget?.kind === 'limit' && <div className="budget-fields">
-              <label>Сумма, ₽<input type="number" min="0" max="100000000" step="0.01" required value={draft.shared.budget.amount_rub}
-                onChange={e => patch(d => { if (d.shared.budget?.kind === 'limit') d.shared.budget.amount_rub = Number(e.target.value); })} /></label>
-              <label>Для кого<select value={draft.shared.budget.basis} onChange={e => patch(d => { if (d.shared.budget?.kind === 'limit') d.shared.budget.basis = e.target.value as 'whole_party' | 'per_person'; })}>
-                <option value="unknown" disabled>Уточните</option><option value="whole_party">На всех</option><option value="per_person">На человека</option></select></label>
-              <label>Период<select value={draft.shared.budget.period} onChange={e => patch(d => { if (d.shared.budget?.kind === 'limit') d.shared.budget.period = e.target.value as 'per_day' | 'whole_trip'; })}>
-                <option value="unknown" disabled>Уточните</option><option value="per_day">На день</option><option value="whole_trip">На весь план</option></select></label>
-            </div>}
-            <section className="point-fields"><h3>Откуда начинаем?</h3>
-              <p className="selected-point">⌖ {draft.points.origin?.label ?? 'Точка не выбрана'}</p>
-              <button className="secondary-button" type="button" onClick={() => void act('Определяем местоположение…', locate)}>Моё местоположение</button>
-              {mapsAvailable && <button className="secondary-button" type="button" onClick={() => setMapOpen(true)}>Выбрать на карте</button>}
-              <button className="secondary-button" type="button" onClick={() => setAddressOpen(true)}>Ввести адрес</button>
-              {addressOpen && detailsOpen && <AddressPicker city={draft.locality.name} search={searchAddress} disabled={!!busy}
-                onClose={() => setAddressOpen(false)} onSelect={choice => {
-                  patch(d => { d.points.origin = { ...choice.point, locality_id: d.locality.id, label: choice.label, source: 'place_choice' }; });
-                  setAddressOpen(false); setNotice('Адрес выбран. Сохраните изменения, чтобы учесть его в плане.');
-                }} />}
-              {mapOpen && (view.capabilities.map_center || draft.points.origin) && <PointPicker
-                center={draft.points.origin ?? view.capabilities.map_center!} onClose={() => setMapOpen(false)}
-                onSelect={point => { patch(d => { d.points.origin = { ...point, locality_id: d.locality.id, label: 'Выбранная точка на карте', source: 'user_map' }; }); setMapOpen(false); }} />}
-              <label className="checkbox-label"><input type="checkbox" checked={!!draft.points.destination} disabled={!draft.points.origin}
-                onChange={e => patch(d => { if (e.target.checked) d.points.destination = structuredClone(d.points.origin); else delete d.points.destination; })} />Вернуться к выбранной точке в конце</label>
-              {draft.points.destination && <p className="field-hint">Финиш: {draft.points.destination.label}. Он не меняется автоматически при изменении старта.</p>}
-            </section>
-            <div className="form-actions"><button className="secondary-button" type="submit" disabled={!dirty}>Сохранить изменения</button>
-              <button className="text-button" type="button" onClick={() => { setDraft(structuredClone(view.draft)); setError(''); setNotice(''); }} disabled={!dirty}>Отменить правки</button></div>
-          </fieldset>
-        </form>
-        {!dirty && view.issues.length > 0 && <ul className="form-issues" aria-label="Что нужно уточнить">{view.issues.map((issue, i) => <li key={i}>{humanError(issue.code)}</li>)}</ul>}
-        {dirty && <p className="field-hint">Сначала сохраните изменения — затем подтвердите обновлённые параметры.</p>}
-        <button className="primary-button" disabled={!!busy || !!dirty || !!view.issues.length || view.phase === 'RESULT' || view.phase === 'PLANNING'}
-          onClick={() => void act('Подбираем места и проверяем расписание…', calculate)}>{view.phase === 'RESULT' ? 'Расчёт завершён' : 'Всё верно — составить план'}</button>
-        <button className="text-button refresh-button" disabled={!!busy} onClick={() => void act('Загружаем сохранённую версию…', async () => {
-          if (session) accept(await request<PlanningView>(base, session.token));
-        })}>Загрузить сохранённую версию</button>
-        <button className="text-button refresh-button" disabled={!!busy} onClick={() => {
-          setError(''); setNotice('В чате с ботом напишите новый запрос — текущий план останется доступен здесь до замены.');
-        }}>Начать другой план в чате</button>
-      </section>
-      </details>
-      {view.result && !dirty && <section className="planner-card plan-result" aria-label="Результат расчёта">
-        <h2>{view.result.status === 'AVAILABLE' ? 'Ваш план' : view.result.status === 'LIMITED' ? 'Получился неполный план' : 'План пока не получился'}</h2>
-        <p className="muted">Места и дорога — по данным 2ГИС. Время посещения и расходы приблизительные.</p>
-        {!!view.result.days.some(d => d.visits.length) && <>
-          {mapsAvailable && <nav className="view-switch" aria-label="Режим отображения">
-            <button type="button" aria-pressed={resultMode === 'list'} onClick={() => setResultMode('list')}>План</button>
-            <button type="button" aria-pressed={resultMode === 'map'} onClick={() => setResultMode('map')}>Карта</button>
-          </nav>}
-          <dl className="plan-metrics">
-            <div><dt>Мест</dt><dd>{view.result.days.reduce((n, d) => n + d.visits.length, 0)}</dd></div>
-            <div><dt>Расходы ≈</dt><dd>{view.result.total_expected_cost_minor == null ? 'Неизвестны' : `${view.result.total_expected_cost_minor / 100} ₽`}</dd></div>
-            <div><dt>В пути с запасом</dt><dd>{view.result.days.reduce((n, d) => n + (d.total_safe_travel_minutes ?? 0), 0)} мин</dd></div>
-          </dl>
-        </>}
-        {!!view.result.issues?.length && <ul className="form-issues">{view.result.issues.map(issue => <li key={issue}>{humanError(issue)}</li>)}</ul>}
-        {view.result.days.map(day => <div key={day.day_id}>
-          <h3>{displayDate(day.date)}</h3>
-          {resultMode === 'map' ? <PlanMap day={day} origin={view.result?.origin ?? draft.points.origin} /> : <ol className="plan-timeline">
-            {day.visits.length > 0 && (view.result?.origin ?? draft.points.origin) && <li className="timeline-origin" key="origin">
-              <div className="timeline-visit"><time>{draft.days.find(d => d.day_id === day.day_id)?.window?.start ?? 'Старт'}</time>
-                <div><h4>Начало маршрута</h4><p>{(view.result?.origin ?? draft.points.origin)?.label ?? 'Выбранная точка'}</p></div></div>
-            </li>}
-            {day.visits.map(visit => <li key={`${visit.activity_id}:${visit.place_id}`}>
-            <div className="timeline-travel">В пути {visit.travel_before_minutes} мин{visit.distance_before_meters == null ? '' : ` · ≈${Math.round(visit.distance_before_meters / 100) / 10} км`} · запас перед посещением {visit.arrival_buffer_minutes} мин</div>
-            <div className="timeline-visit"><time>{clock(visit.starts_at)}<span>{clock(visit.ends_at)}</span></time>
-              <div><h4>{visit.name}</h4>{visit.location_label && <p>{visit.location_label}</p>}
-                <p>{visit.ends_at - visit.starts_at} мин на посещение</p><p>{visit.price_expected_minor == null ? 'Стоимость неизвестна' : `${visit.price_expected_minor / 100} ₽ — оценка`}</p>
-                <p>{visit.source?.data_mode === 'test' ? 'Источник: учебный набор' : visit.source ? `Источник: ${visit.source.provider === '2gis' ? '2ГИС' : visit.source.provider}` : 'Источник не указан'}</p>
-                {visit.source?.provider === '2gis' && visit.source.url?.startsWith('https://2gis.ru/') &&
-                  <a href={visit.source.url} target="_blank" rel="noopener noreferrer">Проверить точное место в 2ГИС ↗</a>}</div>
-            </div>
-          </li>)}</ol>}
-          {day.visits.length > 0 && day.ends_at != null && <p className="field-hint">{draft.points.destination ? 'Прибытие к финишу' : 'Завершение плана'} в {clock(day.ends_at)}. Всего на дорогу с запасом: {day.total_safe_travel_minutes ?? '—'} мин.</p>}
-          {!!day.missing_activity_ids.length && <p className="planner-message">Не удалось включить: {day.missing_activity_ids.map(id => draft.days.find(d => d.day_id === day.day_id)?.activities.find(a => a.id === id)?.label ?? 'занятие').join(', ')}.</p>}
-        </div>)}
-        {view.result.status === 'UNAVAILABLE' && <p>Подтверждённых подходящих мест для этих ограничений нет. Попробуйте изменить время или бюджет. Неизвестную стоимость мы не считаем нулевой.</p>}
-        {!!view.result.warnings.length && <ul className="result-warnings">{[...new Set(view.result.warnings.map(warningText))].map(text => <li key={text}>{text}</li>)}</ul>}
-        {view.result.shortlist?.groups.some(group => group.truncated) && <p className="field-hint">Для расчёта использована сокращённая подборка кандидатов. Это не сравнение всех мест в городе.</p>}
-        <p className="field-hint">Для другого расчёта измените и заново подтвердите параметры.
-          {view.result.days.some(day => day.visits.length) && <> Общая стоимость: {view.result.total_expected_cost_minor == null ? 'неизвестна' : `${view.result.total_expected_cost_minor / 100} ₽ (оценка)`}.</>}</p>
-      </section>}
-    </>}
+    {errorNotice()}
+    {notice && <div className="notice" role="status"><Icon name="check" /><p>{notice}</p></div>}
+    {busy && <div className="planner-progress" role="status" aria-live="polite"><span className="progress-dot" aria-hidden="true" /><span>{busy}</span></div>}
+    {!session && !busy && !canRecover && <section className="empty-state"><h2>Продолжим в MAX</h2><p>План доступен только вам. Войдите через чат с ботом.</p>
+      <a className="app-link" href="https://max.ru/t801_hakaton_max_bot">Открыть чат с ботом <Icon name="arrow" /></a></section>}
+    {incoming && session && <SharedRoutePreview preview={incoming.preview} busy={!!busy} search={searchLocality} close={() => setIncoming(null)} importRoute={localityToken => void act('Сохраняем вашу копию условий…', async () => {
+      accept(await request<PlanningView>('/api/planning/shares/import', session.token, 'POST', { token: incoming.token, event_id: crypto.randomUUID(), locality_token: localityToken }));
+      setNotice('Это ваша копия. Проверьте дату, город и старт перед расчётом.');
+    })} />}
+    {showingNew && !incoming && <>{session?.expiredRoute && <div className="notice"><p>Срок черновика «{session.expiredRoute}» истёк. Можно составить новый маршрут.</p></div>}
+      <InitialRequestForm disabled={!!busy} search={searchLocality}
+        manualOptions={token => request<ManualChoices>('/api/planning/manual/options', session!.token, 'POST', { locality_token: token })}
+        manualSubmit={value => void act('Сохраняем условия…', async () => { accept(await request<PlanningView>('/api/planning/manual/requests', session!.token, 'POST', { ...value, event_id: crypto.randomUUID() })); })}
+        submit={value => act('Разбираем пожелания…', async () => {
+        if (!session) return;
+        const reply = await request<{ status: string; view?: PlanningView }>('/api/planning/requests', session.token, 'POST', { ...value, event_id: crypto.randomUUID() });
+        if (reply.view) accept(reply.view); else setNotice('Опишите, как хотите провести свободное время: прогулка, музей, кафе или другие занятия.');
+      })} /></>}
+    {session?.saved && !view && !newOpen && !incoming && <SavedConditionsPanel key={`${session.saved.id}:${session.saved.revision}`} saved={session.saved} disabled={!!busy} search={searchLocality}
+      restore={token => act('Обновляем данные для сохранённого маршрута…', async () => {
+        const saved = session.saved!;
+        accept(await request<PlanningView>(`/api/planning/saved/${encodeURIComponent(saved.id)}/restore`, session.token, 'POST', { event_id: crypto.randomUUID(), base_revision: saved.revision, locality_token: token }));
+        setNotice('Условия восстановлены. Проверьте дату, старт и ограничения.');
+      })} />}
+    {view && draft && !newOpen && !incoming && <div className={`planner-workspace${view.result ? ' planner-workspace--result' : ''}`}>
+      <aside className="summary-rail" aria-label="Условия маршрута"><div className="route-summary"><p className="summary-label">Ваши пожелания</p>
+        <h2>{(draft.days.length === 1 ? draft.days[0]!.activities.map(activity => activityTitle(draft.days[0]!.day_id, activity)).join(' → ') : [...new Set(draft.days.flatMap(day => day.activities.map(activity => activityTitle(day.day_id, activity))))].join(' · ')) || 'Выберите, чем заняться'}</h2>
+        <div className="constraint-chips"><button type="button" onClick={() => openConditions('time')}><Icon name="calendar" />{draft.days.length === 1 ? displayDate(draft.days[0]!.date) : `${draft.days.length} дня`}</button>
+          <button type="button" onClick={() => openConditions('time')}><Icon name="clock" />{new Set(draft.days.map(day => `${day.window?.start}:${day.window?.end}`)).size > 1 ? 'Время по дням' : draft.days[0]?.window ? `${draft.days[0].window.start}–${draft.days[0].window.end}` : 'Выбрать время'}</button>
+          <button type="button" onClick={() => openConditions('people')}><Icon name="walk" />{modesLabel(draft.shared.mobility?.[0])}</button>
+          {Number.isFinite(draft.shared.search_radius_meters) && <button type="button" onClick={() => openConditions('points')}><Icon name="pin" />Радиус {new Intl.NumberFormat('ru-RU').format(draft.shared.search_radius_meters! / 1000)} км</button>}
+          {draft.shared.budget?.kind === 'limit' && <button type="button" onClick={() => openConditions('budget')}><Icon name="wallet" />{new Intl.NumberFormat('ru-RU').format(draft.shared.budget.amount_rub)} ₽{draft.shared.budget.enforcement === 'estimated' ? ' ≈' : ''}</button>}</div>
+        <div className="summary-actions"><Action variant="ghost" className="edit-conditions" onClick={() => openConditions()} disabled={!!busy} iconBefore={<Icon name="filters" />}>Изменить условия</Action>
+        <Action variant="ghost" className="edit-conditions" onClick={() => browseEvents()} disabled={!!busy || dirty} iconBefore={<Icon name="calendar" />}>Добавить событие</Action></div>
+      </div>
+      {dirty && <div className="notice"><p>Есть несохранённые изменения.</p><Action variant="secondary" onClick={() => openConditions()}>Продолжить редактирование</Action></div>}
+      {view.capabilities.data_mode === 'test' && !view.result && <p className="data-label">Учебный пример · синтетические данные</p>}
+      </aside>
+      <div className="planner-content">{view.result && !dirty ? <PlanResult key={`${view.id}:${view.version}`} view={view} mapsAvailable={mapsAvailable} busy={!!busy} editSearch={() => openConditions('points')}
+        edit={() => openConditions()} share={() => setShareOpen(true)} chooseEvent={browseEvents} replace={target => void act('Проверяем замену…', () => previewAlternative(target))} retry={() => void act('Проверяем места заново…', async () => { const latest = await request<PlanningView>(`/api/planning/drafts/${view.id}`, session!.token); accept(latest); await calculate(latest); })} warningText={warningText} humanError={humanError} /> : <section className="clarification" aria-labelledby="next-step">
+        {draft.days.flatMap(day => day.activities.filter(activity => activity.intent_kind === 'event_visit').map(activity => <SelectedEventItem key={JSON.stringify([day.day_id, activity.id])} view={view} dayId={day.day_id} activityId={activity.id} busy={!!busy || dirty}
+          recheck={() => void act('Перепроверяем событие…', () => recheckEvent(day.day_id, activity.id))} chooseOther={() => browseEvents({ day_id: day.day_id, replace_activity_id: activity.id })}
+          remove={() => void act('Убираем событие…', () => quickSave({ op: 'remove_activity', day_id: day.day_id, activity_id: activity.id }))} />))}
+        {firstIssue?.code === 'ORIGIN_REQUIRED' ? <><span className="step-symbol"><Icon name="pin" /></span><h2 id="next-step">Откуда начинаем?</h2><p>Выберите удобную точку — от неё посчитаем время в пути.</p>
+          <div className="choice-list"><Action stretched disabled={!!busy} onClick={() => void act('Определяем местоположение…', () => locate(true))} iconBefore={<Icon name="pin" />}>Моё местоположение</Action>
+            <Action variant="secondary" stretched disabled={!!busy} onClick={() => setPointEditor('address')}>Указать адрес</Action>
+            {mapsAvailable && <Action variant="ghost" stretched disabled={!!busy} onClick={() => setPointEditor('map')}>Выбрать на карте</Action>}</div></> :
+          firstIssue?.code === 'TRANSPORT_REQUIRED' ? <><span className="step-symbol"><Icon name="walk" /></span><h2 id="next-step">Как будете передвигаться?</h2><p>Проверим дорогу для выбранного способа.</p>
+            <div className="choice-list">{view.capabilities.modes.map(mode => <Action variant="secondary" key={mode} disabled={!!busy} onClick={() => void act('Сохраняем…', () => quickSave({ op: 'mobility', mode }))}>{modeLabels[mode] ?? mode}</Action>)}</div></> :
+          (firstIssue?.code === 'ACTIVITY_REQUIRED' || firstIssue?.code === 'ACTIVITIES_REQUIRED') ? <><span className="step-symbol"><Icon name="calendar" /></span><h2 id="next-step">Чем займёмся?</h2><p>Добавьте занятие или выберите событие из афиши. Затем проверим время, дорогу и остальные условия.</p>
+            <Action stretched disabled={!!busy} onClick={() => openConditions()}>Выбрать занятия</Action>
+            <Action variant="secondary" stretched disabled={!!busy || dirty} onClick={() => browseEvents()}>Открыть афишу</Action></> :
+          firstIssue?.code === 'EVENT_RECHECK_REQUIRED' ? <><h2 id="next-step">Проверим выбранные события</h2><p>Используйте «Перепроверить событие» выше. Собственные пожелания остаются в плане.</p></> :
+          firstIssue ? <><span className="step-symbol"><Icon name="filters" /></span><h2 id="next-step">Уточним один момент</h2><p>{humanError(firstIssue.code)}</p>
+            <Action stretched disabled={!!busy} onClick={() => openConditions()}>Уточнить условия</Action></> :
+          <><span className="step-symbol"><Icon name="route" /></span><h2 id="next-step">Всё готово к расчёту</h2><p>Подберём места и проверим, что посещения и дорога помещаются в ваше время.</p>
+            {draft.points.origin && <div className="start-summary"><Icon name="pin" /><span><small>Начало маршрута</small><strong>{draft.points.origin.label ?? 'Выбранная точка'}</strong></span></div>}
+            <p className="field-hint">Область подбора — {new Intl.NumberFormat('ru-RU').format((draft.shared.search_radius_meters ?? DEFAULT_SEARCH_RADIUS_METERS) / 1000)} км от старта. Радиус можно изменить в условиях.</p>
+            <Action stretched disabled={!!busy || !ready || view.phase === 'PLANNING'} onClick={() => void act('Подбираем места…', () => calculate())}>Составить план</Action></>}
+        {view.phase === 'PLANNING' && <Action variant="secondary" onClick={() => void act('Проверяем статус…', async () => { accept(await request<PlanningView>(`/api/planning/drafts/${view.id}`, session!.token)); })}>Проверить статус расчёта</Action>}
+      </section>}</div>
+      {eventPanel && <Sheet title="События для вашего дня" canClose={!eventPending} onClose={() => setEventPanel(null)}><EventPanel key={`${view.id}:${view.version}`} view={view} target={eventPanel.target} pending={setEventPending}
+        search={dayId => request<EventSearchPreview>(`/api/planning/drafts/${view.id}/events/search`, session!.token, 'POST', { base_version: view.version, event_id: crypto.randomUUID(), day_id: dayId })}
+        availability={value => request<EventAvailabilityPreview>(`/api/planning/drafts/${view.id}/events/availability`, session!.token, 'POST', { base_version: view.version, event_id: crypto.randomUUID(), ...value })}
+        select={async value => { accept(await request<PlanningView>(`/api/planning/drafts/${view.id}/events/select`, session!.token, 'POST', { base_version: view.version, event_id: crypto.randomUUID(), ...value })); setEventPanel(null); setNotice('Событие добавлено к условиям. Проверьте порядок и подтвердите расчёт.'); }}
+        refresh={async () => { accept(await request<PlanningView>(`/api/planning/drafts/${view.id}`, session!.token)); setEventPanel(null); }} /></Sheet>}
+      {alternative && <Sheet title="Заменить остановку" onClose={() => setAlternative(null)}><AlternativePanel preview={alternative} current={view} busy={!!busy} close={() => setAlternative(null)} apply={id => void act('Применяем замену…', async () => {
+        accept(await request<PlanningView>(`/api/planning/drafts/${view.id}/alternatives/apply`, session!.token, 'POST', { base_version: alternative.base_version, event_id: crypto.randomUUID(), alternative_id: id })); setAlternative(null);
+      })} />{errorNotice()}</Sheet>}
+      {shareOpen && <Sheet title="Поделиться маршрутом" onClose={() => setShareOpen(false)}><SharePanel created={shareDraftId === view.id ? shareCreated : null} busy={!!busy} party={view.draft.shared.party} create={points => void act('Создаём ссылку…', async () => {
+        const saved = await request<SavedConditionsView>(`/api/planning/saved/${view.id}`, session!.token);
+        setShareCreated(await request<ShareCreated>('/api/planning/shares', session!.token, 'POST', { draft_id: view.id, base_revision: saved.revision, event_id: crypto.randomUUID(), include_private_points: points }));
+        setShareDraftId(view.id);
+      })} revoke={() => void act('Отзываем ссылку…', async () => {
+        if (!shareCreated) return; await request('/api/planning/shares/revoke', session!.token, 'POST', { share_id: shareCreated.share_id, event_id: crypto.randomUUID() }); setShareCreated(null); setNotice('Ссылка отозвана.');
+      })} />{errorNotice()}</Sheet>}
+      {detailsOpen && <Sheet title="Условия плана" className="conditions-sheet" onClose={() => setDetailsOpen(false)}><ConditionsPanel draft={draft} view={view} busy={!!busy} dirty={dirty} mapsAvailable={mapsAvailable} patch={patch} searchAddress={searchAddress}
+        initialSection={detailsSection} loadActivities={() => request<ManualChoices>(`/api/planning/drafts/${view.id}/activity-options`, session!.token)}
+        locate={() => void act('Определяем местоположение…', () => locate())} save={() => void act('Применяем условия…', save)} cancel={() => { setDraft(structuredClone(view.draft)); setDetailsOpen(false); }}
+        browseEvents={browseEvents} recheckEvent={(dayId, activityId) => void act('Перепроверяем событие…', () => recheckEvent(dayId, activityId))} />
+        {errorNotice()}</Sheet>}
+      {pointEditor && <Sheet title={pointEditor === 'address' ? 'Точка старта' : 'Старт на карте'} onClose={() => setPointEditor(null)}>
+        {pointEditor === 'address' ? <AddressPicker city={draft.locality.name} search={searchAddress} disabled={!!busy} onClose={() => setPointEditor(null)} onSelect={choice => void act('Сохраняем старт…', async () => {
+          await quickSave({ op: 'point', field: 'origin', point: { ...choice.point, label: choice.label, source: 'place_choice' } }); setPointEditor(null);
+        })} /> : (view.capabilities.map_center || draft.points.origin) && <PointPicker center={draft.points.origin ?? view.capabilities.map_center!} onClose={() => setPointEditor(null)} onSelect={point => void act('Сохраняем старт…', async () => {
+          await quickSave({ op: 'point', field: 'origin', point: { ...point, label: 'Выбранная точка на карте', source: 'user_map' } }); setPointEditor(null);
+        })} />}
+        {errorNotice()}
+      </Sheet>}
+    </div>}
+    {savedOpen && session && <Sheet title="Мои маршруты" onClose={() => setSavedOpen(false)}><SavedRoutesPanel busy={!!busy} load={cursor => request<SavedRouteList>(`/api/planning/saved${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, session.token)} remove={async item => {
+      await request(`/api/planning/saved/${encodeURIComponent(item.id)}/delete`, session.token, 'POST', { event_id: crypto.randomUUID(), base_revision: item.revision });
+      setNotice('Маршрут удалён.'); setError(''); if (shareDraftId === item.id) setShareCreated(null);
+      if (session.view?.id === item.id || session.saved?.id === item.id) { setSession({ token: session.token, view: null }); setDraft(null); setNewOpen(false); setShareCreated(null); }
+    }} open={id => void act('Открываем маршрут…', async () => {
+      const value = await request<SavedRouteActivation>(`/api/planning/saved/${encodeURIComponent(id)}/activate`, session.token, 'POST', { event_id: crypto.randomUUID() });
+      setSession({ ...value, token: session.token }); setDraft(value.view ? structuredClone(value.view.draft) : null); setNewOpen(false); setIncoming(null); setSavedOpen(false); setDetailsOpen(false); setAlternative(null);
+    })} />{errorNotice()}</Sheet>}
+    {reloadRequested && <Sheet title="Загрузить сохранённую версию?" canClose={!busy} onClose={() => setReloadRequested(false)}>
+      <p>Правки в этой форме ещё не сохранены. Загрузка заменит их последней версией с сервера.</p>
+      {error && <p className="notice notice--error" role="alert">{error}</p>}
+      <div className="sheet-actions"><Action stretched disabled={!!busy} onClick={() => void act('Загружаем сохранённую версию…', reloadSavedState)}>Загрузить сохранённую версию</Action>
+        <Action variant="ghost" stretched disabled={!!busy} onClick={() => setReloadRequested(false)}>Продолжить правку</Action></div>
+    </Sheet>}
+    <footer className="planner-footer"><Action variant="ghost" onClick={() => setDataOpen(true)}>О данных</Action></footer>
+    {dataOpen && <Sheet title="О данных" onClose={() => setDataOpen(false)}><div className="data-information">
+      <p>Текст пожеланий разбирает Alice AI. Места и географические данные получаем из 2ГИС, сведения о событиях — из KudaGo.</p>
+      <h3>Что сохраняется</h3><p>Черновик доступен 30 минут. Результат расчёта актуален не более 5 минут и может истечь раньше. После этого места и дорогу нужно проверить заново.</p>
+      <p>Ваши собственные условия хранятся до 30 дней после последнего изменения. К ним можно вернуться через «Мои маршруты». Исходное пожелание сохраняется с маршрутом; удалить его можно вместе с маршрутом.</p>
+      <h3>Когда вы делитесь</h3><p>Ссылка действует до 7 дней. Её может открыть любой пользователь MAX, у которого она есть. Личные точки старта и финиша передаются только при вашем явном выборе.</p>
+      <h3>Как удалить</h3><p>В «Моих маршрутах» выберите «Удалить». Удаление маршрута отключает созданные для него ссылки. Собственные копии других пользователей это не удаляет.</p>
+    </div></Sheet>}
   </main>;
 }
+const modesLabel = (mode: string | undefined) => mode ? modeLabels[mode] ?? mode : 'Передвижение';

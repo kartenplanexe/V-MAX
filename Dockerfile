@@ -3,7 +3,11 @@ FROM node:24.15.0-bookworm-slim AS dependencies
 
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# npm can report success after a failed optional native download. Do not cache
+# that incomplete dependency layer as a usable build environment.
+RUN npm ci \
+    && node --input-type=module -e "await import('vite')" \
+    && ./node_modules/.bin/tsc --version
 
 FROM dependencies AS build
 
@@ -20,6 +24,7 @@ RUN npm prune --omit=dev --ignore-scripts
 FROM python:3.12.13-slim-bookworm AS runtime
 COPY --from=uv /uv /usr/local/bin/uv
 COPY --from=dependencies /usr/local/bin/node /usr/local/bin/node
+COPY --from=dependencies /usr/local/LICENSE /usr/local/share/doc/node/LICENSE
 
 ENV HOST=0.0.0.0 \
     NODE_ENV=production \
@@ -27,6 +32,8 @@ ENV HOST=0.0.0.0 \
 
 WORKDIR /app
 COPY package.json package-lock.json ./
+COPY THIRD_PARTY_NOTICES.md ./THIRD_PARTY_NOTICES.md
+COPY third-party/licenses ./third-party/licenses
 COPY --from=production-dependencies /app/node_modules ./node_modules
 COPY planner/pyproject.toml planner/uv.lock ./planner/
 RUN cd planner && uv sync --frozen --no-dev --no-cache --python /usr/local/bin/python

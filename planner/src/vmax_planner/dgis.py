@@ -89,7 +89,8 @@ def normalize_place(item, *, dates, requested_region_id, fetched_at, valid_until
             numbers = re.findall(r"\d[\d\s\u00a0\u202f]*", text)
             if len(numbers) == 1 and not re.search(r"\bот\b|\bдо\b", text, re.I):
                 amount = int(re.sub(r"\s", "", numbers[0]))
-                price = {"expected_minor": amount * 100, "upper_minor": None, "basis": "unknown"}
+                price = {"expected_minor": amount * 100, "upper_minor": None, "basis": "unknown",
+                         "estimate_kind": "average_bill"}
             warnings.append("AVERAGE_CHECK_UNIT_UNVERIFIED")
     reviews = item.get("reviews") or {}
     rating, count = reviews.get("general_rating"), reviews.get("general_review_count")

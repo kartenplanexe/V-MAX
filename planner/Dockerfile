@@ -1,6 +1,7 @@
 FROM ghcr.io/astral-sh/uv:0.11.14 AS uv
 FROM python:3.12.13-slim
 COPY --from=uv /uv /usr/local/bin/uv
+COPY LICENSE-uv.txt /usr/local/share/doc/uv/LICENSE-MIT
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-cache --python /usr/local/bin/python

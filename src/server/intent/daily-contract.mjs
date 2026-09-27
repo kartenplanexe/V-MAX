@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import AjvModule from 'ajv/dist/2020.js';
 import formatsModule from 'ajv-formats';
+import {inspectSemanticCoverage} from './semantic-coverage.mjs';
 const Ajv = AjvModule.default ?? AjvModule;
 const addFormats = formatsModule.default ?? formatsModule;
 export const schema = JSON.parse(fs.readFileSync(new URL('./intent-parser-response-v0.2.schema.json',import.meta.url),'utf8'));
@@ -28,15 +29,33 @@ export function buildDailyRequest(input) {
     response_format:{type:'json_schema',json_schema:{name:'leisure_intent_parser_v02',schema:wireSchema}}};
 }
 
-// One bounded correction attempt for two observed mechanical model mistakes.
+// One bounded correction attempt for mechanical violations of the same contract.
 // The original user input and full regional catalog remain authoritative.
 export function buildDailyRepairRequest(input, errors, invalidResponse) {
   const request = buildDailyRequest(input);
   const hints = [];
   if (errors.includes('NONCONTIGUOUS_OFFSETS')) hints.push(
     'Для одного дня без указанной даты используй anchor_offset days=0 и date_anchor=null. Если пользователь прямо сказал «завтра», используй relative days=1 с дословной date_evidence="завтра". Не используй anchor_offset days=1 для единственного дня.');
+  if (errors.includes('ANCHOR_WITHOUT_OFFSETS')) hints.push(
+    'date_anchor допустим только когда каждый день использует anchor_offset. Если день уже содержит самостоятельную relative/absolute/weekday дату, оставь date_anchor=null и дословную date_evidence.');
+  if (errors.includes('DATE_WITHOUT_EVIDENCE')) hints.push(
+    'Для самостоятельной явно указанной даты укажи date_evidence — точный непрерывный фрагмент user_text. Если даты не было, используй anchor_offset days=0 и date_evidence=null.');
+  if (errors.includes('UNSUPPORTED_EVIDENCE')) hints.push(
+    'Все evidence, date_evidence, scope_evidence и unresolved.text должны быть дословными непрерывными фрагментами исходного user_text. Не пересказывай, не меняй окончания и не объединяй разрозненные слова.');
+  if (errors.includes('SCHEMA')) hints.push(
+    'Сверь каждый обязательный ключ и тип с JSON-схемой ответа; не добавляй поля вне схемы.');
+  if (errors.includes('STRICT_CATEGORY_MISMATCH')) hints.push(
+    'Для named_types_only возвращай только конкретные рубрики, названия которых точно соответствуют названным типам; соседние типы не добавляй.');
   if (errors.includes('CATEGORY_ID')) hints.push(
     'Для include_any/exclude используй только id из ПЕРВОЙ ячейки существующей строки catalog.rows с эффективным type=rubric. Не используй parent_ids, ID разделов general_rubric, названия или выдуманные ID. Если подходящих конкретных рубрик уверенно нет, верни no_match и пустые массивы ID, но сохрани занятие.');
+  if (errors.some(error => error.startsWith('SEMANTIC_'))) {
+    const semantic = inspectSemanticCoverage(invalidResponse, input);
+    hints.push(`Ограниченная проверка явных пожеланий обнаружила: ${JSON.stringify(semantic.issues)}. ` +
+      'Заново прочитай ПОЛНЫЙ исходный user_text. Сохрани каждое самостоятельное положительное занятие в своей activity, ' +
+      'не объединяй прогулку, еду, музей, кино или спорт в одно посещение. Не превращай отрицания и альтернативы в обязательные занятия; ' +
+      'сохрани область дней и явный порядок. Include_any должен содержать совместимые с конкретной активностью рубрики, а не любые существующие ID. ' +
+      'Не придумывай ID или отсутствующее пожелание. При неуверенности сохрани занятие с no_match либо unresolved и дословной цитатой.');
+  }
   if (errors.includes('CATEGORY_ID')) {
     const rows = input.catalog?.rows ?? [];
     const byId = new Map(rows.map(row => [row[0], row]));

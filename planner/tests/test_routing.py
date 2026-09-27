@@ -32,6 +32,24 @@ def test_shortlist_is_deterministic_and_explicit_and_not_an_eligibility_override
         select_places(narrowed)
 
 
+def test_route_walk_shortlist_includes_local_distance_strata():
+    job = demo_job()
+    job["intent"]["days"][0]["activities"] = job["intent"]["days"][0]["activities"][:1]
+    job["intent"]["days"][0]["order"] = []
+    job["visit_policy"]["by_activity"] = {"culture": 25}
+    job["visit_policy"]["max_stops_by_activity"] = {"culture": 2}
+    template = next(place for place in job["places"] if place["id"] == "museum-near")
+    job["places"].extend(deepcopy(template) | {"id": f"near-{i}",
+                          "point": {"lat": 55.751 + i * 0.001, "lon": 37.622}}
+                         for i in range(1, 4))
+    job["routing_policy"] = {"candidates_per_activity": 3}
+    result = prepare_routes(job)
+    chosen = {row["place_id"] for row in result["job"]["candidate_pool"]}
+    assert len(chosen) == 3
+    assert "museum-near" in chosen
+    assert "museum-far" in chosen
+
+
 def test_can_reduce_large_eligible_pool_before_solver_cap():
     job = demo_job()
     template = job["places"][0]
@@ -39,7 +57,9 @@ def test_can_reduce_large_eligible_pool_before_solver_cap():
     assert select_places(job)["issues"] == ["CANDIDATE_POOL_TOO_LARGE"]
     prepared = prepare_routes(job)
     assert prepared["status"] == "AVAILABLE"
-    assert len(prepared["job"]["candidate_pool"]) == 5
+    assert len(prepared["job"]["candidate_pool"]) <= 120
+    assert len(prepared["job"]["candidate_pool"]) > 5
+    assert any(row["activity_id"] == "food" for row in prepared["job"]["candidate_pool"])
 
 
 @pytest.mark.parametrize("zone,minute,expected", [
@@ -93,7 +113,7 @@ def test_recheck_rejects_tampered_result_and_stale_data():
     with pytest.raises(ValueError): route_checks({"job": job, "result": result})
 
 
-@pytest.mark.parametrize("mode", ["public_transport", "teleport"])
+@pytest.mark.parametrize("mode", ["unsupported_mode", "teleport"])
 def test_unsupported_transport_does_not_fall_back_to_walking(mode):
     job = demo_job()
     job["intent"]["shared"]["mobility"] = [mode]

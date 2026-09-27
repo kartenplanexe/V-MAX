@@ -37,7 +37,7 @@ def test_average_check_is_only_estimate_with_unverified_unit():
     item = {"id": "1", "name": "Кафе", "rubrics": [{"id": "161"}], "attribute_groups": [{"attributes": [
         {"tag": "food_service_avg_price", "name": "Средний чек 1 200 ₽"}]}]}
     price = project(item)["price"]
-    assert price == {"expected_minor": 120000, "upper_minor": None, "basis": "unknown"}
+    assert price == {"expected_minor": 120000, "upper_minor": None, "basis": "unknown", "estimate_kind": "average_bill"}
 
 
 def test_payload_secrets_and_ads_are_not_projected():

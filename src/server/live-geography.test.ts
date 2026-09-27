@@ -74,3 +74,20 @@ it('uses the backup key on an HTTP 429 even when the first response is not JSON'
   await expect(geography.searchAddress('Тверская, 1', '32')).resolves.toEqual([]);
   expect(keys).toEqual(['primary', 'backup']);
 });
+
+it('reaches the third key for Categories when both earlier keys return key-specific denial', async () => {
+  const keys: (string | null)[] = [];
+  const tokens = new LocalityTokens('sign-key');
+  const token = tokens.sign({ id: '1', name: 'Москва', region_id: '32', timezone: 'Europe/Moscow',
+    center: { lat: 55.75, lon: 37.62 }, area: { south: 55, north: 56, west: 37, east: 38 } });
+  const geography = new LiveGeography('primary', tokens, async input => {
+    const key = new URL(String(input)).searchParams.get('key'); keys.push(key);
+    return key === 'third' ? Response.json({ meta: { code: 200, issue_date: '20260926', api_version: '2.0.test' },
+      result: { total: 1, items: [{ id: '10', name: 'Места', type: 'general_rubric', region_id: '32',
+        rubrics: [{ id: '20', name: 'Парки', type: 'rubric', region_id: '32', parent_id: '10' }] }] } })
+      : Response.json({ meta: { code: 403 } });
+  }, 'backup', 'third');
+  const context = await geography.context(token);
+  expect(context.catalog.rows).toHaveLength(2);
+  expect(keys).toEqual(['primary', 'backup', 'third']);
+});

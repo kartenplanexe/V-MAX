@@ -8,13 +8,20 @@ import sys
 from .demo import demo_job
 from .dgis import normalize_place
 from .selection import select_places
-from .routing import prepare_routes, route_checks
+from .routing import prepare_routes, recover_routes, route_checks
+from .events import validate_event_candidate
 
 MAX_BYTES = 8 * 1024 * 1024
 
 
 def project_batches(job):
     """Optionally convert internal BFF batches to the solver's canonical places."""
+    if 'event_candidates' in job:
+        events = job['event_candidates']
+        if not isinstance(events, list) or len(events) > 120: raise ValueError('invalid event candidates')
+        for candidate in events: validate_event_candidate(candidate)
+        projected = project_batches({k: v for k, v in job.items() if k != 'event_candidates'})
+        return {**projected, 'places': [*projected.get('places', []), *events]}
     if "provider_batches" not in job: return job
     if "places" in job: raise ValueError("provide places OR provider_batches")
     batches = job["provider_batches"]
@@ -38,7 +45,7 @@ def main(argv=None):
     group.add_argument("--demo", action="store_true", help="синтетический пример без сети и ключей")
     group.add_argument("--demo-input", action="store_true", help="показать полный вход синтетического примера")
     parser.add_argument("--time-limit", type=float, default=3.0)
-    parser.add_argument("--operation", choices=("solve", "prepare-routes", "route-checks"), default="solve")
+    parser.add_argument("--operation", choices=("solve", "prepare-routes", "route-checks", "recover-routes"), default="solve")
     args = parser.parse_args(argv)
     try:
         if args.demo or args.demo_input:
@@ -53,6 +60,7 @@ def main(argv=None):
         if args.demo_input: result = job
         elif args.operation == "prepare-routes": result = prepare_routes(project_batches(job))
         elif args.operation == "route-checks": result = route_checks(job)
+        elif args.operation == "recover-routes": result = recover_routes(job)
         else: result = select_places(project_batches(job), time_limit_seconds=args.time_limit)
         print(json.dumps(result, ensure_ascii=False, allow_nan=False))
         return 0 if args.demo_input or result["status"] != "ERROR" else 3

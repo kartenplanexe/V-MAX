@@ -73,19 +73,19 @@ export function visitPolicy(items: { id: string; name: string }[]): PlanningCont
     if (walkableNames.has(name)) walkable_category_ids.push(item.id);
     if (name === 'парки' || name === 'парки культуры и отдыха') park_category_ids.push(item.id);
   }
-  return { version: 'visit-duration-estimates.v3', by_category, walkable_category_ids, park_category_ids,
+  return { version: 'visit-duration-estimates.v4', by_category, walkable_category_ids, park_category_ids,
     arrival_buffer_minutes: 5 };
 }
 
 export class LiveGeography {
   private readonly keys: DgisKeyFallback;
   constructor(readonly key: string, readonly tokens: LocalityTokens, readonly fetchImpl: typeof fetch = fetch,
-    backupKey = '') { this.keys = new DgisKeyFallback(key, backupKey); }
+    backupKey = '', tertiaryKey = '') { this.keys = new DgisKeyFallback(key, [backupKey, tertiaryKey]); }
   private async json(path: string, params: Record<string, string>) {
     const service: DgisService = path.includes('/catalog/rubric/') ? 'categories'
       : path.includes('/region/') ? 'regions' : 'places';
     const request = async (key: string) => {
-      const keyRole = key === this.key ? 'primary' : 'backup';
+      const keyRole = this.keys.role(key);
       const url = new URL(path, 'https://catalog.api.2gis.com');
       url.search = new URLSearchParams({ ...params, key, locale: 'ru_RU' }).toString();
       let response: Response;
@@ -111,11 +111,15 @@ export class LiveGeography {
       return { status: response.status, body };
     };
     try {
-      const selected = this.keys.current(service);
-      let result = await request(selected);
-      if (shouldTryDgisBackup(result.status, result.body)) {
+      let selected = this.keys.current(service);
+      if (!selected) throw new Error();
+      let result: Awaited<ReturnType<typeof request>>;
+      for (;;) {
+        result = await request(selected);
+        if (!shouldTryDgisBackup(result.status, result.body)) break;
         const backup = this.keys.backupAfterDenial(service, selected);
-        if (backup) result = await request(backup);
+        if (!backup) break;
+        selected = backup;
       }
       if (result.status !== 200 || !result.body || typeof result.body !== 'object' ||
           !('meta' in result.body) || (result.body as { meta?: { code?: number } }).meta?.code !== 200) throw new Error();
@@ -185,7 +189,8 @@ export class LiveGeography {
     const catalog = { ...metadata, format: '2gis-category-catalog.defaults.v2',
       defaults: { type: 'rubric', caption: '$name', declared_parent_ids: '$parent_ids' }, columns: ['id', 'name', 'parent_ids', 'optional_overrides'], rows };
     return { now: new Date().toISOString(), locality: { id: location.id, name: location.name, region_id: location.region_id, timezone: location.timezone }, catalog,
-      planning: { catalog: { version: catalog.version, region_id: catalog.region_id, leaf_ids: rows.filter(r => (r[3]?.type ?? 'rubric') === 'rubric').map(r => r[0]) },
+      planning: { catalog: { version: catalog.version, region_id: catalog.region_id, leaf_ids: rows.filter(r => (r[3]?.type ?? 'rubric') === 'rubric').map(r => r[0]),
+        category_names: Object.fromEntries(rows.filter(r => (r[3]?.type ?? 'rubric') === 'rubric').map(r => [r[0], r[1]])) },
         visit_policy: visitPolicy(items), point_area: location.area, map_center: location.center, modes: ['walking', 'driving', 'cycling'], data_mode: 'live' } };
   }
 }

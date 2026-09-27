@@ -50,12 +50,20 @@ export class InitialRequests {
   }
 }
 
-export function registerInitialRequestRoutes(app: FastifyInstance, initial: { start(owner: string, input: unknown): Promise<Result> }, authenticate: PlanningAuthenticator) {
+export function registerInitialRequestRoutes(app: FastifyInstance, initial: { start(owner: string, input: unknown): Promise<Result> }, authenticate: PlanningAuthenticator,
+  onCreated?: (owner: string, view: PlanningView) => Promise<void>) {
   app.post('/api/planning/requests', { bodyLimit: 24 * 1024 }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     const owner = authenticate(request);
     if (!owner) return reply.code(401).send({ error: 'AUTH_REQUIRED' });
-    try { return await initial.start(owner, request.body); }
+    try {
+      const result = await initial.start(owner, request.body);
+      if (result.status === 'draft') {
+        try { await onCreated?.(owner, result.view); }
+        catch { request.log.warn({ action: 'initial_create' }, 'Created route index could not be refreshed'); }
+      }
+      return result;
+    }
     catch (error) {
       if (error instanceof InitialIntentError || error instanceof PlanningSessionError) return reply.code(error.status).send({ error: error.code });
       return reply.code(500).send({ error: 'INTENT_PROVIDER_FAILED' });

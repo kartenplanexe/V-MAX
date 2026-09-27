@@ -1,10 +1,19 @@
 import { z } from 'zod';
 import { DgisKeyFallback, shouldTryDgisBackup, type DgisService } from './dgis-key-fallback.js';
+import { normalizeRouteGeometry } from './route-geometry.js';
+import { normalizePublicTransport, publicTransportRequest } from './dgis-public-transport.js';
 
 const PointSchema = z.object({
   lat: z.number(),
   lon: z.number(),
 });
+
+const PlaceItemSchema = z.object({
+  id: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  point: PointSchema.extend({ lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180) }).optional(),
+  type: z.string().optional(),
+}).passthrough();
 
 const PlacesResponseSchema = z.object({
   meta: z
@@ -14,20 +23,12 @@ const PlacesResponseSchema = z.object({
     .passthrough(),
   result: z
     .object({
-      items: z
-        .array(
-          z
-            .object({
-              id: z.string(),
-              name: z.string(),
-              point: PointSchema.optional(),
-              type: z.string().optional(),
-            })
-            .passthrough(),
-        )
-        .default([]),
-      total: z.number().optional(),
+      items: z.array(z.unknown()).default([]),
+      total: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
     })
+    .refine(result => result.total === undefined || new Set(result.items.flatMap(item =>
+      item && typeof item === 'object' && 'id' in item && typeof item.id === 'string' ? [item.id] : [])).size <= result.total,
+      { path: ['total'], message: 'Result count is inconsistent.' })
     .optional(),
 });
 
@@ -52,6 +53,7 @@ export interface DgisClientOptions {
   placesApiKey: string;
   routingApiKey: string;
   backupApiKey?: string;
+  tertiaryApiKey?: string;
   timeoutMs?: number;
 }
 
@@ -59,6 +61,15 @@ export class DgisProviderError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'DgisProviderError';
+  }
+}
+
+/** Owned by one operation, not by the shared client. Called synchronously before
+ * every physical HTTP attempt, including denied-key fallback attempts. */
+export interface DgisRequestBudget { consume(): void }
+export class DgisRequestBudgetError extends Error {
+  constructor(readonly code: 'HTTP_BUDGET_EXHAUSTED' | 'PAIR_BUDGET_EXHAUSTED' | 'DEADLINE_EXCEEDED' = 'HTTP_BUDGET_EXHAUSTED') {
+    super(code); this.name = 'DgisRequestBudgetError';
   }
 }
 
@@ -74,8 +85,9 @@ export class DgisClient {
     this.#fetch = options.fetchImpl ?? fetch;
     this.#placesApiKey = options.placesApiKey.trim();
     this.#routingApiKey = options.routingApiKey.trim();
-    this.#placesKeys = new DgisKeyFallback(this.#placesApiKey, options.backupApiKey?.trim() ?? '');
-    this.#routingKeys = new DgisKeyFallback(this.#routingApiKey, options.backupApiKey?.trim() ?? '');
+    const backups = [options.backupApiKey ?? '', options.tertiaryApiKey ?? ''];
+    this.#placesKeys = new DgisKeyFallback(this.#placesApiKey, backups);
+    this.#routingKeys = new DgisKeyFallback(this.#routingApiKey, backups);
     this.#timeoutMs = options.timeoutMs ?? 10_000;
   }
 
@@ -84,9 +96,14 @@ export class DgisClient {
     pageSize?: number;
     query: string;
     radiusMeters?: number;
+    requestBudget?: DgisRequestBudget;
   }) {
     if (!input.query.trim()) throw new DgisProviderError('2GIS Places query must not be empty.');
-    return (await this.#searchPlacePage(input)).items;
+    const page = await this.#searchPlacePage(input);
+    if (!page.items.length && page.schemaPath) {
+      throw new DgisProviderError(`2GIS Places response schema failed at ${page.schemaPath}.`);
+    }
+    return page.items;
   }
 
   async searchPlacesByCategories(input: {
@@ -96,6 +113,7 @@ export class DgisClient {
     page?: number;
     pageSize?: number;
     radiusMeters?: number;
+    requestBudget?: DgisRequestBudget;
   }) {
     if (!/^\d+$/u.test(input.regionId) || input.rubricIds.length < 1 || input.rubricIds.length > 100 ||
         input.rubricIds.some(id => !/^\d+$/u.test(id)) || new Set(input.rubricIds).size !== input.rubricIds.length) {
@@ -112,6 +130,7 @@ export class DgisClient {
     page?: number;
     pageSize?: number;
     radiusMeters?: number;
+    requestBudget?: DgisRequestBudget;
   }) {
     validateCoordinates(input.center);
     const page = input.page ?? 1;
@@ -156,7 +175,7 @@ export class DgisClient {
       url.searchParams.set('region_id', input.regionId!);
     }
 
-    const body = await this.#request(url, { headers: { Accept: 'application/json' } }, 'places');
+    const body = await this.#request(url, { headers: { Accept: 'application/json' } }, 'places', input.requestBudget);
     const providerCode = z.object({ meta: z.object({ code: z.number().int() }) }).safeParse(body);
     if (providerCode.success && providerCode.data.meta.code !== 200) {
       const value = body && typeof body === 'object' ? body as Record<string, unknown> : {};
@@ -178,12 +197,28 @@ export class DgisClient {
       const path = first?.path.map(segment => typeof segment === 'number' ? '*' : String(segment)).join('.') || 'root';
       throw new DgisProviderError(`2GIS Places response schema failed at ${path}.`);
     }
-    return { items: parsed.data.result?.items ?? [], total: parsed.data.result?.total ?? null };
+    const rawItems = parsed.data.result?.items ?? [];
+    const items: z.infer<typeof PlaceItemSchema>[] = [];
+    let schemaPath: string | null = null;
+    for (const raw of rawItems) {
+      const item = PlaceItemSchema.safeParse(raw);
+      if (item.success) items.push(item.data);
+      else if (schemaPath === null) {
+        const path = item.error.issues[0]?.path.map(segment => typeof segment === 'number' ? '*' : String(segment)).join('.');
+        schemaPath = `result.items.*${path ? '.' + path : ''}`;
+      }
+    }
+    // Keep valid rows without treating filtered rows as a short/exhausted page.
+    // Only schema paths/counts leave the validation boundary for rejected rows.
+    return { items, total: parsed.data.result?.total ?? null, rawItemCount: rawItems.length,
+      rejectedItems: rawItems.length - items.length, schemaPath,
+      schemaFailure: schemaPath ? `SCHEMA_${schemaPath.replace(/[^A-Za-z0-9]/gu, '_').toUpperCase()}` : null };
   }
 
   async buildRoute(input: {
     points: [Coordinates, Coordinates, ...Coordinates[]];
     transport: RouteTransport;
+    requestBudget?: DgisRequestBudget;
   }) {
     const maximumPoints = input.transport === 'walking' ? 5 : 10;
     if (input.points.length > maximumPoints) {
@@ -206,12 +241,40 @@ export class DgisClient {
       }),
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       method: 'POST',
-    }, 'routing');
+    }, 'routing', input.requestBudget);
     const parsed = RoutingResponseSchema.safeParse(body);
     if (!parsed.success || parsed.data.type !== 'result' || parsed.data.status !== 'OK') {
       throw new DgisProviderError('2GIS Routing could not build the requested route.');
     }
     return parsed.data;
+  }
+
+  /** One final dated leg: its displayed path and measured time share one observation. */
+  async buildRouteSegment(input: {
+    from: Coordinates; to: Coordinates; transport: 'walking' | 'driving' | 'bicycle';
+    departureUtc: number; requestBudget?: DgisRequestBudget;
+  }) {
+    validateCoordinates(input.from); validateCoordinates(input.to);
+    if (!['walking', 'driving', 'bicycle'].includes(input.transport) ||
+        !Number.isSafeInteger(input.departureUtc) || input.departureUtc < 0)
+      throw new DgisProviderError('Invalid dated routing segment.');
+    const url = new URL('https://routing.api.2gis.com/routing/7.0.0/global');
+    url.searchParams.set('key', requireKey(this.#routingApiKey, 'DGIS_ROUTING_API_KEY'));
+    const body = await this.#request(url, {
+      method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ points: [input.from, input.to].map(point => ({ ...point, type: 'stop' })),
+        transport: input.transport, output: 'detailed', locale: 'ru', route_mode: 'fastest',
+        traffic_mode: 'statistics', utc: input.departureUtc, save_route: false }),
+    }, 'routing', input.requestBudget);
+    const parsed = z.object({ status: z.literal('OK'), type: z.literal('result'),
+      query: z.object({ points: z.array(PointSchema).length(2) }),
+      result: z.array(z.object({ total_duration: z.number().nonnegative(), total_distance: z.number().nonnegative() }).passthrough()).min(1),
+    }).safeParse(body);
+    if (!parsed.success || pairKey(parsed.data.query.points[0]!, parsed.data.query.points[1]!) !== pairKey(input.from, input.to))
+      throw new DgisProviderError('2GIS detailed route does not match the requested segment.');
+    const route = parsed.data.result[0]!;
+    return { durationSeconds: route.total_duration, distanceMeters: route.total_distance,
+      geometry: normalizeRouteGeometry(route, { from: input.from, to: input.to, distanceMeters: route.total_distance }) };
   }
 
   /** Directed pairs, billed per pair, not per HTTP request. No route storage.
@@ -221,6 +284,7 @@ export class DgisClient {
     pairs: [Coordinates, Coordinates][];
     transport: 'walking' | 'driving' | 'bicycle';
     departureUtc: number;
+    requestBudget?: DgisRequestBudget;
   }) {
     if (input.pairs.length < 1 || input.pairs.length > 50 ||
         !['walking', 'driving', 'bicycle'].includes(input.transport) ||
@@ -237,7 +301,7 @@ export class DgisClient {
       body: JSON.stringify({ points: input.pairs.map(pair => pair.map(p => ({ lat: p.lat, lon: p.lon, type: 'stop' }))),
         transport: input.transport, output: 'summary', locale: 'ru', route_mode: 'fastest',
         traffic_mode: 'statistics', utc: input.departureUtc, save_route: false }),
-    }, 'routing');
+    }, 'routing', input.requestBudget);
     const parsed = z.array(z.object({
       lat1: z.number(), lon1: z.number(), lat2: z.number(), lon2: z.number(), status: z.string(),
       duration: z.number().nonnegative().nullable().optional(),
@@ -258,33 +322,73 @@ export class DgisClient {
     return keys.map(key => rows.get(key)!);
   }
 
-  async #request(url: URL, init: RequestInit, service: 'places' | 'routing'): Promise<unknown> {
+  async buildPublicTransportRoute(input: { from: Coordinates; to: Coordinates; departureUtc: number; requestBudget?: DgisRequestBudget }) {
+    validateCoordinates(input.from); validateCoordinates(input.to);
+    if (!Number.isSafeInteger(input.departureUtc) || input.departureUtc < 0)
+      throw new DgisProviderError('Invalid dated public transport segment.');
+    const url = new URL('https://routing.api.2gis.com/public_transport/2.0');
+    url.searchParams.set('key', requireKey(this.#routingApiKey, 'DGIS_ROUTING_API_KEY'));
+    const body = await this.#request(url, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(publicTransportRequest(input.from, input.to, input.departureUtc)) }, 'public_transport', input.requestBudget, true);
+    try { return normalizePublicTransport(body, input); }
+    catch { throw new DgisProviderError('2GIS returned an invalid public transport route.'); }
+  }
+
+  async #request(url: URL, init: RequestInit, service: 'places' | 'routing' | 'public_transport', requestBudget?: DgisRequestBudget,
+    allowNoContent = false): Promise<unknown> {
     const keys = service === 'places' ? this.#placesKeys : this.#routingKeys;
     const send = async (key: string) => {
       const requestUrl = new URL(url);
       requestUrl.searchParams.set('key', key);
+      // Outside the fetch catch: a budget/deadline stop is not a provider failure.
+      requestBudget?.consume();
       let response: Response;
       try {
         response = await this.#fetch(requestUrl, { ...init, signal: AbortSignal.timeout(this.#timeoutMs) });
       } catch { throw new DgisProviderError('2GIS request failed or timed out.'); }
+      if (allowNoContent && response.status === 204) return { status: 204, body: null };
       let body: unknown;
-      try { body = await response.json(); }
-      catch {
+      try { body = await readBoundedJson(response); }
+      catch (error) {
+        if (error instanceof DgisProviderError) throw error;
         if (response.ok) throw new DgisProviderError('2GIS returned invalid JSON.');
         body = null;
       }
       return { status: response.status, body };
     };
-    const selected = keys.current(service as DgisService);
-    let result = await send(selected);
-    if (shouldTryDgisBackup(result.status, result.body)) {
+    let selected = keys.current(service as DgisService);
+    if (!selected) throw new DgisProviderError('2GIS service keys are temporarily unavailable.');
+    let result: Awaited<ReturnType<typeof send>>;
+    for (;;) {
+      result = await send(selected);
+      if (!shouldTryDgisBackup(result.status, result.body)) break;
       const backup = keys.backupAfterDenial(service, selected);
-      if (backup) result = await send(backup);
+      if (!backup) break;
+      selected = backup;
     }
     if (result.status < 200 || result.status >= 300)
       throw new DgisProviderError(`2GIS returned HTTP ${result.status}.`);
     return result.body;
   }
+}
+
+async function readBoundedJson(response: Response): Promise<unknown> {
+  if (!response.body) throw new SyntaxError('Empty response.');
+  const reader = response.body.getReader(), chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.byteLength;
+      if (size > 8 * 1024 * 1024) {
+        await reader.cancel();
+        throw new DgisProviderError('2GIS response exceeds the allowed size.');
+      }
+      chunks.push(part.value);
+    }
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } finally { reader.releaseLock(); }
 }
 
 export function pairKey(a: Coordinates, b: Coordinates) {

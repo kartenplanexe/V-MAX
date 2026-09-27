@@ -70,6 +70,48 @@ it('removes a redundant single-day anchor before repairing invalid category IDs'
   expect(JSON.stringify(requests[1])).toContain('CATEGORY_ID');
 });
 
+it('drops an unused model date anchor without changing a directly specified day', async () => {
+  const f = intentFixture();
+  f.response.date_anchor.value.days = 2;
+  f.response.days[0]!.date = { kind: 'relative', days: 1 } as typeof f.response.days[0]['date'];
+  f.response.days[0]!.date_evidence = 'Завтра';
+  let calls = 0;
+  const result = await parseInitialIntent({ ...f.context, userText: f.text, inputId: 'unused-anchor' }, async () => {
+    calls++; return f.response;
+  });
+  expect(result.status).toBe('draft');
+  if (result.status === 'draft') expect(result.draft.days[0]!.date).toBe('2026-09-25');
+  expect(calls).toBe(1);
+});
+
+it('makes one bounded correction for non-redundant anchor and unsupported evidence errors', async () => {
+  for (const defect of ['anchor', 'evidence'] as const) {
+    const f = intentFixture();
+    if (defect === 'anchor') {
+      f.text = f.text.replace('Завтра', 'Послезавтра');
+      f.response.date_anchor.value.days = 2;
+      f.response.date_anchor.evidence = 'Послезавтра';
+    }
+    const invalid = structuredClone(f.response);
+    if (defect === 'anchor') {
+      invalid.date_anchor.value.days = 1;
+      invalid.days[0]!.date = { kind: 'relative', days: 2 } as typeof invalid.days[0]['date'];
+      invalid.days[0]!.date_evidence = 'Послезавтра';
+      const second = structuredClone(invalid.days[0]!);
+      second.day_id = 'new:2'; second.date = { kind: 'anchor_offset', days: 1 };
+      second.date_evidence = null;
+      invalid.days.push(second);
+    } else invalid.days[0]!.activity_edits[0]!.evidence = 'придуманная цитата';
+    const requests: Record<string, unknown>[] = [];
+    const result = await parseInitialIntent({ ...f.context, userText: f.text, inputId: `repair-${defect}` }, async request => {
+      requests.push(request); return requests.length === 1 ? invalid : f.response;
+    });
+    expect(result.status).toBe('draft');
+    expect(requests).toHaveLength(2);
+    expect(JSON.stringify(requests[1])).toContain(defect === 'anchor' ? 'ANCHOR_WITHOUT_OFFSETS' : 'UNSUPPORTED_EVIDENCE');
+  }
+});
+
 it('accepts an explicit tomorrow even if the model repeats it as a one-day offset', async () => {
   for (const anchor of [null, { value: { kind: 'relative', days: 1 }, evidence: 'Завтра' }]) {
     const f = intentFixture();
@@ -153,6 +195,11 @@ it('accepts an explicitly repeated trusted city without discarding the regional 
 it('infers walking for an outing but never overrides an explicit transport mode', async () => {
   const f = intentFixture();
   f.response.shared_updates = [];
+  // The authored provider response must preserve the independently requested walk.
+  f.context.catalog.rows.push(['168', 'Парки', []]);
+  f.response.days[0]!.activity_edits.push({ op: 'add', activity_id: 'new:3', label: 'Прогулка',
+    selection: { category_policy: 'related_allowed', named_types: [], evidence: 'погулять' }, requirements: [], evidence: 'погулять' });
+  f.response.days[0]!.category_matches.push({ activity_id: 'new:3', state: 'matched', include_any: ['168'], exclude: [], evidence: 'погулять' });
   const walk = await parseInitialIntent({ ...f.context, userText: 'Завтра с 16 до 19 хочу в музей, потом в кафе. Хочу погулять.', inputId: 'walk' }, async () => f.response);
   expect(walk.status).toBe('draft');
   if (walk.status === 'draft') {

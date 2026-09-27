@@ -1,0 +1,77 @@
+name: Verify submission
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.15.0
+      - name: Scan Git history and source files with redacted output
+        run: npm run check:secrets
+
+  tests-and-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: vmax_test
+          POSTGRES_USER: vmax_test
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vmax_test -d vmax_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://vmax_test:synthetic-ci-only@127.0.0.1:5432/vmax_test
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.15.0
+          cache: npm
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: 0.11.14
+      - name: Install locked Python and Node dependencies
+        run: |
+          uv sync --project planner --frozen --python 3.12.13
+          npm ci
+      - name: Check dependency inventory and browser notices
+        run: |
+          node scripts/dependency-inventory.mjs --check
+          node scripts/client-notices.mjs --check
+      - name: Typecheck, TypeScript tests with PostgreSQL, and production build
+        run: npm run check
+      - name: Python planner tests
+        run: npm run planner:test
+      - name: API contract and deployment preflight self-test
+        run: |
+          node --import tsx scripts/api-contract.mts --check
+          node scripts/deploy-yandex-live.mjs --self-test
+      - name: Build the deliverable Linux image
+        run: docker build --tag "vmax-ci:${GITHUB_SHA}" .

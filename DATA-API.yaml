@@ -1,0 +1,991 @@
+{
+  "schema_version": "v-max.data-api.v1",
+  "solution_name": "Планировщик городского досуга в MAX",
+  "schema_status": "Project-defined check manifest covering the fields required on case page 10. The supplied organizer documents do not publish an executable DATA-API schema; verify compatibility with the submission portal before upload.",
+  "base_url": "https://bbapc7qgk242slpm2df5.containers.yandexcloud.net",
+  "base_url_override_environment": "V_MAX_TEST_BASE_URL",
+  "openapi_file": "openapi.yaml",
+  "test_data_file": "test-data/api-scenarios.json",
+  "schema_reference_document": "openapi.yaml",
+  "revision": {
+    "status": "pending_freeze",
+    "commit": null,
+    "note": "Working tree changes are in progress. Record the tested submitted commit or archive checksum before submission; do not invent a SHA."
+  },
+  "execution": {
+    "automatic_runner": false,
+    "instructions": "Execute checks in order with the test MAX user, or import OpenAPI into a compatible HTTP client. Placeholder substitution and JSON Pointer extraction below describe the procedure; this file does not pretend to be an organizer-provided runner.",
+    "substitution": "A placeholder occupying an entire JSON value preserves the source type: versions, latitude and longitude must be numbers, not strings. Schema references resolve against openapi.yaml components.",
+    "offline_contract_command": "node --import tsx scripts/api-contract.mts",
+    "offline_http_test_command": "npm exec -- vitest run src/server/submission-api-contract.test.ts",
+    "live_policy": "Use a dedicated authorized MAX test account. Explicitly initiated requests/plan may spend provider quota. Never log or publish initData, tokens or raw provider data; do not send valid synthetic webhook events to production."
+  },
+  "roles": {
+    "anonymous": "No credentials.",
+    "max_user": "Ordinary user of the supplied MAX bot. Team supplies a usable test account/access procedure privately; no admin access is needed."
+  },
+  "variables": {
+    "MAX_TEST_INIT_DATA": {
+      "source": "Fresh signed launch data from a mini-app opened by the test MAX user; transmitted privately/in memory, not stored in this repository.",
+      "secret": true
+    },
+    "LOCALITY_TOKEN": {
+      "source_check": "localities",
+      "json_pointer": "/choices/0/token",
+      "secret": true,
+      "precondition": "Tester verifies that the chosen locality is Москва; do not blindly accept a different first result."
+    },
+    "DRAFT_ID": {
+      "source_check": "create-draft",
+      "json_pointer": "/view/id"
+    },
+    "DRAFT_VERSION": {
+      "source": "Latest PlanningView.version from each successful edit/confirm."
+    },
+    "SAVED_REVISION": {
+      "source_check": "read-saved",
+      "json_pointer": "/revision",
+      "precondition": "Saved IDs are stable: use DRAFT_ID for read/restore. Re-read the revision after any later edit; do not substitute PlanningView.version without checking the saved response."
+    },
+    "RESTORE_LOCALITY_TOKEN": {
+      "source_check": "refresh-saved-locality",
+      "json_pointer": "/choices/0/token",
+      "secret": true,
+      "precondition": "Explicitly verify/select Москва again. Do not reuse an expired provider token or infer a locality from stored provider IDs."
+    },
+    "DAY_ID": {
+      "source_check": "create-draft",
+      "json_pointer": "/view/draft/days/0/day_id"
+    },
+    "ADDRESS_LAT": {
+      "source_check": "addresses",
+      "json_pointer": "/choices/0/point/lat"
+    },
+    "ADDRESS_LON": {
+      "source_check": "addresses",
+      "json_pointer": "/choices/0/point/lon"
+    },
+    "ADDRESS_LABEL": {
+      "source_check": "addresses",
+      "json_pointer": "/choices/0/label"
+    },
+    "EVENT_ID": {
+      "source": "New UUID for each explicit action; reuse only when deliberately testing deduplication."
+    },
+    "MANUAL_CATALOG": {
+      "source_check": "manual-options",
+      "json_pointer": "/catalog_version"
+    },
+    "MANUAL_CATEGORY": {
+      "source_check": "manual-options",
+      "json_pointer": "/categories/0/id",
+      "precondition": "Choose an actual desired category from the returned list; do not invent a 2GIS ID."
+    },
+    "MANUAL_DATE": {
+      "source": "A future YYYY-MM-DD date explicitly chosen by the tester in the locality timezone."
+    },
+    "MANUAL_ID": {
+      "source_check": "manual-create",
+      "json_pointer": "/id"
+    },
+    "MANUAL_REVISION": {
+      "source_check": "manual-read-saved",
+      "json_pointer": "/revision"
+    },
+    "SHARE_TOKEN": {
+      "source_check": "share-create",
+      "json_pointer": "/token",
+      "secret": true
+    },
+    "SHARE_ID": {
+      "source_check": "share-create",
+      "json_pointer": "/share_id",
+      "secret": true
+    }
+  },
+  "checks": [
+    {
+      "id": "health",
+      "required": true,
+      "method": "GET",
+      "path": "/api/health",
+      "role": "anonymous",
+      "parameters": {},
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "service": {
+              "const": "v-max"
+            },
+            "status": {
+              "const": "ok"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "service",
+            "status",
+            "version"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "public-config",
+      "required": true,
+      "method": "GET",
+      "path": "/api/public-config",
+      "role": "anonymous",
+      "parameters": {},
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "maps": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "provider": {
+                  "const": "2gis"
+                },
+                "mapglKey": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "enabled",
+                "provider"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "maps"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "deny-unsigned-bootstrap",
+      "required": true,
+      "method": "GET",
+      "path": "/api/planning/bootstrap",
+      "role": "anonymous",
+      "parameters": {},
+      "expected": {
+        "status_codes": [
+          401
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "error": {
+              "const": "AUTH_REQUIRED"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "bootstrap",
+      "required": true,
+      "method": "GET",
+      "path": "/api/planning/bootstrap",
+      "role": "max_user",
+      "parameters": {
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningBootstrap"
+        }
+      }
+    },
+    {
+      "id": "validate-launch",
+      "required": true,
+      "method": "POST",
+      "path": "/api/auth/max",
+      "role": "max_user",
+      "parameters": {
+        "body": {
+          "initData": "${MAX_TEST_INIT_DATA}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/MaxAuthSuccess"
+        }
+      }
+    },
+    {
+      "id": "localities",
+      "required": true,
+      "method": "GET",
+      "path": "/api/planning/localities",
+      "role": "max_user",
+      "parameters": {
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "query": {
+          "q": "Москва"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "choices": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/components/schemas/LocalityChoice"
+              }
+            }
+          },
+          "required": [
+            "choices"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "create-draft",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/requests",
+      "role": "max_user",
+      "parameters": {
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "event_id": "${EVENT_ID}",
+          "locality_token": "${LOCALITY_TOKEN}",
+          "locality_query": "Москва",
+          "user_text": "Завтра в Москве с 14:00 до 19:00 хочу погулять, а потом поесть, пешком, без ограничения бюджета"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "draft"
+            },
+            "view": {
+              "$ref": "#/components/schemas/PlanningView"
+            }
+          },
+          "required": [
+            "status",
+            "view"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "addresses",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/addresses",
+      "role": "max_user",
+      "parameters": {
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "draft_id": "${DRAFT_ID}",
+          "q": "Тверская улица, 1"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "choices": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/components/schemas/AddressChoice"
+              }
+            }
+          },
+          "required": [
+            "choices"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "set-start",
+      "required": true,
+      "method": "PATCH",
+      "path": "/api/planning/drafts/{id}",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "base_version": "${DRAFT_VERSION}",
+          "event_id": "${EVENT_ID}",
+          "changes": [
+            {
+              "op": "point",
+              "field": "origin",
+              "point": {
+                "lat": "${ADDRESS_LAT}",
+                "lon": "${ADDRESS_LON}",
+                "label": "${ADDRESS_LABEL}",
+                "source": "place_choice"
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningView"
+        }
+      }
+    },
+    {
+      "id": "confirm",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/drafts/{id}/confirm",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "base_version": "${DRAFT_VERSION}",
+          "event_id": "${EVENT_ID}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningView"
+        }
+      }
+    },
+    {
+      "id": "calculate",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/drafts/{id}/plan",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "base_version": "${DRAFT_VERSION}",
+          "event_id": "${EVENT_ID}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningView"
+        },
+        "semantic_checks": [
+          "Inspect result.status and per-day missing_activity_ids. A partial route must be labeled LIMITED, with omitted wishes identified.",
+          "When search_scope is present, verify radius_meters and coverage survive the server/public result projection. PARTIAL and BOUNDED_RESULTS must not be described as an exhaustive city-wide search.",
+          "Validate walking and eating activities, their explicit order, opening hours, visit slots and travel inside the confirmed window.",
+          "UNAVAILABLE/ERROR is a valid response shape but fails this positive live acceptance scenario; do not replace it with fixture data."
+        ]
+      }
+    },
+    {
+      "id": "reopen-draft",
+      "required": true,
+      "method": "GET",
+      "path": "/api/planning/drafts/{id}",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningView"
+        }
+      }
+    },
+    {
+      "id": "edit-window",
+      "required": true,
+      "method": "PATCH",
+      "path": "/api/planning/drafts/{id}",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "base_version": "${DRAFT_VERSION}",
+          "event_id": "${EVENT_ID}",
+          "changes": [
+            {
+              "op": "window",
+              "day_ids": [
+                "${DAY_ID}"
+              ],
+              "start": "14:00",
+              "end": "14:30"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningView"
+        }
+      }
+    },
+    {
+      "id": "edit-search-radius",
+      "required": true,
+      "method": "PATCH",
+      "path": "/api/planning/drafts/{id}",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "base_version": "${DRAFT_VERSION}",
+          "event_id": "${EVENT_ID}",
+          "changes": [
+            {
+              "op": "search_radius",
+              "meters": 1000
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningView"
+        },
+        "semantic_checks": [
+          "Only shared.search_radius_meters and provenance change; confirmation/result are invalidated. Reconfirm before calculating. The next result.search_scope.radius_meters must equal 1000; no candidate outside that radius may be included. Saved/reopened/shared conditions retain the explicit radius."
+        ]
+      }
+    },
+    {
+      "id": "deny-unsigned-saved",
+      "required": true,
+      "method": "GET",
+      "path": "/api/planning/saved/{id}",
+      "role": "anonymous",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          401
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "error": {
+              "const": "AUTH_REQUIRED"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "read-saved",
+      "required": true,
+      "method": "GET",
+      "path": "/api/planning/saved/{id}",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/SavedConditionsView"
+        },
+        "semantic_checks": [
+          "Read the latest user edits without an LLM call; this response must not contain the previous provider itinerary, catalog, prices or schedule facts.",
+          "The response is saved user conditions. Provider address choices can be absent with POINT_RECONFIRM_REQUIRED; a saved user geolocation is historical, not current."
+        ]
+      }
+    },
+    {
+      "id": "refresh-saved-locality",
+      "required": true,
+      "method": "GET",
+      "path": "/api/planning/localities",
+      "role": "max_user",
+      "parameters": {
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "query": {
+          "q": "Москва"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "choices": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/components/schemas/LocalityChoice"
+              }
+            }
+          },
+          "required": [
+            "choices"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "restore-saved",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/saved/{id}/restore",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "event_id": "${EVENT_ID}",
+          "base_revision": "${SAVED_REVISION}",
+          "locality_token": "${RESTORE_LOCALITY_TOKEN}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningView"
+        },
+        "semantic_checks": [
+          "ID stays equal to DRAFT_ID, phase is DRAFT, confirmed_version and result are null. The prior provider itinerary must not reappear.",
+          "Review current dates, missing points and other issues. Restore alone must not confirm the conditions or calculate a route.",
+          "If fresh context cannot preserve named types, exclusions or hard conditions, 422 is the safe refusal; record the acceptance limitation rather than widening the request."
+        ]
+      }
+    },
+    {
+      "id": "saved-library",
+      "required": true,
+      "method": "GET",
+      "path": "/api/planning/saved",
+      "role": "max_user",
+      "parameters": {
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/SavedRouteList"
+        },
+        "semantic_checks": [
+          "Only this user’s nonexpired conditions appear. Pagination must not duplicate routes; reading does not extend expiry."
+        ]
+      }
+    },
+    {
+      "id": "activate-saved",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/saved/{id}/activate",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "event_id": "${EVENT_ID}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningBootstrap"
+        }
+      }
+    },
+    {
+      "id": "manual-options",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/manual/options",
+      "role": "max_user",
+      "parameters": {
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "locality_token": "${RESTORE_LOCALITY_TOKEN}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/ManualOptions"
+        }
+      }
+    },
+    {
+      "id": "activity-options",
+      "required": true,
+      "method": "GET",
+      "path": "/api/planning/drafts/{id}/activity-options",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/ManualOptions"
+        },
+        "semantic_checks": [
+          "Reading choices does not edit, confirm, plan or call a model. Categories belong to this draft’s regional catalog."
+        ]
+      }
+    },
+    {
+      "id": "manual-create",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/manual/requests",
+      "role": "max_user",
+      "parameters": {
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "event_id": "${EVENT_ID}",
+          "locality_token": "${RESTORE_LOCALITY_TOKEN}",
+          "catalog_version": "${MANUAL_CATALOG}",
+          "mobility": "walking",
+          "days": [
+            {
+              "date": "${MANUAL_DATE}",
+              "start": "14:00",
+              "end": "19:00",
+              "ordered": true,
+              "activities": [
+                {
+                  "kind": "place",
+                  "category_ids": [
+                    "${MANUAL_CATEGORY}"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningView"
+        },
+        "semantic_checks": [
+          "Creation succeeds without calling an LLM; the new draft is unconfirmed, requires a start point and has no calculated result."
+        ]
+      }
+    },
+    {
+      "id": "manual-read-saved",
+      "required": true,
+      "method": "GET",
+      "path": "/api/planning/saved/{id}",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${MANUAL_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/SavedConditionsView"
+        }
+      }
+    },
+    {
+      "id": "share-create",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/shares",
+      "role": "max_user",
+      "parameters": {
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "draft_id": "${MANUAL_ID}",
+          "base_revision": "${MANUAL_REVISION}",
+          "event_id": "${EVENT_ID}",
+          "include_private_points": false
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/ShareCreated"
+        }
+      }
+    },
+    {
+      "id": "share-preview",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/shares/resolve",
+      "role": "max_user",
+      "parameters": {
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "token": "${SHARE_TOKEN}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/SharePreview"
+        },
+        "semantic_checks": [
+          "Shared conditions contain no private start/destination or free-text address queries. Opening does not import, calculate, confirm or send messages."
+        ]
+      }
+    },
+    {
+      "id": "share-revoke",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/shares/revoke",
+      "role": "max_user",
+      "parameters": {
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "share_id": "${SHARE_ID}",
+          "event_id": "${EVENT_ID}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/ShareRevoked"
+        }
+      }
+    },
+    {
+      "id": "delete-own-manual",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/saved/{id}/delete",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${MANUAL_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "base_revision": "${MANUAL_REVISION}",
+          "event_id": "${EVENT_ID}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/RouteDeleted"
+        },
+        "semantic_checks": [
+          "Delete only the synthetic route created in this sequence. Other saved routes survive; replay is idempotent."
+        ]
+      }
+    }
+  ],
+  "follow_up_checks": [
+    "After edit-window, confirm and calculate again with fresh versions/event IDs; the short-window case must expose unmet wishes, not silently call the result complete.",
+    "Repeat read-saved and restore-saved after draft/provider expiration and a process restart. Latest edits must survive; categories/addresses/itineraries must not be reused as durable provider facts. Check stale revision 409 and foreign/expired saved ID 404.",
+    "Use MAX chat /routes and the mini-app to reopen a saved route, inspect saved conditions and explicitly refresh context before confirmation/calculation. API read/restore does not replace this user interaction.",
+    "Run the same request with an unsigned header and another user: 401/404 without leaking route contents.",
+    "For a fresh calculated route, preview a chosen stop via alternatives/preview using its current day/activity/place IDs. Preview must preserve the current plan. Apply an offered alternative_id explicitly; the returned plan must equal the preview. Empty alternatives need an explicit reason and are not a successful positive replacement check.",
+    "Create another share of a fresh calculated route. Open its MAX deep link as a second authorized test user, choose a fresh verified city and import explicitly. The recipient draft is unconfirmed, isolated from the sender and requires omitted start/finish points. Revoke the original share; future resolution fails while an already imported independent copy remains.",
+    "Repeat manual creation with LLM credentials absent in an isolated deployment. Geography remains required; never replace failed live geography with invented categories.",
+    "In Нижний Новгород or Казань, use events/search for a chosen day, events/availability for an opaque choice, then events/select for the chosen occurrence. For a visit window explicitly enter a duration; fixed sessions must retain their exact schedule. Preserve food/order and confirm before calculation. A missing desired event or PARTIAL search is not proof of city-wide absence.",
+    "After event preview expiry, restoration or changed date, events/recheck must obtain fresh source facts before confirmation. A moved venue/changed occurrence must require a reviewed choice, never silently become a POI. Check unsigned/foreign/stale selections, receipt replay and source-free saved conditions.",
+    "Check mobile and web MAX manually. API contract tests do not establish usability or live route quality."
+  ]
+}

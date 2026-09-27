@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
-import type { PlanningView } from '../shared/planning-form.js';
+import { PublicPlan, type PlanningView } from '../shared/planning-form.js';
 import type { BotNavigation, OwnerState, PlanningDatabase } from './planning-database.js';
 import { MaxChatController, formatChatPlanMessages, maxWebhookSecret, navigationButtons, registerMaxChatRoute } from './max-chat.js';
+import { PlanningSessions, PlanningSessionError } from './planning-sessions.js';
+import { planningFixture, demoNow } from './place-planning.fixture.js';
+import { projectSavedConditions } from './saved-conditions.js';
+import { planWarningCodes } from '../shared/plan-evidence-text.js';
 
 const draftView = (): PlanningView => ({
   id: 'draft-1', version: 0, phase: 'DRAFT', confirmed_version: null,
@@ -22,7 +26,7 @@ function harness() {
   const database = { withOwner: async (_owner: string, work: (state: OwnerState, save: () => Promise<void>, client: unknown) => Promise<unknown>) =>
     work(state, async () => {}, {}), withNavigation: async (_owner: string,
       work: (state: BotNavigation, save: () => Promise<void>) => Promise<unknown>) => work(navigation, async () => {}),
-    recordUsage: async () => {} } as unknown as PlanningDatabase;
+    recordUsage: async () => {}, withChatUpdate: async (_owner: string, work: () => Promise<unknown>) => work() } as unknown as PlanningDatabase;
   const messages: { text: string; buttons?: unknown }[] = [];
   let view = draftView();
   const transport = { send: async (_userId: number, message: { text: string; buttons?: unknown }) => { messages.push(message); },
@@ -56,6 +60,132 @@ const press = (id: string, payload: string) => ({ update_type: 'message_callback
   user: { user_id: 123 }, callback_id: id, payload }, message: { recipient: { chat_type: 'dialog' } } });
 
 describe('MAX chat', () => {
+  it('does not invent an original request for an expired imported or mini-app route', async () => {
+    const h = harness(), routeId = 'e0ad035c-d95e-4ee4-aa22-93852967be3a';
+    h.navigation.routes.push({ id: routeId, draftId: 'expired-no-source-text', createdAt: new Date().toISOString(),
+      title: 'Сохранённые условия', requestText: '', localityName: '', status: 'draft' });
+    const search = vi.fn(async () => { throw Error('Unexpected provider'); });
+    const chat = new MaxChatController({ ...h.deps, geography: { ...h.deps.geography, search },
+      planning: { ...h.planning, get: async () => { throw new PlanningSessionError('DRAFT_NOT_FOUND', 404); } } });
+    await chat.handle(press('open-no-source-text', `nav:open:${routeId}`));
+    expect(h.messages.at(-1)!.text).toContain('Исходного пожелания в этой записи нет');
+    expect(JSON.stringify(h.messages.at(-1))).not.toContain('nav:restart');
+    // An old callback is still handled safely; it asks for a new authored text.
+    await chat.handle(press('restart-no-source-text', `nav:restart:${routeId}`));
+    expect(h.navigation.mode).toBe('awaiting_request');
+    expect(search).not.toHaveBeenCalled(); expect(h.planning.start).not.toHaveBeenCalled();
+  });
+  it('opens edited saved conditions without providers and restores them only after an explicit city choice', async () => {
+    const h = harness(), fixture = planningFixture(), owner = 'max:123';
+    let now = demoNow();
+    const sessions = new PlanningSessions({ now: () => now, plan: async () => { throw new Error('must not calculate'); } });
+    const original = sessions.create(owner, fixture.input.intent, { catalog: fixture.input.catalog,
+      visit_policy: fixture.input.visit_policy, modes: ['walking'], data_mode: 'test' });
+    const edited = sessions.edit(owner, original.id, { base_version: original.version, event_id: 'saved-edit-before-expiry', changes: [
+      { op: 'window', day_ids: ['d1'], start: '17:00', end: '20:00' },
+      { op: 'budget', value: { kind: 'limit', amount_rub: 2400, basis: 'whole_party', period: 'per_day',
+        enforcement: 'estimated', price_basis_assumption: 'per_person' } },
+      { op: 'party', total: 2 }, { op: 'remove_activity', day_id: 'd1', activity_id: 'culture' },
+    ] });
+    const saved = { id: edited.id, revision: edited.version, expires_at: '2026-10-24T00:00:00Z',
+      conditions: projectSavedConditions(edited, { now }) };
+    now = new Date(now.getTime() + 1_801_000);
+    const routeId = '33333333-3333-4333-8333-333333333333';
+    h.navigation.mode = 'planning'; h.navigation.activeRouteId = routeId;
+    h.navigation.routes.push({ id: routeId, createdAt: demoNow().toISOString(), title: 'Saved route',
+      requestText: 'Original text before edits', localityName: 'Учебный город', draftId: edited.id, status: 'draft' });
+    const search = vi.fn(h.deps.geography.search);
+    const restore = vi.fn(async () => ({ ...edited, version: edited.version + 1, phase: 'DRAFT' as const, confirmed_version: null, result: null }));
+    const chat = new MaxChatController({ ...h.deps, geography: { ...h.deps.geography, search },
+      planning: { ...h.planning, get: (actor, id) => sessions.get(actor, id), getSaved: async () => saved, restore } });
+    await chat.handle(press('open-saved-after-expiry', `nav:open:${routeId}`));
+    expect(h.messages.at(-1)?.text).toContain('17:00–20:00');
+    expect(h.messages.at(-1)?.text).toContain('2400');
+    expect(h.messages.at(-1)?.text).toContain('Участников: 2');
+    expect(h.messages.at(-1)?.text).not.toContain('culture');
+    expect(h.planning.start).not.toHaveBeenCalled(); expect(search).not.toHaveBeenCalled(); expect(restore).not.toHaveBeenCalled();
+    await chat.handle(press('refresh-saved-after-expiry', `nav:refresh:${routeId}`));
+    expect(h.messages.at(-1)?.text).toContain('В каком городе продолжить');
+    expect(search).not.toHaveBeenCalled(); expect(restore).not.toHaveBeenCalled();
+    await chat.handle(message('saved-city-answer', 'Москва'));
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(restore).toHaveBeenCalledWith(owner, saved.id, expect.objectContaining({ base_revision: saved.revision, locality_token: 'trusted-city' }));
+    expect(h.planning.start).not.toHaveBeenCalled();
+    expect(h.navigation.routes[0]?.draftId).toBe(saved.id);
+    expect(h.messages.at(-1)?.text).toContain('2400');
+  });
+
+  it('keeps a strict budget until an explicit average-bill choice and requires reconfirmation', async () => {
+    const h = harness(), fixture = planningFixture(), owner = 'max:123';
+    const intent = structuredClone(fixture.input.intent);
+    intent.shared.budget = { kind: 'limit', amount_rub: 3000, basis: 'whole_party', period: 'per_day' };
+    let calculations = 0;
+    const sessions = new PlanningSessions({ now: demoNow, plan: async () => {
+      calculations++;
+      return { status: 'UNAVAILABLE', warnings: [], issues: ['BUDGET_PRICE_DATA_REQUIRED'], days: [] };
+    } });
+    const view = sessions.create(owner, intent, { catalog: fixture.input.catalog,
+      visit_policy: fixture.input.visit_policy, modes: ['walking'], data_mode: 'test' });
+    const routeId = '22222222-2222-4222-8222-222222222222';
+    h.navigation.mode = 'planning'; h.navigation.activeRouteId = routeId;
+    h.navigation.routes.push({ id: routeId, createdAt: demoNow().toISOString(), title: 'Budget test',
+      requestText: 'Synthetic budget request', localityName: view.draft.locality.name, draftId: view.id, status: 'draft' });
+    const chat = new MaxChatController({ ...h.deps, planning: { ...h.planning,
+      get: async (actor, id) => sessions.get(actor, id),
+      edit: async (actor, id, input) => sessions.edit(actor, id, input),
+      confirm: async (actor, id, input) => sessions.confirm(actor, id, input),
+      calculate: (actor, id, input) => sessions.calculate(actor, id, input),
+    } });
+    await chat.handle(press('strict-budget-plan', `plan:${view.id}:${view.version}`));
+    const strict = sessions.get(owner, view.id);
+    expect(strict.draft.shared.budget).not.toHaveProperty('enforcement');
+    expect(h.messages.at(-1)?.buttons).toEqual(expect.arrayContaining([
+      [expect.objectContaining({ payload: `budget-policy:${view.id}:${strict.version}:estimated` })],
+    ]));
+    await chat.handle(press('choose-estimated-budget', `budget-policy:${view.id}:${strict.version}:estimated`));
+    const estimated = sessions.get(owner, view.id);
+    expect(estimated.draft.shared.budget).toMatchObject({ enforcement: 'estimated', price_basis_assumption: 'per_person' });
+    expect(estimated.phase).toBe('DRAFT');
+    expect(estimated.confirmed_version).toBeNull();
+    expect(estimated.result).toBeNull();
+    expect(calculations).toBe(1);
+    expect(h.messages.at(-1)?.text).toContain('соблюдение суммы не гарантируется');
+    await chat.handle(press('return-to-strict-budget', `budget-policy:${view.id}:${estimated.version}:strict`));
+    expect(sessions.get(owner, view.id).draft.shared.budget).toMatchObject({ enforcement: 'strict' });
+    expect(sessions.get(owner, view.id).draft.shared.budget).not.toHaveProperty('price_basis_assumption');
+    expect(calculations).toBe(1);
+  });
+
+  it('retries a failed calculation from its confirmed revision without confirming twice', async () => {
+    const h = harness(), fixture = planningFixture();
+    let attempts = 0;
+    const sessions = new PlanningSessions({ now: demoNow, plan: async () => {
+      if (++attempts === 1) throw new Error('simulated provider interruption');
+      return { status: 'UNAVAILABLE', warnings: [], days: [] };
+    } });
+    const owner = 'max:123';
+    const view = sessions.create(owner, fixture.input.intent, { catalog: fixture.input.catalog,
+      visit_policy: fixture.input.visit_policy, modes: ['walking'], data_mode: 'test' });
+    const routeId = '11111111-1111-4111-8111-111111111111';
+    h.navigation.mode = 'planning'; h.navigation.activeRouteId = routeId;
+    h.navigation.routes.push({ id: routeId, createdAt: demoNow().toISOString(), title: 'Test route',
+      requestText: 'Synthetic route', localityName: view.draft.locality.name, draftId: view.id, status: 'draft' });
+    const chat = new MaxChatController({ ...h.deps, planning: { ...h.planning,
+      get: async (actor, id) => sessions.get(actor, id),
+      confirm: async (actor, id, input) => sessions.confirm(actor, id, input),
+      calculate: (actor, id, input) => sessions.calculate(actor, id, input),
+    } });
+    await chat.handle(press('first-plan-attempt', `plan:${view.id}:${view.version}`));
+    const failed = sessions.get(owner, view.id);
+    expect(failed.phase).toBe('CONFIRMED');
+    await chat.handle(press('open-after-failure', `nav:open:${routeId}`));
+    await chat.handle(press('second-plan-attempt', `plan:${view.id}:${failed.version}`));
+    expect(sessions.get(owner, view.id).phase).toBe('RESULT');
+    expect(attempts).toBe(2);
+    await chat.handle(press('second-plan-attempt', `plan:${view.id}:${failed.version}`));
+    expect(attempts).toBe(2);
+  });
+
   it('welcomes on the native Start event before any chat text and exposes navigation', async () => {
     const h = harness(); const chat = new MaxChatController(h.deps);
     await chat.handle({ update_type: 'bot_started', user: { user_id: 123 }, timestamp: 123456 });
@@ -138,7 +268,7 @@ describe('MAX chat', () => {
     expect(h.planning.start).toHaveBeenCalledTimes(1);
   });
 
-  it('offers explicit refresh for an expired route, then uses its saved request only after the click', async () => {
+  it('warns about lost edits on legacy routes and reparses only after an explicit restart', async () => {
     const h = harness(); const chat = new MaxChatController(h.deps);
     await chat.handle(message('route-old', 'Хочу погулять завтра с 16 до 19 в Москве'));
     const routeId = h.navigation.activeRouteId!;
@@ -146,9 +276,11 @@ describe('MAX chat', () => {
     h.planning.get = vi.fn(async () => { const { PlanningSessionError } = await import('./planning-sessions.js');
       throw new PlanningSessionError('DRAFT_NOT_FOUND', 404); }) as typeof h.planning.get;
     await chat.handle(press('expired-open', `nav:open:${routeId}`));
-    expect(h.messages.at(-1)?.text).toContain('данные устарели');
+    expect(h.messages.at(-1)?.text).toContain('сохранился только исходный запрос');
     expect(h.planning.start).toHaveBeenCalledTimes(1);
     await chat.handle(press('expired-refresh', `nav:refresh:${routeId}`));
+    expect(h.planning.start).toHaveBeenCalledTimes(1);
+    await chat.handle(press('expired-restart', `nav:restart:${routeId}`));
     expect(h.planning.start).toHaveBeenCalledTimes(2);
     expect(h.navigation.activeRouteId).toBe(routeId);
     expect(h.navigation.routes).toHaveLength(1);
@@ -162,6 +294,33 @@ describe('MAX chat', () => {
     expect(h.planning.start).toHaveBeenCalledTimes(1);
     expect(await chat.handle(message('old-chat-2', 'Привет'))).toBe('handled');
     expect(h.messages.filter(item => item.text.startsWith('Привет!'))).toHaveLength(1);
+  });
+
+  it('recovers from a parser failure without trapping the next request in city selection', async () => {
+    const h = harness(); const chat = new MaxChatController(h.deps);
+    const { InitialIntentError } = await import('./intent-start.js');
+    h.planning.start.mockRejectedValueOnce(new InitialIntentError('INTENT_INVALID_RESPONSE'));
+    await chat.handle(message('failed-request', 'Хочу погулять завтра в Москве после 16'));
+    expect(h.state.chat?.pending?.kind).toBe('intent_retry');
+    expect(h.messages.at(-1)?.text).toContain('ошибка разбора');
+    await chat.handle(message('new-request-after-failure', 'Хочу сходить в музей в Москве завтра'));
+    expect(h.planning.start).toHaveBeenCalledTimes(2);
+    expect(h.planning.start.mock.calls[1]?.[1]).toMatchObject({ user_text: 'Хочу сходить в музей в Москве завтра' });
+    expect(h.state.chat?.pending?.kind).toBe('origin');
+  });
+
+  it('retries a failed parse only on the current explicit button', async () => {
+    const h = harness(); const chat = new MaxChatController(h.deps);
+    const { InitialIntentError } = await import('./intent-start.js');
+    h.planning.start.mockRejectedValueOnce(new InitialIntentError('INTENT_INVALID_RESPONSE'));
+    await chat.handle(message('first-failed', 'Хочу погулять завтра в Москве после 16'));
+    const retry = (h.messages.at(-1)?.buttons as { payload: string }[][]).flat()
+      .find(button => button.payload.startsWith('intent-retry:'))!;
+    await chat.handle(press('retry-request', retry.payload));
+    expect(h.planning.start).toHaveBeenCalledTimes(2);
+    expect(h.navigation.routes).toHaveLength(1);
+    await chat.handle(press('stale-retry', retry.payload));
+    expect(h.planning.start).toHaveBeenCalledTimes(2);
   });
 
   it('does not send two prompts for the first greeting', async () => {
@@ -246,7 +405,7 @@ describe('MAX chat', () => {
     const output = formatChatPlanMessages(view);
     expect(output.length).toBeGreaterThan(3);
     expect(output.map(m => m.text).join('\n')).toContain('Место 2-39');
-    expect(output.every(m => m.text.length <= 4000)).toBe(true);
+    expect(output.every(m => m.text.length <= 3800)).toBe(true);
   });
 
   it('does not claim that a route outage means there are no places or that an empty plan costs zero', () => {
@@ -281,6 +440,59 @@ describe('MAX chat', () => {
     expect(text).not.toContain('Готово — вот план');
   });
 
+  it('keeps a verified plan usable while disclosing a partial search and a narrowed candidate pool', () => {
+    const view = draftView();
+    view.result = PublicPlan.parse({ status: 'AVAILABLE', warnings: [],
+      search_scope: { radius_meters: 5000, coverage: 'PARTIAL' }, shortlist: { groups: [{ truncated: true }] },
+      days: [{ day_id: 'd1', date: '2026-09-26', status: 'AVAILABLE', missing_activity_ids: [],
+        visits: [{ activity_id: 'a1', place_id: 'p1', name: 'Парк', starts_at: 960, ends_at: 1020,
+          travel_before_minutes: 10, arrival_buffer_minutes: 5, price_expected_minor: null, warnings: [] }] }] });
+    expect(planWarningCodes(view.result)).toContain('RETRIEVAL_PARTIAL');
+    const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
+    expect(text).toContain('Готово — вот план');
+    expect(text).toContain('Парк');
+    expect(text).toContain('радиусе 5 км от старта');
+    expect(text).toContain('Получена только часть мест');
+    expect(text).toContain('сокращённая подборка кандидатов');
+    expect(text).not.toContain('проверенного плана пока нет');
+  });
+
+  it('does not label a completed bounded search as partial or as an exhaustive city search', () => {
+    const view = draftView();
+    view.result = PublicPlan.parse({ status: 'UNAVAILABLE', warnings: [],
+      search_scope: { radius_meters: 750, coverage: 'BOUNDED_RESULTS' }, shortlist: { groups: [{ truncated: false }] },
+      days: [{ day_id: 'd1', date: '2026-09-26', status: 'UNAVAILABLE', missing_activity_ids: ['a1'], visits: [] }] });
+    const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
+    expect(text).toContain('радиусе 750 м от старта');
+    expect(text).toContain('В проверенной части поиска');
+    expect(text).not.toContain('Получена только часть мест');
+    expect(text).not.toContain('сокращённая подборка кандидатов');
+    expect(text).not.toContain('Подтверждённых подходящих мест для этих ограничений нет');
+  });
+
+  it('does not attribute an internal routing allowance stop to a provider outage', () => {
+    const view = draftView();
+    view.result = PublicPlan.parse({ status: 'ERROR', issues: ['ROUTING_BUDGET_EXCEEDED'], warnings: [], days: [] });
+    const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
+    expect(text).toContain('Не удалось закончить проверку всех переходов');
+    expect(text).not.toContain('Сервис мест или маршрутов временно не ответил');
+  });
+
+  it('names an omitted food request instead of hiding it in a generic partial-plan warning', () => {
+    const view = draftView();
+    view.draft.days[0]!.activities.push({ id: 'food', label: 'Поесть',
+      selection: { category_policy: 'related_allowed', named_types: [] }, requirements: [],
+      categories: { state: 'matched', include_any: ['2'], exclude: [], region_id: '32', catalog_version: 'v1' } });
+    view.result = { status: 'LIMITED', warnings: [], days: [{
+      day_id: 'd1', date: '2026-09-26', status: 'LIMITED', missing_activity_ids: ['food'],
+      visits: [{ activity_id: 'a1', place_id: 'p1', name: 'Парк', starts_at: 960, ends_at: 1020,
+        travel_before_minutes: 10, arrival_buffer_minutes: 5, price_expected_minor: 0, warnings: [] }],
+    }] };
+    const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
+    expect(text).toContain('Не удалось включить: Поесть.');
+    expect(text).toContain('неполный маршрут');
+  });
+
   it('shows the selected origin and exact identity of a walking stop', () => {
     const view = draftView();
     view.draft.points.origin = { lat: 56.326919, lon: 43.992346, locality_id: view.draft.locality.id,
@@ -299,5 +511,157 @@ describe('MAX chat', () => {
     expect(text).toContain('Канавинский район');
     expect(text).toContain('https://2gis.ru/n_novgorod/geo/70030077058045532');
     expect(text).toContain('только один ориентир');
+  });
+
+  it('renders transit variants, included waiting, actual observation times and the final leg without claiming guarantees', () => {
+    const view = draftView(); view.draft.locality.timezone = 'Asia/Yekaterinburg';
+    view.draft.shared.mobility = ['public_transport'];
+    view.draft.points.destination = { lat: 55.75, lon: 37.62, locality_id: '32', label: 'Дом', source: 'user_map' };
+    const source = { provider: '2gis', fetched_at: '2026-09-26T10:00:00Z', valid_until: '2026-09-26T10:05:00Z', data_mode: 'live' };
+    const transit = { pedestrian: false, waitingSeconds: 300, transferCount: 0, crossingCount: 1,
+      scheduleEvidence: 'unknown' as const, stages: [{ kind: 'passage' as const, transport: null, names: ['6', '8'],
+        routes: [{ transport: 'bus', names: ['6'] }, { transport: 'trolleybus', names: ['8'] }],
+        stop: 'Площадь', movingSeconds: 600, waitingSeconds: 300 }] };
+    view.result = { status: 'AVAILABLE', warnings: ['PT_SCHEDULE_SEARCH_BOUNDED', 'PT_SCHEDULE_UNVERIFIED',
+      'TRANSIT_PRICE_UNKNOWN', 'TRANSPORT_COST_UNKNOWN', 'ROUTE_TIME_IS_ESTIMATE', 'PT_SCHEDULE_UNVERIFIED'],
+    valid_until: source.valid_until, total_expected_cost_minor: null, days: [{ day_id: 'd1', date: '2026-09-26',
+      status: 'AVAILABLE', missing_activity_ids: [], ends_at: 1060,
+      visits: [{ activity_id: 'a1', place_id: 'p1', name: 'Музей', starts_at: 985, ends_at: 1045,
+        travel_before_minutes: 20, arrival_buffer_minutes: 5, price_expected_minor: null, warnings: [], source }],
+      travel_segments: [{ from_id: '@origin', to_id: 'p1', departure_utc: Date.parse('2026-09-26T11:00:00Z') / 1000,
+        mode: 'public_transport', coordinates: [], source, transit },
+      { from_id: 'p1', to_id: '@destination', departure_utc: Date.parse('2026-09-26T12:25:00Z') / 1000,
+        mode: 'public_transport', coordinates: [], source, transit: { ...transit, pedestrian: true, waitingSeconds: 0,
+          stages: [{ kind: 'walkway', transport: null, names: [], stop: null, movingSeconds: 600, waitingSeconds: 0 }] } }],
+    }] };
+    const output = formatChatPlanMessages(view), text = output.map(message => message.text).join('\n');
+    expect(text).toContain('Общественный транспорт');
+    expect(text).toContain('Автобус 6 / Троллейбус 8'); expect(text).toContain('Площадь');
+    expect(text).toContain('Ожидание ≈5 мин уже входит во время в пути');
+    expect(text).toContain('15:00'); expect(text).toContain('Asia/Yekaterinburg');
+    expect(text).toContain('Данные переходов'); expect(text).toContain('получены');
+    expect(text).toContain('Финиш: Дом'); expect(text).toContain('17:40'); expect(text).toContain('В пути 15 мин');
+    expect(text).toContain('Пешком');
+    expect(text.match(/Стоимость проезда неизвестна/gu)).toHaveLength(1);
+    expect(text.match(/Расписание не подтверждено/gu)).toHaveLength(1);
+    expect(text).not.toMatch(/проверено в|прибытие гарантировано|PT_SCHEDULE/u);
+    expect(output.every(message => message.text.length <= 3800)).toBe(true);
+  });
+
+  it('allowlists source URLs and does not manufacture a finish time or provenance from missing observations', () => {
+    const view = draftView(); view.draft.locality.timezone = 'not-a-timezone';
+    view.draft.points.destination = { lat: 55.75, lon: 37.62, locality_id: '32', label: 'Финишная точка' };
+    const urls = ['https://2gis.ru/moscow/firm/123', 'https://2gis.ru.evil.test/moscow/firm/123',
+      'https://user:password@2gis.ru/moscow/firm/123', 'https://2gis.ru/moscow/firm/123?secret=private',
+      'https://2gis.ru/not-an-official-place'];
+    view.result = { status: 'AVAILABLE', warnings: [], days: [{ day_id: 'd1', date: '2026-09-26', status: 'AVAILABLE',
+      missing_activity_ids: [], visits: urls.map((url, index) => ({ activity_id: 'a1', place_id: `p${index}`,
+        name: `Место ${index}`, starts_at: 960, ends_at: 1020, travel_before_minutes: 10, arrival_buffer_minutes: 5,
+        price_expected_minor: null, warnings: [], source: { provider: '2gis', url,
+          fetched_at: '2026-09-26T10:00:00Z', valid_until: 'bad-date', data_mode: 'test' } })) }] };
+    const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
+    expect(text).toContain('https://2gis.ru/moscow/firm/123');
+    expect(text).not.toMatch(/evil\.test|password|secret=private|not-an-official-place|bad-date/u);
+    expect(text).toContain('UTC'); expect(text).toContain('10:00'); expect(text).toContain('тестовые данные');
+    expect(text).toContain('время прибытия не указано'); expect(text).not.toContain('В пути 0 мин');
+  });
+
+  it('splits a long transit stage without dropping its last variant, later visits, or the final destination', () => {
+    const view = draftView(); view.draft.shared.mobility = ['public_transport'];
+    view.draft.points.destination = { lat: 55.75, lon: 37.62, locality_id: '32', label: 'Последний финиш' };
+    view.result = PublicPlan.parse({ status: 'AVAILABLE', warnings: ['ROUTE_GEOMETRY_UNAVAILABLE'], days: [{
+      day_id: 'd1', date: '2026-09-26', status: 'AVAILABLE', missing_activity_ids: [], ends_at: 1080,
+      visits: [{ activity_id: 'a1', place_id: 'p1', name: 'Последнее посещение', starts_at: 990, ends_at: 1050,
+        travel_before_minutes: 25, arrival_buffer_minutes: 5, price_expected_minor: null, warnings: [] }],
+      travel_segments: [{ from_id: '@origin', to_id: 'p1', departure_utc: 1790000000, mode: 'public_transport', coordinates: [],
+        source: { provider: '2gis', fetched_at: '2026-09-26T10:00:00Z', valid_until: '2026-09-26T10:05:00Z', data_mode: 'test' },
+        transit: { pedestrian: false, waitingSeconds: null, transferCount: 0, crossingCount: 0, scheduleEvidence: 'unknown',
+          stages: [{ kind: 'passage', transport: 'bus', names: [], stop: 'Последняя остановка',
+            routes: Array.from({ length: 30 }, (_, index) => ({ transport: 'bus', names: [`${'Название'.repeat(20)} ${index}-последний`] })),
+            movingSeconds: null, waitingSeconds: null }] } }],
+    }] });
+    const messages = formatChatPlanMessages(view), text = messages.map(message => message.text).join('\n');
+    expect(messages.every(message => message.text.length <= 3800)).toBe(true);
+    expect(text).toContain('29-последний'); expect(text).toContain('Последняя остановка');
+    expect(text).toContain('Последнее посещение'); expect(text).toContain('Последний финиш');
+    expect(text).toContain('Отдельная оценка ожидания неизвестна');
+    expect(text).toContain('на карте может не быть линии пути'); expect(text).not.toContain('Ожидание ≈0');
+  });
+
+  it('distinguishes exact event sessions from user-estimated visits with official sources and unknown admission facts', () => {
+    const view = draftView();
+    const source = { provider: 'kudago', url: 'https://kudago.com/nnv/event/synthetic-event/',
+      fetched_at: '2026-09-26T10:00:00Z', valid_until: '2026-09-26T10:05:00Z', data_mode: 'test' };
+    const event = { provider: 'kudago', event_id: '123', occurrence_key: 'a'.repeat(64), schedule_kind: 'fixed',
+      duration_basis: 'provider_session', minimum_age: 6, official_start_utc: Date.parse('2026-09-26T10:00:30Z') / 1000,
+      official_end_utc: Date.parse('2026-09-26T11:00:00Z') / 1000 };
+    const visit = { activity_id: 'a1', place_id: 'event-fixed', name: 'Синтетический сеанс', starts_at: 780, ends_at: 840,
+      travel_before_minutes: 20, arrival_buffer_minutes: 5, price_expected_minor: 0,
+      warnings: ['EVENT_BOOKING_NOT_VERIFIED'], source, event };
+    view.result = PublicPlan.parse({ status: 'AVAILABLE', warnings: ['EVENT_BOOKING_NOT_VERIFIED', 'EVENT_AGE_UNKNOWN'],
+      days: [{ day_id: 'd1', date: '2026-09-26', status: 'AVAILABLE', missing_activity_ids: [], visits: [visit,
+        { ...visit, activity_id: 'a2', place_id: 'event-window', name: 'Выставка', starts_at: 860, ends_at: 905,
+          price_expected_minor: null, event: { ...event, schedule_kind: 'visit_window', duration_basis: 'user_estimate', minimum_age: null,
+            official_start_utc: undefined, official_end_utc: undefined } }],
+      }] });
+    const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
+    expect(text).toContain('Сеанс по данным KudaGo'); expect(text).toContain('13:00:30');
+    expect(text).toContain('Посещение ≈45 мин'); expect(text).toContain('длительность, выбранная вами');
+    expect(text).toContain('Возраст: 6+'); expect(text).toContain('Возрастное ограничение неизвестно');
+    expect(text).toContain('Вход бесплатный по данным источника'); expect(text).toContain('Стоимость входа неизвестна');
+    expect(text).toContain('Событие на KudaGo: https://kudago.com/nnv/event/synthetic-event/');
+    expect(text).toContain('Данные событий: KudaGo');
+    expect(text.match(/План не покупает билеты/gu)).toHaveLength(1);
+    expect(text).not.toMatch(/билет подтверждён|бронь оформлена|EVENT_BOOKING|[a-f0-9]{64}/u);
+  });
+
+  it('explains bound event gaps without raw codes or claiming the city has no events', () => {
+    const view = draftView(); view.draft.days[0]!.activities = [{ id: 'event-own', label: 'Моя выставка', requirements: [],
+      intent_kind: 'event_visit', target: { kind: 'event', provider: 'kudago', event_id: '123', occurrence_key: 'a'.repeat(64) } }];
+    view.result = PublicPlan.parse({ status: 'UNAVAILABLE', warnings: [], issues: ['EVENT_NOT_SCHEDULED'], event_gaps: [
+      { day_id: 'd1', activity_id: 'event-own', code: 'EVENT_HTTP_BUDGET_EXHAUSTED' },
+      { day_id: 'd1', activity_id: 'event-own', code: 'EVENT_HTTP_BUDGET_EXHAUSTED' },
+      { day_id: 'd1', activity_id: 'event-own', code: 'EVENT_INTERNAL_PRIVATE_DETAIL' },
+    ], days: [] });
+    const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
+    expect(text).toContain('Моя выставка'); expect(text).toContain('2026-09-26');
+    expect(text.match(/Проверка события не завершена в пределах одного расчёта/gu)).toHaveLength(1);
+    expect(text).toContain('проверить выбор заново');
+    expect(text).not.toMatch(/EVENT_|INTERNAL|event-own|событий в городе нет/u);
+  });
+
+  it('rejects unsafe KudaGo links and never labels a source URL alone as a confirmed event', () => {
+    const view = draftView();
+    const urls = ['https://kudago.com.evil.test/nnv/event/test/', 'https://user:password@kudago.com/nnv/event/test/',
+      'https://kudago.com/nnv/event/test/?private=query', 'https://kudago.com/nnv/place/not-event/'];
+    view.result = PublicPlan.parse({ status: 'AVAILABLE', warnings: [], days: [{ day_id: 'd1', date: '2026-09-26',
+      status: 'AVAILABLE', missing_activity_ids: [], visits: urls.map((url, index) => ({ activity_id: 'a1', place_id: `event-${index}`,
+        name: 'Событие', starts_at: 780, ends_at: 840, travel_before_minutes: 5, arrival_buffer_minutes: 5, price_expected_minor: null,
+        warnings: [], source: { provider: 'kudago', url, fetched_at: '2026-09-26T10:00:00Z', valid_until: '2026-09-26T10:05:00Z', data_mode: 'test' },
+        event: { provider: 'kudago', event_id: '123', occurrence_key: 'a'.repeat(64), schedule_kind: 'fixed', duration_basis: 'provider_session', minimum_age: null },
+      })) }] });
+    const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
+    expect(text).not.toMatch(/evil\.test|password|private=query|not-event|https:\/\//u);
+    expect(text).toContain('официальное время в данных не указано');
+    expect(text).not.toContain('Сеанс по данным KudaGo:');
+  });
+
+  it('reopens saved event identity and own duration without restoring expired provider facts or invoking providers', async () => {
+    const h = harness(), view = draftView(), routeId = '77777777-7777-4777-8777-777777777777';
+    view.draft.days[0]!.activities = [{ id: 'saved-event', label: 'Expired provider title', intent_kind: 'event_visit', requirements: [],
+      target: { kind: 'event', provider: 'kudago', event_id: '123', occurrence_key: 'a'.repeat(64), visit_duration_minutes: 45 } }];
+    const saved = { id: view.id, revision: view.version, expires_at: '2026-10-25T00:00:00Z',
+      conditions: projectSavedConditions(view, { now: new Date('2026-09-26T10:00:00Z') }) };
+    h.navigation.routes.push({ id: routeId, draftId: view.id, createdAt: '2026-09-26T10:00:00Z', title: 'Saved event',
+      requestText: '', localityName: 'Москва', status: 'draft' });
+    const search = vi.fn(async () => { throw Error('must not fetch city or event'); });
+    const chat = new MaxChatController({ ...h.deps, geography: { ...h.deps.geography, search },
+      planning: { ...h.planning, get: () => { throw new PlanningSessionError('DRAFT_NOT_FOUND', 404); }, getSaved: async () => saved } });
+    await chat.handle(press('open-saved-event-identity', `nav:open:${routeId}`));
+    const text = h.messages.map(message => message.text).join('\n');
+    expect(text).toContain('Выбранное событие: сеанс, площадку и условия нужно проверить заново');
+    expect(text).toContain('45 мин — ваша оценка'); expect(text).not.toContain('Expired provider title');
+    expect(text).not.toMatch(/kudago\.com|13:00|бесплатн/u);
+    expect(h.planning.start).not.toHaveBeenCalled(); expect(search).not.toHaveBeenCalled();
   });
 });

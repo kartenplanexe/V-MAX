@@ -46,6 +46,8 @@ server.get<{ Reply: PublicConfig }>('/api/public-config', async (_request, reply
     mapglApiKey: config.dgisMapglApiKey,
     placesApiKey: config.dgisPlacesApiKey,
     routingApiKey: config.dgisRoutingApiKey,
+    backupApiKey: config.dgisBackupApiKey,
+    tertiaryApiKey: config.dgisTertiaryApiKey,
   });
   return {
     maps: {

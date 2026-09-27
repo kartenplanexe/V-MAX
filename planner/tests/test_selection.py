@@ -79,6 +79,120 @@ def test_generic_walk_with_one_reachable_waypoint_is_marked_incomplete(job):
     validate_selection(job, result)
 
 
+def test_walk_uses_three_waypoints_when_the_verified_day_has_room(job):
+    day = job["intent"]["days"][0]
+    day["activities"] = day["activities"][:1]
+    day["order"] = []
+    third = deepcopy(job["places"][0])
+    third["id"] = third["name"] = "museum-third"
+    job["places"].append(third)
+    points = {place["id"]: place["point"] for place in job["places"]}
+    origin = job["intent"]["points"]["origin"]
+    job["route_legs"] = [dict(job["route_legs"][0], from_id=a, to_id=b,
+                              from_point=origin if a == "@origin" else points[a],
+                              to_point=origin if b == "@destination" else points[b],
+                              safe_minutes=10)
+                         for a in ["@origin", *points]
+                         for b in [*points, "@destination"] if a != b]
+    job["visit_policy"].update(by_activity={"culture": 25}, max_stops_by_activity={"culture": 9})
+    result = select_places(job)
+    assert result["status"] == "AVAILABLE"
+    assert len(result["days"][0]["visits"]) == 3
+    validate_selection(job, result)
+
+    day["window"]["end"] = "13:30"
+    for leg in job["route_legs"]: leg["window"]["end"] = "13:30"
+    shorter = select_places(job)
+    assert len(shorter["days"][0]["visits"]) < 3
+    validate_selection(job, shorter)
+
+
+def test_walk_then_eat_keeps_the_meal_after_multiple_walk_stops(job):
+    job["intent"]["shared"]["budget"]["amount_rub"] = 2000
+    third = deepcopy(job["places"][0])
+    third["id"] = third["name"] = "museum-third"
+    job["places"].append(third)
+    points = {place["id"]: place["point"] for place in job["places"]}
+    origin = job["intent"]["points"]["origin"]
+    job["route_legs"] = [dict(job["route_legs"][0], from_id=a, to_id=b,
+                              from_point=origin if a == "@origin" else points[a],
+                              to_point=origin if b == "@destination" else points[b],
+                              safe_minutes=10)
+                         for a in ["@origin", *points]
+                         for b in [*points, "@destination"] if a != b]
+    job["visit_policy"].update(by_activity={"culture": 25},
+                               max_stops_by_activity={"culture": 9})
+    result = select_places(job)
+    visits = result["days"][0]["visits"]
+    assert result["status"] == "AVAILABLE"
+    assert [visit["activity_id"] for visit in visits] == ["culture", "culture", "culture", "food"]
+    assert result["days"][0]["missing_activity_ids"] == []
+    validate_selection(job, result)
+
+
+def test_route_walk_prefers_a_useful_verified_walk_over_adjacent_pois(job):
+    day = job["intent"]["days"][0]
+    day["activities"] = day["activities"][:1]
+    day["order"] = []
+    job["visit_policy"].update(by_activity={"culture": 25},
+                               max_stops_by_activity={"culture": 2},
+                               walk_travel_target_minutes_by_day={"d1": 40})
+    nearby = deepcopy(next(place for place in job["places"] if place["id"] == "museum-near"))
+    nearby["id"] = "museum-adjacent"
+    job["places"].append(nearby)
+    points = {place["id"]: place["point"] for place in job["places"]}
+    origin = job["intent"]["points"]["origin"]
+    job["route_legs"] = [dict(job["route_legs"][0], from_id=a, to_id=b,
+                              from_point=origin if a == "@origin" else points[a],
+                              to_point=points[b],
+                              safe_minutes=30 if "museum-far" in (a, b) else 5)
+                         for a in ["@origin", *points] for b in points if a != b]
+    result = select_places(job)
+    assert result["status"] == "AVAILABLE"
+    assert "museum-far" in {visit["place_id"] for visit in result["days"][0]["visits"]}
+    assert result["days"][0]["total_safe_travel_minutes"] >= 35
+    validate_selection(job, result)
+
+
+def test_provider_cannot_expand_a_local_search_to_a_distant_place(job):
+    job["retrieval"] = {"coverage": "BOUNDED_RESULTS", "radius_meters": 5000}
+    far = next(place for place in job["places"] if place["id"] == "museum-far")
+    far["point"] = {"lat": 56.25, "lon": 37.62}
+    job["places"] = [place for place in job["places"] if place["id"] != "museum-near"]
+    result = select_places(job)
+    assert result["status"] == "LIMITED"
+    assert result["days"][0]["missing_activity_ids"] == ["culture"]
+    assert any(row["place_id"] == "museum-far" and "OUTSIDE_SEARCH_RADIUS" in row["reasons"]
+               for row in result["excluded"])
+    validate_selection(job, result)
+
+
+def test_confirmed_search_radius_rejects_a_different_retrieval_scope(job):
+    job["intent"]["shared"]["search_radius_meters"] = 100
+    job["retrieval"] = {"coverage": "BOUNDED_RESULTS", "radius_meters": 5000}
+    with pytest.raises(ValueError, match="search radius must match confirmed condition"):
+        select_places(job)
+
+
+def test_confirmed_search_radius_filters_even_without_retrieval_metadata(job):
+    job["intent"]["shared"]["search_radius_meters"] = 100
+    far = next(place for place in job["places"] if place["id"] == "museum-far")
+    far["point"] = {"lat": 55.76, "lon": 37.62}
+    job["places"] = [place for place in job["places"] if place["id"] != "museum-near"]
+    result = select_places(job)
+    assert result["status"] == "LIMITED"
+    assert result["days"][0]["missing_activity_ids"] == ["culture"]
+    assert any(row["place_id"] == "museum-far" and "OUTSIDE_SEARCH_RADIUS" in row["reasons"] for row in result["excluded"])
+    validate_selection(job, result)
+
+
+@pytest.mark.parametrize("radius", [0, -1, 50001, 1.5, "5000", None, True])
+def test_invalid_confirmed_radius_is_not_ignored(job, radius):
+    job["intent"]["shared"]["search_radius_meters"] = radius
+    with pytest.raises(ValueError):
+        select_places(job)
+
+
 def test_no_implicit_return_to_origin(job):
     job["route_legs"] = [leg for leg in job["route_legs"] if leg["to_id"] != "@destination"]
     assert select_places(job)["status"] == "AVAILABLE"
@@ -239,6 +353,7 @@ def test_higher_average_check_is_not_treated_as_proven_upper_bound(job):
     result = select_places(job)
     assert result["status"] == "LIMITED"
     job["budget_policy"] = "estimate"
+    job["intent"]["shared"]["budget"].update(enforcement="estimated", price_basis_assumption="per_person")
     result = select_places(job)
     assert result["status"] == "AVAILABLE"
     assert result["total_budget_upper_minor"] is None
@@ -255,7 +370,7 @@ def test_optional_budget_allows_unknown_price_with_warning(job):
 
 
 def test_unsupported_transport_is_not_substituted(job):
-    job["intent"]["shared"]["mobility"] = ["public_transport"]
+    job["intent"]["shared"]["mobility"] = ["teleport"]
     result = select_places(job)
     assert result["status"] == "NEEDS_INPUT"
     assert "UNSUPPORTED_TRANSPORT" in result["issues"]

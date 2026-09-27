@@ -3,11 +3,13 @@ export function selectPublicMapglKey(input: {
   mapglApiKey: string;
   placesApiKey: string;
   routingApiKey: string;
+  backupApiKey?: string;
+  tertiaryApiKey?: string;
 }) {
   if (!input.mapglApiKey) return '';
 
-  const sharesServerScope =
-    input.mapglApiKey === input.placesApiKey || input.mapglApiKey === input.routingApiKey;
+  const sharesServerScope = [input.placesApiKey, input.routingApiKey, input.backupApiKey, input.tertiaryApiKey]
+    .some(key => key?.trim() === input.mapglApiKey.trim());
   if (input.isProduction && sharesServerScope) return '';
   return input.mapglApiKey;
 }

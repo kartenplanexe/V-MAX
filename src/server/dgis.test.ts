@@ -1,8 +1,35 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { DgisClient, DgisProviderError } from './dgis.js';
+import { DgisClient, DgisProviderError, DgisRequestBudgetError } from './dgis.js';
 
 describe('DgisClient', () => {
+  it('honors a per-call physical request budget before dispatch including key fallback', async () => {
+    let calls = 0, consumed = 0;
+    const stop = new DgisRequestBudgetError('HTTP_BUDGET_EXHAUSTED');
+    const client = new DgisClient({ placesApiKey: 'primary', routingApiKey: 'test', backupApiKey: 'backup', fetchImpl: async () => {
+      calls++; return new Response(null, { status: 403 });
+    } });
+    await expect(client.searchPlacesByCategories({ center: { lat: 55, lon: 37 }, regionId: '32', rubricIds: ['1'],
+      requestBudget: { consume() { if (consumed >= 1) throw stop; consumed++; } },
+    })).rejects.toBe(stop);
+    expect(calls).toBe(1); expect(consumed).toBe(1);
+  });
+
+  it('isolates budgets for concurrent calls sharing a client', async () => {
+    let calls = 0;
+    const stop = new Error('operation-a-stopped');
+    const client = new DgisClient({ placesApiKey: 'test', routingApiKey: 'test', fetchImpl: async () => {
+      calls++; return Response.json({ meta: { code: 200 }, result: { total: 1, items: [{ id: '1', name: 'Synthetic' }] } });
+    } });
+    let consumed = 0;
+    const results = await Promise.allSettled([
+      client.searchPlaces({ center: { lat: 55, lon: 37 }, query: 'a', requestBudget: { consume() { throw stop; } } }),
+      client.searchPlaces({ center: { lat: 55, lon: 37 }, query: 'b', requestBudget: { consume() { consumed++; } } }),
+    ]);
+    expect(results[0]).toEqual({ status: 'rejected', reason: stop });
+    expect(results[1]?.status).toBe('fulfilled'); expect(calls).toBe(1); expect(consumed).toBe(1);
+  });
+
   it('searches the supplied regional rubric IDs without a text reinterpretation', async () => {
     const requests: URL[] = [];
     const client = new DgisClient({ placesApiKey: 'test', routingApiKey: 'test',
@@ -124,6 +151,37 @@ describe('DgisClient', () => {
     const input = { center: { lat: 55, lon: 37 }, query: 'парк' };
     await expect(client.searchPlaces(input)).rejects.toThrow('HTTP 429');
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses the third key only after explicit denial of both earlier Places keys', async () => {
+    const requests: string[] = [];
+    const client = new DgisClient({ placesApiKey: 'primary', routingApiKey: 'routing',
+      backupApiKey: 'backup', tertiaryApiKey: 'third', fetchImpl: async input => {
+        const url = new URL(String(input));
+        const key = url.searchParams.get('key') ?? '';
+        requests.push(key);
+        return key === 'third'
+          ? Response.json({ meta: { code: 200 }, result: { items: [{ id: '1', name: 'Парк' }] } })
+          : Response.json({ meta: { code: 403 } });
+      } });
+    const input = { center: { lat: 55, lon: 37 }, query: 'парк' };
+    await expect(client.searchPlaces(input)).resolves.toHaveLength(1);
+    await expect(client.searchPlaces(input)).resolves.toHaveLength(1);
+    expect(requests).toEqual(['primary', 'backup', 'third', 'third']);
+  });
+
+  it('keeps valid category results when one provider row has no usable name', async () => {
+    const client = new DgisClient({ placesApiKey: 'secret', routingApiKey: 'secret', fetchImpl: async () =>
+      Response.json({ meta: { code: 200 }, result: { total: 3, items: [
+        { id: '1', name: 'Synthetic cafe', point: { lat: 55, lon: 37 } },
+        { id: '2', private_note: 'not for diagnostics' },
+        { id: '3', name: '   ' },
+      ] } }) });
+    const page = await client.searchPlacesByCategories({ center: { lat: 55, lon: 37 }, regionId: '32', rubricIds: ['1'] });
+    expect(page).toMatchObject({ total: 3, rawItemCount: 3, rejectedItems: 2,
+      schemaFailure: 'SCHEMA_RESULT_ITEMS___NAME', items: [{ id: '1', name: 'Synthetic cafe' }] });
+    expect(page.items).toHaveLength(1);
+    expect(JSON.stringify(page)).not.toContain('not for diagnostics');
   });
 
   it('distinguishes a provider application code from a response-shape error without exposing payloads', async () => {

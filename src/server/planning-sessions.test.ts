@@ -17,6 +17,86 @@ function setup() {
 const event = (version = 0, id = 'event-0001') => ({ base_version: version, event_id: id });
 
 describe('server-owned form revisions', () => {
+  it('edits child ages explicitly, preserves them on legacy total edits and rejects contradictory groups atomically', () => {
+    const { sessions, view } = setup();
+    const selected = sessions.edit('owner', view.id, { ...event(), changes: [{ op: 'party', total: 3, child_ages: [6, 12] }] });
+    expect(selected.draft.shared.party).toEqual({ total: 3, child_ages: [6, 12] });
+    expect(selected.provenance['shared.party.child_ages']).toBe('user_form');
+    const changed = sessions.edit('owner', view.id, { ...event(selected.version, 'party-legacy'), changes: [{ op: 'party', total: 4 }] });
+    expect(changed.draft.shared.party?.child_ages).toEqual([6, 12]);
+    expect(() => sessions.edit('owner', view.id, { ...event(changed.version, 'party-conflict'), changes: [{ op: 'party', total: 1 }] }))
+      .toThrow('PARTY_SIZE_CONFLICT');
+    expect(sessions.get('owner', view.id)).toEqual(changed);
+    const unknown = sessions.edit('owner', view.id, { ...event(changed.version, 'party-unknown'), changes: [{ op: 'party', total: null }] });
+    expect(unknown.issues.map(issue => issue.code)).toContain('PARTY_REQUIRED');
+    expect(() => sessions.confirm('owner', view.id, event(unknown.version, 'party-no-confirm'))).toThrow('INCOMPLETE_DRAFT');
+    const cleared = sessions.edit('owner', view.id, { ...event(unknown.version, 'party-no-children'), changes: [{ op: 'party', total: 1, child_ages: [] }] });
+    expect(cleared.draft.shared.party).toEqual({ total: 1, child_ages: [] });
+    expect(cleared.issues.map(issue => issue.code)).not.toContain('PARTY_REQUIRED');
+    expect(() => sessions.edit('owner', view.id, { ...event(cleared.version, 'party-invalid-age'), changes: [{ op: 'party', total: 2, child_ages: [18] }] })).toThrow('INVALID_ACTION');
+    expect(sessions.get('owner', view.id)).toEqual(cleared);
+  });
+  it('expires a result at its earlier provider deadline instead of adding five minutes after computation', async () => {
+    const f = setup(); let now = demoNow();
+    const deadline = new Date(now.getTime() + 60_000).toISOString();
+    const sessions = new PlanningSessions({ now: () => now,
+      plan: async () => ({ status: 'LIMITED', valid_until: deadline, warnings: [], days: [] }) });
+    const view = sessions.create('owner', f.fixture.input.intent, f.context);
+    const confirmed = sessions.confirm('owner', view.id, event());
+    const result = await sessions.calculate('owner', view.id, event(confirmed.version, 'earlier-provider-deadline'));
+    expect(result.result?.valid_until).toBe(deadline);
+    now = new Date(Date.parse(deadline) + 1);
+    expect(sessions.get('owner', view.id)).toMatchObject({ result: null, confirmed_version: null, phase: 'DRAFT' });
+    const reconfirmed = sessions.confirm('owner', view.id, event(sessions.get('owner', view.id).version, 'reconfirm-expired-deadline'));
+    await expect(sessions.calculate('owner', view.id, event(reconfirmed.version, 'already-expired-provider-deadline')))
+      .rejects.toMatchObject({ code: 'PLAN_EXPIRED_OR_INVALID' });
+    expect(sessions.get('owner', view.id).result).toBeNull();
+  });
+  it('releases calculation locks when walk category preparation fails before the planner starts', async () => {
+    const f = setup(), seed = structuredClone(f.fixture.input.intent);
+    seed.days[0]!.activities[0]!.label = 'Прогулка по городу';
+    seed.days[0]!.activities[0]!.intent_kind = 'route_walk';
+    seed.shared.mobility = ['walking'];
+    const view = f.sessions.create('owner', seed, { ...f.context,
+      visit_policy: { ...f.context.visit_policy, walkable_category_ids: [] } });
+    const confirmed = f.sessions.confirm('owner', view.id, event());
+    const request = event(confirmed.version, 'failed-walk-prepare');
+    await expect(f.sessions.calculate('owner', view.id, request)).rejects.toThrow('WALK_CATEGORY_UNAVAILABLE');
+    expect(f.sessions.get('owner', view.id).phase).toBe('CONFIRMED');
+    await expect(f.sessions.calculate('owner', view.id, request)).rejects.toThrow('WALK_CATEGORY_UNAVAILABLE');
+    // A new action must reach preparation, not remain blocked by PLAN_IN_PROGRESS.
+    await expect(f.sessions.calculate('owner', view.id, event(confirmed.version, 'retry-walk-prepare')))
+      .rejects.toThrow('WALK_CATEGORY_UNAVAILABLE');
+    const edited = f.sessions.edit('owner', view.id, { ...event(confirmed.version, 'edit-after-failure'),
+      changes: [{ op: 'party', total: 2 }] });
+    expect(edited.phase).toBe('DRAFT');
+  });
+
+  it('requires walking transport for a route walk instead of silently turning it into a driving tour', () => {
+    const f = setup(), seed = structuredClone(f.fixture.input.intent);
+    seed.days[0]!.activities[0]!.label = 'Прогулка по городу';
+    seed.days[0]!.activities[0]!.intent_kind = 'route_walk';
+    seed.shared.mobility = ['driving'];
+    const view = f.sessions.create('owner', seed, f.context);
+    expect(view.issues.map(issue => issue.code)).toContain('WALK_ROUTE_REQUIRES_WALKING');
+    expect(() => f.sessions.confirm('owner', view.id, event())).toThrow('INCOMPLETE_DRAFT');
+  });
+
+  it('preserves an explicitly estimated budget and requires party size and price-basis consent', () => {
+    const f = setup();
+    const budget = { kind: 'limit', amount_rub: 3000, basis: 'whole_party', period: 'per_day', enforcement: 'estimated' };
+    const changed = f.sessions.edit('owner', f.view.id, { ...event(), changes: [{ op: 'budget', value: budget }, { op: 'party', total: null }] });
+    expect(changed.draft.shared.budget).toMatchObject({ enforcement: 'estimated' });
+    expect(changed.issues.map(issue => issue.code)).toContain('BUDGET_PRICE_BASIS_REQUIRED');
+    expect(changed.issues.map(issue => issue.code)).toContain('PARTY_REQUIRED');
+    const agreed = f.sessions.edit('owner', f.view.id, { ...event(changed.version, 'consent-budget-2'), changes: [
+      { op: 'budget', value: { ...budget, price_basis_assumption: 'per_person' } }, { op: 'party', total: 2 },
+    ] });
+    expect(agreed.issues.map(issue => issue.code)).not.toContain('BUDGET_PRICE_BASIS_REQUIRED');
+    expect(agreed.issues.map(issue => issue.code)).not.toContain('PARTY_REQUIRED');
+    expect(agreed.confirmed_version).toBeNull();
+  });
+
   it('edits selected days atomically, preserves category restrictions/budget and invalidates confirmation', () => {
     const f = setup();
     const seed = structuredClone(f.fixture.input.intent);
@@ -130,7 +210,7 @@ describe('server-owned form revisions', () => {
     await expect(f.sessions.calculate('owner', f.view.id, event(confirmed.version, 'event-0003'))).rejects.toThrow('RESULT_ALREADY_EXISTS');
   }, 30_000);
 
-  it('uses a server-owned walk duration estimate only for walk activities', async () => {
+  it('uses a server-owned walk duration estimate without changing the cafe activity', async () => {
     const f = setup(); let submitted: Record<string, unknown> | undefined;
     const context = { ...f.context, visit_policy: { ...f.context.visit_policy, walkable_category_ids: ['100'] } };
     const s = new PlanningSessions({ now: demoNow, plan: job => {
@@ -143,12 +223,13 @@ describe('server-owned form revisions', () => {
     const view = s.create('owner', seed, context);
     const confirmed = s.confirm('owner', view.id, event());
     await s.calculate('owner', view.id, event(confirmed.version, 'event-0002'));
-    expect(submitted?.visit_policy).toMatchObject({ by_activity: { culture: 60 } });
+    expect(submitted?.visit_policy).toMatchObject({ by_activity: { culture: 25 },
+      max_stops_by_activity: { culture: 7 } });
     const intent = submitted?.intent as typeof seed;
     expect(intent.days[0]!.activities[0]!.categories.include_any).toEqual(['100']);
   }, 30_000);
 
-  it('requests two distinct stops only for a flexible standalone city walk', async () => {
+  it('derives the route-walk upper bound from the time window, not a fixed stop count', async () => {
     const f = setup(); let submitted: Record<string, unknown> | undefined;
     const context = { ...f.context, visit_policy: { ...f.context.visit_policy, walkable_category_ids: ['100'] } };
     const sessions = new PlanningSessions({ now: demoNow, plan: async job => { submitted = job;
@@ -157,15 +238,33 @@ describe('server-owned form revisions', () => {
     const seed = structuredClone(f.fixture.input.intent);
     seed.days[0]!.activities = [seed.days[0]!.activities[0]!];
     seed.days[0]!.order = [];
-    seed.days[0]!.activities[0]!.label = 'прогулка';
+    seed.days[0]!.activities[0]!.label = 'Пешая экскурсия по городским улицам';
+    seed.days[0]!.activities[0]!.intent_kind = 'route_walk';
     seed.days[0]!.activities[0]!.selection = { category_policy: 'related_allowed', named_types: [] };
     seed.days[0]!.activities[0]!.requirements = [];
     const view = sessions.create('owner', seed, context);
     const confirmed = sessions.confirm('owner', view.id, event());
     await sessions.calculate('owner', view.id, event(confirmed.version, 'event-0002'));
     expect(submitted?.visit_policy).toMatchObject({ by_activity: { culture: 25 },
-      max_stops_by_activity: { culture: 2 } });
+      max_stops_by_activity: { culture: 7 } });
   });
+
+  it('plans a walking route and a later cafe as separate ordered activities', async () => {
+    const f = setup();
+    f.fixture.items.find(item => item.id === 'far')!.point = { lat: 55.752, lon: 37.625 };
+    const context = { ...f.context, visit_policy: { ...f.context.visit_policy, walkable_category_ids: ['100'] } };
+    const sessions = new PlanningSessions({ now: demoNow, plan: job => planPlacesWithDgis(f.fixture.client(), job,
+      { retrieval: { radiusMeters: 5000, maxPages: 1 }, dataMode: 'test', now: demoNow }) });
+    const seed = structuredClone(f.fixture.input.intent);
+    seed.days[0]!.activities[0]!.label = 'Прогуляться по городу';
+    seed.days[0]!.activities[0]!.intent_kind = 'route_walk';
+    const view = sessions.create('owner', seed, context);
+    const confirmed = sessions.confirm('owner', view.id, event());
+    const planned = await sessions.calculate('owner', view.id, event(confirmed.version, 'event-0002'));
+    expect(planned.result?.status).toBe('AVAILABLE');
+    expect(planned.result?.days[0]?.visits.map(visit => visit.activity_id)).toEqual(['culture', 'culture', 'food']);
+    expect(new Set(planned.result?.days[0]?.visits.map(visit => visit.place_id)).size).toBe(3);
+  }, 30_000);
 
   it('does not let a broad model proposal route a walk to a hotel category', async () => {
     const f = setup(); let submitted: Record<string, unknown> | undefined;
