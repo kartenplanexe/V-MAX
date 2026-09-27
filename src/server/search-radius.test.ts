@@ -15,7 +15,7 @@ it('applies an explicit radius to provider requests and independently excludes o
   const places = f.requests.filter(request => request.url.hostname === 'catalog.api.2gis.com');
   expect(places.length).toBeGreaterThan(0);
   expect(places.every(request => request.url.searchParams.get('radius') === '100')).toBe(true);
-});
+}, 30_000); // Real Python startup/solver work, like the other planner integration tests.
 it('edits only radius, invalidates confirmation and keeps the same bound through calculation', async () => {
   const f = planningFixture();
   const sessions = new PlanningSessions({ now: demoNow, plan: job => planPlacesWithDgis(f.client(), job, options) });
@@ -33,7 +33,7 @@ it('edits only radius, invalidates confirmation and keeps the same bound through
   expect(planned.result?.status).toBe('AVAILABLE');
   expect(planned.result?.search_scope?.radius_meters).toBe(1000);
   expect(planned.draft.days[0]!.order).toEqual(initial.draft.days[0]!.order);
-});
+}, 30_000);
 it.each([0, -1, 50_001, 1.5, '5000', null])('rejects invalid radius %s at the shared boundary', radius => {
   const f = planningFixture(); Object.assign(f.input.intent.shared, { search_radius_meters: radius });
   expect(FormDraft.safeParse(f.input.intent).success).toBe(false);
