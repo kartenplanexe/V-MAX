@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { DgisClient, DgisProviderError, DgisRoutingUnavailableError, DgisRequestBudgetError, pairKey, type Coordinates } from './dgis.js';
 import { retrievePlaceCandidates } from './place-retrieval.js';
+import { projectCandidatePreview } from './candidate-preview.js';
 import { runPythonPlanner } from './planner-process.js';
 import type { RouteLine } from './route-geometry.js';
 import type { TransitEvidence } from './dgis-public-transport.js';
@@ -177,6 +178,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
   let pipelineStage: typeof PIPELINE_STAGES[number] = 'PREFLIGHT';
   let budgetStopCode: DgisRequestBudgetError['code'] | null = null;
   let diagnosticShortlist: Record<string, unknown> | undefined;
+  let candidatePreviewJob: Record<string, unknown> | undefined;
   const withinDeadline = () => performance.now() - started < 90_000;
   const maxRetrieval = z.number().int().min(1).max(30).parse(options.retrieval.maxRequests ?? 20);
   const counters = { event_http_calls: 0, event_candidates: 0, event_unresolved: 0, retrieval_http_calls: 0,
@@ -201,7 +203,8 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
     pipeline_stage: pipelineStage, budget_stop_code: budgetStopCode, elapsed_ms: Math.max(0, Math.floor(performance.now() - started)),
     max_route_pair_calculations: maxPairs, max_routing_http_calls: maxHttp, data_mode: mode });
   const stop = (issue: string) => ({ schema_version: 'place-selection.v1', status: 'ERROR', issues: [issue], days: [],
-    ...(diagnosticShortlist ? { shortlist: diagnosticShortlist } : {}), routing: metadata(), ...scope() });
+    ...(diagnosticShortlist ? { shortlist: diagnosticShortlist } : {}), routing: metadata(), ...scope(),
+    ...projectCandidatePreview(candidatePreviewJob, now()) });
   const run = (job: unknown, operation: 'solve' | 'prepare-routes' | 'route-checks' | 'recover-routes') => {
     if (!withinDeadline()) throw new DgisRequestBudgetError('DEADLINE_EXCEEDED');
     return runPythonPlanner(job, { ...options.planner, operation });
@@ -329,6 +332,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
         fetched_at: fetchedAt.toISOString(), valid_until: new Date(fetchedAt.getTime() + 900_000).toISOString(), data_mode: mode }] }, 'prepare-routes');
     if (preparedReply.status !== 'AVAILABLE') return { ...preparedReply, routing: metadata(), ...scope() };
     const prepared = Prepared.parse(preparedReply);
+    candidatePreviewJob = prepared.job;
     diagnosticShortlist = prepared.shortlist;
     hasTransit = prepared.pairs.some(pair => pair.mode === 'public_transport');
     shortlistTruncated = z.array(z.object({ truncated: z.boolean() })).parse(prepared.shortlist.groups).some(group => group.truncated);
@@ -440,6 +444,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
         additions.forEach(leg => legs.set(edgeKey(leg), leg));
         const candidate = proposal.proposal.candidate;
         currentJob = { ...currentJob, candidate_pool: [...z.array(Candidate).parse(currentJob.candidate_pool), candidate] };
+        candidatePreviewJob = currentJob;
         recovery.added_candidates++;
         const groups = z.array(z.object({ day_id: z.string(), activity_id: z.string(), eligible: z.number(), selected: z.number(),
           truncated: z.boolean() }).passthrough()).parse(prepared.shortlist.groups);
@@ -465,7 +470,8 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
       const job = planningJob();
       if (!['AVAILABLE', 'LIMITED'].includes(result.status)) return { ...result,
         warnings: [...(z.array(z.string()).optional().parse(result.warnings) ?? []), ...routingWarnings()],
-        shortlist: prepared.shortlist, routing: metadata(), ...scope() };
+        shortlist: prepared.shortlist, routing: metadata(), ...scope(),
+        ...(result.status === 'UNAVAILABLE' && counters.routing_failed_batches ? projectCandidatePreview(candidatePreviewJob, now()) : {}) };
       pipelineStage = 'DEPARTURE_CHECKS';
       const checkReply = await run({ job: { ...job, as_of: now().toISOString() }, result }, 'route-checks');
       if (checkReply.status !== 'AVAILABLE') return stop('PLAN_EXPIRED_OR_INVALID');

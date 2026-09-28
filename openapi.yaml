@@ -5500,6 +5500,128 @@
               "NEEDS_INPUT"
             ]
           },
+          "candidate_preview": {
+            "type": "object",
+            "properties": {
+              "groups": {
+                "minItems": 1,
+                "maxItems": 120,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "day_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "activity_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "places": {
+                      "minItems": 1,
+                      "maxItems": 120,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "place_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          },
+                          "location_label": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 1000
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "source": {
+                            "type": "object",
+                            "properties": {
+                              "provider": {
+                                "type": "string",
+                                "enum": [
+                                  "2gis",
+                                  "kudago"
+                                ]
+                              },
+                              "url": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "uri"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "fetched_at": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              "valid_until": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              "data_mode": {
+                                "type": "string",
+                                "enum": [
+                                  "live",
+                                  "test",
+                                  "prepared"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "provider",
+                              "url",
+                              "fetched_at",
+                              "valid_until",
+                              "data_mode"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "place_id",
+                          "name",
+                          "location_label",
+                          "source"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "day_id",
+                    "activity_id",
+                    "places"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "groups"
+            ],
+            "additionalProperties": false
+          },
           "origin": {
             "type": "object",
             "properties": {
@@ -7604,6 +7726,128 @@
                         "NEEDS_INPUT"
                       ]
                     },
+                    "candidate_preview": {
+                      "type": "object",
+                      "properties": {
+                        "groups": {
+                          "minItems": 1,
+                          "maxItems": 120,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "day_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "activity_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "places": {
+                                "minItems": 1,
+                                "maxItems": 120,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "place_id": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200
+                                    },
+                                    "name": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 500
+                                    },
+                                    "location_label": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "maxLength": 1000
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "source": {
+                                      "type": "object",
+                                      "properties": {
+                                        "provider": {
+                                          "type": "string",
+                                          "enum": [
+                                            "2gis",
+                                            "kudago"
+                                          ]
+                                        },
+                                        "url": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "format": "uri"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "fetched_at": {
+                                          "type": "string",
+                                          "format": "date-time",
+                                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                        },
+                                        "valid_until": {
+                                          "type": "string",
+                                          "format": "date-time",
+                                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                        },
+                                        "data_mode": {
+                                          "type": "string",
+                                          "enum": [
+                                            "live",
+                                            "test",
+                                            "prepared"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "provider",
+                                        "url",
+                                        "fetched_at",
+                                        "valid_until",
+                                        "data_mode"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "required": [
+                                    "place_id",
+                                    "name",
+                                    "location_label",
+                                    "source"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "day_id",
+                              "activity_id",
+                              "places"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "groups"
+                      ],
+                      "additionalProperties": false
+                    },
                     "origin": {
                       "type": "object",
                       "properties": {
@@ -9102,6 +9346,128 @@
                       "ERROR",
                       "NEEDS_INPUT"
                     ]
+                  },
+                  "candidate_preview": {
+                    "type": "object",
+                    "properties": {
+                      "groups": {
+                        "minItems": 1,
+                        "maxItems": 120,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "day_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "activity_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "places": {
+                              "minItems": 1,
+                              "maxItems": 120,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "place_id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 200
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 500
+                                  },
+                                  "location_label": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "maxLength": 1000
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "source": {
+                                    "type": "object",
+                                    "properties": {
+                                      "provider": {
+                                        "type": "string",
+                                        "enum": [
+                                          "2gis",
+                                          "kudago"
+                                        ]
+                                      },
+                                      "url": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "format": "uri"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
+                                      "fetched_at": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                      },
+                                      "valid_until": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                      },
+                                      "data_mode": {
+                                        "type": "string",
+                                        "enum": [
+                                          "live",
+                                          "test",
+                                          "prepared"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "provider",
+                                      "url",
+                                      "fetched_at",
+                                      "valid_until",
+                                      "data_mode"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "required": [
+                                  "place_id",
+                                  "name",
+                                  "location_label",
+                                  "source"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "day_id",
+                            "activity_id",
+                            "places"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "groups"
+                    ],
+                    "additionalProperties": false
                   },
                   "origin": {
                     "type": "object",

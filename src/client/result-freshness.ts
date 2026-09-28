@@ -6,6 +6,8 @@ export function resultValidUntil(view: Pick<PlanningView, 'expires_at' | 'result
   const deadlines = [Date.parse(view.expires_at)];
   const plan = view.result;
   if (plan?.valid_until) deadlines.push(Date.parse(plan.valid_until));
+  for (const group of plan?.candidate_preview?.groups ?? []) for (const place of group.places)
+    deadlines.push(Date.parse(place.source.valid_until), Date.parse(place.source.fetched_at) + 5 * 60_000);
   for (const day of plan?.days ?? []) {
     for (const source of [...day.visits.map(visit => visit.source), ...(day.travel_segments ?? []).map(segment => segment.source)]) {
       if (!source) { deadlines.push(0); continue; }

@@ -3,6 +3,7 @@ import { request as httpsRequest } from 'node:https';
 import { getCACertificates } from 'node:tls';
 import type { FastifyInstance } from 'fastify';
 import type { PlanningView } from '../shared/planning-form.js';
+import { candidatePreviewNotice, candidateSourceLink } from '../shared/candidate-preview.js';
 import { clarificationReview } from '../shared/clarification-review.js';
 import { DEFAULT_SEARCH_RADIUS_METERS } from '../shared/search-radius.js';
 import { isExactGreeting } from './intent-start.js';
@@ -156,6 +157,24 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
         : searchIncomplete ? 'Поиск мест завершился не полностью; проверенного плана пока нет.'
           : 'Пока нет проверенного плана для этих условий.';
   const messages: Message[] = [{ text: lead }];
+  if (result.candidate_preview) {
+    const lines = ['Найденные места', candidatePreviewNotice];
+    for (const group of result.candidate_preview.groups) {
+      const day = view.draft.days.find(value => value.day_id === group.day_id);
+      const activity = day?.activities.find(value => value.id === group.activity_id);
+      if (!day || !activity) continue;
+      lines.push(`\n${view.draft.days.length > 1 ? `${day.date} · ` : ''}${activity.label}: ${group.places.length} вариантов`);
+      for (const place of group.places.slice(0, 3)) {
+        lines.push(`• ${place.name}${place.location_label ? ` — ${place.location_label}` : ''}`);
+        const link = candidateSourceLink(place.source); if (link) lines.push(link);
+      }
+      if (group.places.length > 3) lines.push(`Ещё ${group.places.length - 3} — в мини-приложении.`);
+    }
+    if (result.candidate_preview.groups.some(group => group.places.some(place => place.source.data_mode !== 'live')))
+      lines.push('Среди вариантов есть учебные или подготовленные данные; это не живая проверка мест.');
+    lines.push('Полный список и время получения данных — в мини-приложении.');
+    messages.push({ text: lines.join('\n') });
+  }
   if (result.days.some(day => day.visits.length)) messages.push({ text:
     `${mobilityText(view.draft.shared.mobility?.[0])}. Время в плане расчётное; прибытие и доступность не гарантируются.` });
   if (result.data_mode === 'test' || result.days.some(day => day.visits.some(visit => visit.source?.data_mode === 'test')) ||
@@ -379,7 +398,7 @@ export class MaxChatController {
     if (route) messages[0]!.text = `Маршрут: ${route.title}\n\n${messages[0]!.text}`;
     messages.at(-1)!.buttons = [[callback(view.result?.status === 'ERROR' ? 'Повторить расчёт' : 'Проверить заново',
       `replan:${view.id}:${view.version}`)], [appButton(this.deps.botUsername,
-      this.deps.mapEnabled ? 'Открыть ленту и карту' : 'Открыть подробный план')], ...navigationButtons(state, 'result')];
+      view.result?.candidate_preview ? 'Посмотреть найденные места' : this.deps.mapEnabled ? 'Открыть ленту и карту' : 'Открыть подробный план')], ...navigationButtons(state, 'result')];
     if (view.result?.issues?.includes('BUDGET_PRICE_DATA_REQUIRED') && view.draft.shared.budget?.kind === 'limit' &&
         view.draft.shared.budget.enforcement !== 'estimated') {
       messages.at(-1)!.buttons!.unshift([callback('Считать приблизительно по среднему чеку', `budget-policy:${view.id}:${view.version}:estimated`)]);

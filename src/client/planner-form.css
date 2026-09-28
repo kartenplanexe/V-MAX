@@ -376,3 +376,12 @@
 .input-clarifications { display: grid; gap: 20px; width: 100%; }
 .input-question { padding: 16px 0; border-top: 1px solid var(--border, #ddd7e7); overflow-wrap: anywhere; }
 .input-question > p:first-child { font-weight: 600; }
+.candidate-places { margin-block: 24px; }
+.candidate-places > h3 { margin-bottom: 8px; }
+.candidate-group { margin-top: 24px; }
+.candidate-group > h4 { margin-bottom: 12px; text-transform: none; }
+.candidate-group > h4 > span { opacity: .65; font-weight: 400; }
+.candidate-group > ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.candidate-card h5 { font: inherit; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.candidate-card .stop-content { padding-top: 18px; }
+.candidate-card .stop-footer > a { white-space: nowrap; }

@@ -355,6 +355,7 @@ describe.skipIf(!existsSync(defaultPlannerPython()))('confirmed JSON -> 2GIS HTT
     expect(result.status).toBe('NEEDS_INPUT');
     expect(result.issues).toContain('UNSUPPORTED_TRANSPORT');
     expect(f.requests).toHaveLength(0);
+    expect(result.candidate_preview).toBeUndefined();
   }, 30_000);
 
   it('does not invent a route when all provider requests fail and does not retry HTTP', async () => {
@@ -365,6 +366,7 @@ describe.skipIf(!existsSync(defaultPlannerPython()))('confirmed JSON -> 2GIS HTT
     expect(result.routing.routing_http_calls).toBe(1);
     expect(result.routing.routing_failed_batches).toBe(1);
     expect(result.warnings).toContain('ROUTING_PROVIDER_FAILURE');
+    expect(result.candidate_preview.groups.flatMap((group: any) => group.places).length).toBe(3);
     expect(result.days[0].visits).toEqual([]);
     expect(JSON.stringify(result)).not.toContain('test-only');
   }, 30_000);
@@ -382,6 +384,15 @@ describe.skipIf(!existsSync(defaultPlannerPython()))('confirmed JSON -> 2GIS HTT
         recovery: { attempts: 0 } } });
     expect(attempts).toBe(3);
     expect(safePlanningDiagnostic(result).stop_issue).toBe('ROUTING_PROVIDER_UNAVAILABLE');
+    expect(result.candidate_preview.groups).toEqual([
+      expect.objectContaining({ day_id: 'd1', activity_id: 'culture', places: [
+        expect.objectContaining({ place_id: 'near', name: 'Учебный музей' }),
+        expect.objectContaining({ place_id: 'far', name: 'Учебный музей далеко' }),
+      ] }),
+      expect.objectContaining({ day_id: 'd1', activity_id: 'food', places: [expect.objectContaining({ place_id: 'cafe' })] }),
+    ]);
+    expect(JSON.stringify(result.candidate_preview)).not.toContain('Закрыто');
+    expect(result.valid_until).toBe('2026-09-24T09:35:00.000Z');
     expect(JSON.stringify(result)).not.toMatch(/private-provider-marker|synthetic-primary|synthetic-backup|synthetic-third/);
   }, 30_000);
 
@@ -409,6 +420,7 @@ describe.skipIf(!existsSync(defaultPlannerPython()))('confirmed JSON -> 2GIS HTT
     const result = await planPlacesWithDgis(f.client(responseFetch), f.input, options) as Record<string, any>;
     expect(result).toMatchObject({ status: 'ERROR', issues: ['ROUTING_PROVIDER_UNAVAILABLE'], days: [],
       routing: { pipeline_stage: 'DEPARTURE_CHECKS', replans: 0 } });
+    expect(result.candidate_preview.groups.flatMap((group: any) => group.places).length).toBe(3);
     expect(attempts).toBe(2);
   }, 30_000);
 
@@ -474,5 +486,6 @@ describe.skipIf(!existsSync(defaultPlannerPython()))('confirmed JSON -> 2GIS HTT
     expect(result.status).toBe('ERROR');
     expect(result.issues).toEqual(['PLAN_EXPIRED_OR_INVALID']);
     expect(result.days).toEqual([]);
+    expect(result.candidate_preview).toBeUndefined();
   }, 30_000);
 });

@@ -9,6 +9,7 @@ import type { AlternativeTarget } from '../shared/route-alternatives';
 import type { EventPanelTarget } from './EventPanel';
 import { eventSourceUrl, eventWindowText } from './EventFacts';
 import { eventGapText } from '../shared/event-plan-text';
+import { CandidatePlaces } from './CandidatePlaces';
 
 const time = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 const number = new Intl.NumberFormat('ru-RU');
@@ -61,6 +62,7 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
     </div>
     {view.capabilities.data_mode === 'test' && <p className="data-label">Учебный пример · места и время в пути синтетические</p>}
     {plan.search_scope && <p className="scope-note">{searchScopeNotice(plan)}</p>}
+    <CandidatePlaces view={view} />
     {plan.search_scope && plan.status !== 'AVAILABLE' && plan.status !== 'ERROR' && <Action variant="ghost" disabled={busy} onClick={editSearch}>Изменить область поиска</Action>}
     {plan.days.length > 1 && <nav className="day-tabs" aria-label="Дни маршрута">{plan.days.map(value => <button key={value.day_id} type="button" aria-pressed={day?.day_id === value.day_id}
       onClick={() => { setSelectedDay(value.day_id); setSelectedVisit(0); }}><strong>{date(value.date)}</strong><span>{value.status === 'AVAILABLE' ? 'Готово' : value.status === 'LIMITED' ? 'Частично' : 'Нет плана'}</span></button>)}</nav>}
