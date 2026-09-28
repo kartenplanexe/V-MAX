@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { FormDraft, FormEdit, FormEvent, PublicPlan, minutes, isEventActivity, type FormIssue, type PlanningView } from '../shared/planning-form.js';
+import { clarificationReview } from '../shared/clarification-review.js';
+import { FormDraft, FormEdit, FormEvent, CalculateInput, PublicPlan, minutes, isEventActivity, type FormIssue, type PlanningView } from '../shared/planning-form.js';
 import { ACTIVITY_INTENT_POLICY, classifyActivityIntent } from './activity-intent.js';
 import { PreviewAlternativeInputSchema, ApplyAlternativeInputSchema, type AlternativePreview } from '../shared/route-alternatives.js';
 import { replacementRoster, matchesReplacement, planFreshUntil, alternativeDelta } from './route-alternatives.js';
@@ -32,7 +33,7 @@ type RecordState = { owner: string; context: PlanningContext; view: PlanningView
   events: Map<string, string>; failures: Map<string, PlanningSessionError>; resultExpires: number; inProgress: string | null;
   eventChecks?: Record<string, EventEvidence & { target_hash: string }>;
   alternative?: { event_id: string; preview: AlternativePreview } };
-export type PlanningCheckpoint = { version: 1; records: (Omit<RecordState, 'events' | 'failures'> & {
+export type PlanningCheckpoint = { version: 1 | 2; records: (Omit<RecordState, 'events' | 'failures'> & {
   events: [string, string][]; failures: [string, { code: string; status: number }][] })[]; attempts: [string, number[]][] };
 export class PlanningSessionError extends Error {
   constructor(readonly code: string, readonly status = 409) { super(code); }
@@ -66,7 +67,7 @@ export class PlanningSessions {
     this.#now = options.now ?? (() => new Date()); this.#plan = options.plan;
     this.#beforePlan = options.beforePlan;
     if (options.checkpoint) {
-      if (options.checkpoint.version !== 1) throw new Error('Unsupported planning checkpoint');
+      if (![1, 2].includes(options.checkpoint.version)) throw new Error('Unsupported planning checkpoint');
       for (const saved of options.checkpoint.records) {
         const r: RecordState = { ...structuredClone(saved), events: new Map(saved.events),
           failures: new Map(saved.failures.map(([key, e]) => [key, new PlanningSessionError(e.code, e.status)])) };
@@ -87,7 +88,10 @@ export class PlanningSessions {
   /** Persist only under the store's owner lock; contains personal draft state, never API credentials. */
   checkpoint(): PlanningCheckpoint {
     this.#prune();
-    return structuredClone({ version: 1, records: [...this.#records.values()].map(r => ({ ...r,
+    // Old readers strip unknown draft fields. They must reject, rather than lose,
+    // unresolved user conditions during a rolling deployment or rollback.
+    const version = [...this.#records.values()].some(r => r.view.draft.clarifications?.length) ? 2 : 1;
+    return structuredClone({ version, records: [...this.#records.values()].map(r => ({ ...r,
       events: [...r.events], failures: [...r.failures].map(([key, e]) => [key, { code: e.code, status: e.status }] as [string, { code: string; status: number }]) })),
       attempts: [] }); // Retained for compatibility with existing version-1 checkpoints.
   }
@@ -115,6 +119,7 @@ export class PlanningSessions {
   #issues(record: RecordState): FormIssue[] {
     const { draft } = record.view, issues: FormIssue[] = [];
     const add = (code: string, field: string) => { issues.push({ code, field }); };
+    for (const question of draft.clarifications ?? []) add('INPUT_CLARIFICATION_REQUIRED', `clarifications.${question.id}`);
     if (!draft.points.origin) add('ORIGIN_REQUIRED', 'points.origin');
     if (draft.shared.mobility?.length !== 1 || !record.context.modes.includes(draft.shared.mobility[0] as 'walking')) add('TRANSPORT_REQUIRED', 'shared.mobility');
     const budget = draft.shared.budget;
@@ -167,7 +172,7 @@ export class PlanningSessions {
         const c = activity.categories, catalog = record.context.catalog;
         if (c.state !== 'matched' || c.region_id !== draft.locality.region_id || c.region_id !== catalog.region_id ||
             c.catalog_version !== catalog.version || !c.include_any.length ||
-            [...c.include_any, ...c.exclude].some(id => !catalog.leaf_ids.includes(id)) || c.include_any.some(id => c.exclude.includes(id))) add('CATALOG_MISMATCH', path);
+            [...c.include_any, ...c.exclude].some(id => !catalog.leaf_ids.includes(id)) || c.include_any.some(id => c.exclude.includes(id))) add('CATALOG_MISMATCH', `${path}.activities.${activity.id}`);
       }
     }
     return issues;
@@ -296,6 +301,28 @@ export class PlanningSessions {
     const getDay = (dayId: string) => { const day = draft.days.find(d => d.day_id === dayId); if (!day) reject('UNKNOWN_DAY', 422); return day; };
     for (const change of body.changes) {
       switch (change.op) {
+        case 'resolve_clarification': {
+          const question = draft.clarifications?.find(value => value.id === change.clarification_id);
+          if (!question) reject('CLARIFICATION_NOT_FOUND', 422);
+          if (!clarificationReview(draft, question)?.ready) reject('CLARIFICATION_VALUE_REQUIRED', 422);
+          draft.clarifications = draft.clarifications!.filter(value => value.id !== question.id);
+          if (!draft.clarifications.length) delete draft.clarifications;
+          break;
+        }
+        case 'activity_choice': {
+          const day = getDay(change.day_id), old = day.activities.find(activity => activity.id === change.activity_id);
+          if (!old || isEventActivity(old)) reject('UNKNOWN_ACTIVITY', 422);
+          const options = this.activityOptions(owner, id);
+          if (change.catalog_version !== options.catalog_version) reject('MANUAL_CATALOG_CHANGED', 422);
+          const replacement = catalogActivity(change.choice, old.id, record.context, options, code => reject(code, 422));
+          if (old.categories.exclude.length && (old.categories.catalog_version !== record.context.catalog.version ||
+              old.categories.exclude.some(value => !record.context.catalog.leaf_ids.includes(value) || replacement.categories.include_any.includes(value))))
+            reject('ACTIVITY_EXCLUSIONS_REVIEW_REQUIRED', 422);
+          replacement.categories.exclude = [...old.categories.exclude];
+          day.activities = day.activities.map(activity => activity.id === old.id ? { ...replacement, requirements: structuredClone(old.requirements) } : activity);
+          provenance[`days.${day.day_id}.activities`] = 'user_form';
+          break;
+        }
         case 'window':
           for (const dayId of change.day_ids) {
             const day = getDay(dayId); day.window = { start: change.start, end: change.end };
@@ -513,16 +540,22 @@ export class PlanningSessions {
     return this.#view(record);
   }
   async calculate(owner: string, id: string, input: unknown) {
-    const record = this.#record(owner, id), body = parse(FormEvent, input), hash = this.#event(record, 'calculate', body, body);
+    const record = this.#record(owner, id), body = parse(CalculateInput, input), hash = this.#event(record, 'calculate', body, body);
     if (hash === null) {
       if (record.inProgress === body.event_id) reject('PLAN_IN_PROGRESS');
       const failure = record.failures.get(body.event_id); if (failure) throw failure;
       return this.#view(record);
     }
-    if (record.view.result) reject('RESULT_ALREADY_EXISTS');
+    if (record.view.result && !body.refresh) reject('RESULT_ALREADY_EXISTS');
     if (record.view.confirmed_version !== body.base_version || this.#issues(record).length) reject('CONFIRMATION_REQUIRED', 422);
     if (record.inProgress || this.#activeOwners.has(owner)) reject('PLAN_IN_PROGRESS');
     if (this.#activeOwners.size >= 2) reject('PLANNER_BUSY', 429);
+    if (record.view.result) {
+      // An explicit fresh user action invalidates the old result, not the
+      // confirmed conditions. A new revision also invalidates old callbacks.
+      record.view.result = null; record.resultExpires = 0;
+      record.view.version++; record.view.confirmed_version = record.view.version;
+    }
     // No awaits before lock/revision capture: single-process atomicity only.
     this.#activeOwners.add(owner);
     record.inProgress = body.event_id; record.events.set(body.event_id, hash); record.view.phase = 'PLANNING';

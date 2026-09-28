@@ -168,6 +168,7 @@ it('does not interpret «после завтра» as the single explicit tomorr
 
 it('marks server-suggested evening separately and preserves unknown budget units for the form', async () => {
   const f = intentFixture();
+  f.text = f.text.replace('с 16 до 19', '');
   f.response.days[0]!.time_updates = [{ op: 'set', field: 'period', value: 'evening', evidence: 'вечером' }];
   f.response.shared_updates = [{ op: 'set', field: 'budget', value: { kind: 'limit', amount_rub: 5000, basis: 'unknown', period: 'unknown' }, evidence: '5000' }];
   const result = await parseInitialIntent({ ...f.context, userText: f.text + ' вечером 5000', inputId: 'defaults' }, async () => f.response);

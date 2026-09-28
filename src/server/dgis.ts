@@ -64,6 +64,14 @@ export class DgisProviderError extends Error {
   }
 }
 
+/** All configured keys for this routing service were denied. No provider text. */
+export class DgisRoutingUnavailableError extends DgisProviderError {
+  constructor(readonly service: 'routing' | 'public_transport') {
+    super('2GIS routing service keys are temporarily unavailable.');
+    this.name = 'DgisRoutingUnavailableError';
+  }
+}
+
 /** Owned by one operation, not by the shared client. Called synchronously before
  * every physical HTTP attempt, including denied-key fallback attempts. */
 export interface DgisRequestBudget { consume(): void }
@@ -357,13 +365,19 @@ export class DgisClient {
       return { status: response.status, body };
     };
     let selected = keys.current(service as DgisService);
-    if (!selected) throw new DgisProviderError('2GIS service keys are temporarily unavailable.');
+    if (!selected) {
+      if (service !== 'places') throw new DgisRoutingUnavailableError(service);
+      throw new DgisProviderError('2GIS service keys are temporarily unavailable.');
+    }
     let result: Awaited<ReturnType<typeof send>>;
     for (;;) {
       result = await send(selected);
       if (!shouldTryDgisBackup(result.status, result.body)) break;
       const backup = keys.backupAfterDenial(service, selected);
-      if (!backup) break;
+      if (!backup) {
+        if (service !== 'places') throw new DgisRoutingUnavailableError(service);
+        break;
+      }
       selected = backup;
     }
     if (result.status < 200 || result.status >= 300)

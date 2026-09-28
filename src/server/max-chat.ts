@@ -3,6 +3,7 @@ import { request as httpsRequest } from 'node:https';
 import { getCACertificates } from 'node:tls';
 import type { FastifyInstance } from 'fastify';
 import type { PlanningView } from '../shared/planning-form.js';
+import { clarificationReview } from '../shared/clarification-review.js';
 import { DEFAULT_SEARCH_RADIUS_METERS } from '../shared/search-radius.js';
 import { isExactGreeting } from './intent-start.js';
 import { InitialIntentError } from './intent-start.js';
@@ -231,7 +232,7 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
   if (evidence.length) messages.push({ text: evidence.join('\n') });
   if (result.days.some(day => day.visits.length) && result.total_expected_cost_minor != null && !unknownFare)
     messages.push({ text: `Ожидаемые расходы: ≈ ${result.total_expected_cost_minor / 100} ₽. Время и расходы могут быть приблизительными.` });
-  if (messages.length === 1) messages[0]!.text += '\nМожно изменить время или точку старта.';
+  if (messages.length === 1 && result.status !== 'ERROR') messages[0]!.text += '\nМожно изменить время или точку старта.';
   return messages.flatMap(message => splitMaxText(message.text).map(text => ({ ...message, text })));
 }
 
@@ -376,7 +377,8 @@ export class MaxChatController {
     const state = await this.navigation(`max:${userId}`);
     const route = state.routes.find(item => item.id === state.activeRouteId && item.draftId === view.id);
     if (route) messages[0]!.text = `Маршрут: ${route.title}\n\n${messages[0]!.text}`;
-    messages.at(-1)!.buttons = [[appButton(this.deps.botUsername,
+    messages.at(-1)!.buttons = [[callback(view.result?.status === 'ERROR' ? 'Повторить расчёт' : 'Проверить заново',
+      `replan:${view.id}:${view.version}`)], [appButton(this.deps.botUsername,
       this.deps.mapEnabled ? 'Открыть ленту и карту' : 'Открыть подробный план')], ...navigationButtons(state, 'result')];
     if (view.result?.issues?.includes('BUDGET_PRICE_DATA_REQUIRED') && view.draft.shared.budget?.kind === 'limit' &&
         view.draft.shared.budget.enforcement !== 'estimated') {
@@ -430,6 +432,7 @@ export class MaxChatController {
           SAVED_RESTORE_UNAVAILABLE: 'Восстановление условий пока недоступно. Исходный запрос автоматически не отправлялся на новый разбор.',
         };
         const text = savedErrorText[error.code] ?? (error.code === 'INTENT_INVALID_RESPONSE' ? 'Не получилось надёжно сопоставить пожелание с данными 2ГИС. Это ошибка разбора, а не вашего текста. Можно повторить попытку или отправить новое пожелание.'
+          : error.code === 'INTENT_NEEDS_CLARIFICATION' ? 'Не получилось надёжно разобрать условия пожелания. Можно повторить разбор или отправить новое пожелание.'
           : error.code === 'INTENT_PROVIDER_FAILED' ? 'Сервис разбора сейчас не отвечает. Попробуйте написать запрос позже.'
             : error.code === 'CATALOG_UNAVAILABLE' ? 'Каталог 2ГИС сейчас недоступен. Новый маршрут пока не создать; сохранённые маршруты можно открыть через «Мои маршруты».'
             : error.code === 'POINT_OUTSIDE_AREA' ? 'Точка за пределами выбранного города. Укажите другой адрес, местоположение или точку на карте.'
@@ -623,7 +626,17 @@ export class MaxChatController {
     const buttons: Button[][] = [];
     const issue = view.issues[0];
     let question = '';
-    if (issue?.code === 'ORIGIN_REQUIRED') {
+    if (issue?.code === 'INPUT_CLARIFICATION_REQUIRED') {
+      const unresolved = view.draft.clarifications![0]!;
+      const review = clarificationReview(view.draft, unresolved);
+      question = `\n\nНужно уточнить: «${unresolved.text.slice(0, 400)}». Остальные пожелания сохранены.`;
+      if (review) {
+        question += `\nСейчас указано: ${review.current.slice(0, 700)}`;
+        if (review.ready) buttons.push([callback(review.label, `clarify:${view.id}:${view.version}:${unresolved.id}`)]);
+      } else question += '\nЭто условие пока не представлено в доступных полях. Расчёт заблокирован, чтобы его не потерять.';
+      buttons.push([appButton(this.deps.botUsername, 'Уточнить в форме')]);
+      await this.setPending(owner, undefined);
+    } else if (issue?.code === 'ORIGIN_REQUIRED') {
       question = '\n\nОткуда удобнее начать? Выберите способ:';
       buttons.push([{ type: 'request_geo_location', text: 'Моё местоположение' }]);
       if (this.deps.mapEnabled) buttons.push([appButton(this.deps.botUsername, 'Выбрать на карте')]);
@@ -680,7 +693,12 @@ export class MaxChatController {
       await this.setPending(owner, undefined);
     }
     buttons.push(...navigationButtons(nav, 'draft'));
-    await this.send(userId, { text: `Маршрут: ${active?.title ?? routeTitle(view)}\n\n${summary(view)}${question}`, buttons });
+    const heading = `Маршрут: ${(active?.title ?? routeTitle(view)).slice(0, 200)}\n\n`;
+    const details = summary(view), remaining = 3800 - heading.length - question.length;
+    const more = '\nПолные условия доступны в мини-приложении.';
+    const visibleDetails = details.length <= remaining ? details : details.slice(0, Math.max(0, remaining - more.length)) + more;
+    // Preserve the actionable question when the summary is long (MAX: 4000 chars).
+    await this.send(userId, { text: `${heading}${visibleDetails}${question}`, buttons });
   }
 
   private async handleCallback(owner: string, update: Incoming) {
@@ -777,7 +795,7 @@ export class MaxChatController {
       return;
     }
     const [action, id, version, ...rest] = payload.split(':');
-    if (!['origin-address', 'mobility', 'window', 'budget', 'budget-policy', 'next-day', 'clear-destination', 'plan'].includes(action ?? '') || !id || !/^\d+$/u.test(version ?? '')) return;
+    if (!['origin-address', 'mobility', 'window', 'budget', 'budget-policy', 'next-day', 'clear-destination', 'plan', 'replan', 'clarify'].includes(action ?? '') || !id || !/^\d+$/u.test(version ?? '')) return;
     const nav = await this.navigation(owner);
     if (!nav.routes.some(route => route.id === nav.activeRouteId && route.draftId === id)) {
       await this.send(update.userId, { text: 'Эта кнопка относится к другому маршруту. Откройте нужный из списка.',
@@ -794,12 +812,18 @@ export class MaxChatController {
       await this.send(update.userId, { text: `Напишите адрес в городе ${view.draft.locality.name}: улицу и номер дома. Я покажу подходящие варианты.` });
       return;
     }
-    if (action === 'plan') {
-      if (view.result) { await this.sendPlan(update.userId, view); return; }
+    if (action === 'clarify') {
+      const changed = await this.deps.planning.edit(owner, id, { base_version: view.version, event_id: update.eventId,
+        changes: [{ op: 'resolve_clarification', clarification_id: rest[0] }] });
+      await this.showDraft(update.userId, changed); return;
+    }
+    if (action === 'plan' || action === 'replan') {
+      if (view.result && action === 'plan') { await this.sendPlan(update.userId, view); return; }
       const confirmed = view.phase === 'DRAFT'
         ? await this.deps.planning.confirm(owner, id, { base_version: view.version, event_id: update.eventId + '-confirm' })
         : view;
-      const planned = await this.deps.planning.calculate(owner, id, { base_version: confirmed.version, event_id: update.eventId + '-calculate' });
+      const planned = await this.deps.planning.calculate(owner, id, { base_version: confirmed.version, event_id: update.eventId + '-calculate',
+        ...(action === 'replan' && confirmed.result ? { refresh: true } : {}) });
       await this.changeNavigation(owner, state => {
         const route = state.routes.find(item => item.id === state.activeRouteId && item.draftId === id);
         if (route) route.status = 'planned';

@@ -5,6 +5,7 @@ import { SharedConditionsSchema, type SharePreview } from '../shared/route-shari
 
 export function projectSharedConditions(raw: unknown, includePrivatePoints: boolean) {
   const original = SavedUserConditionsV1Schema.parse(raw), conditions = structuredClone(original);
+  if (original.clarifications?.length) throw new Error('SHARE_CLARIFICATION_REQUIRED');
   const omissions: SharePreview['omissions'] = [];
   conditions.queries = {};
   conditions.review_state = 'draft';

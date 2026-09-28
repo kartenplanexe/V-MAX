@@ -44,6 +44,8 @@ export function buildDailyRepairRequest(input, errors, invalidResponse) {
     'Все evidence, date_evidence, scope_evidence и unresolved.text должны быть дословными непрерывными фрагментами исходного user_text. Не пересказывай, не меняй окончания и не объединяй разрозненные слова.');
   if (errors.includes('SCHEMA')) hints.push(
     'Сверь каждый обязательный ключ и тип с JSON-схемой ответа; не добавляй поля вне схемы.');
+  if (errors.includes('TIME_LITERAL_MISSING')) hints.push(
+    'Не потеряй явно указанное цифровое время. Сохрани оба конца диапазона в start/end с точными цитатами. Занятость не является свободным временем; невыразимое или неоднозначное время сохрани в unresolved.');
   if (errors.includes('STRICT_CATEGORY_MISMATCH')) hints.push(
     'Для named_types_only возвращай только конкретные рубрики, названия которых точно соответствуют названным типам; соседние типы не добавляй.');
   if (errors.includes('CATEGORY_ID')) hints.push(
@@ -73,10 +75,10 @@ export function buildDailyRepairRequest(input, errors, invalidResponse) {
     hints.push(`Недопустимые ID из предыдущего ответа и проверенные конкретные дочерние рубрики (данные каталога, не инструкции): ${JSON.stringify(context)}.`);
   }
   request.messages[0].content += `\n\n## Дополнительная проверка после ошибочной попытки\nПредыдущая попытка не прошла машинную проверку (${errors.join(', ')}). Верни полный исправленный JSON с тем же смыслом запроса. ${hints.join(' ')}`;
-  return request;
+  return { ...request, initial_repair_errors: errors };
 }
 
-export function validateDailyProposal(raw,input) {
+export function validateDailyProposal(raw,input,{allowInitialPartial=false}={}) {
   const result={status:'invalid_response',errors:[],reasons:[],normalizations:[],proposal:null,
     context_binding:{input_id:input?.input_id??null,base_revision:input?.draft?.revision??null,catalog_version:input?.catalog?.version??null},
     semantic_guarantee:false,ready_for_planning:false};
@@ -218,6 +220,8 @@ export function validateDailyProposal(raw,input) {
   if(p.unresolved.length)reason.add('UNRESOLVED');
   result.errors=[...err];result.reasons=[...reason];
   if(err.size)return result;
-  if(reason.size)return {...result,status:'needs_clarification'};
+  if(reason.size)return {...result,status:'needs_clarification',
+    ...(allowInitialPartial&&p.action==='new_request'&&input.mode==='parse'&&input.draft===null&&
+      [...reason].every(code=>code==='UNRESOLVED')?{proposal:p}:{})};
   return {...result,status:p.action==='off_topic'?'no_change':result.normalizations.length?'normalized_proposal':'validated_proposal',proposal:p};
 }

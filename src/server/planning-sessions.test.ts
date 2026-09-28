@@ -229,6 +229,34 @@ describe('server-owned form revisions', () => {
     expect(intent.days[0]!.activities[0]!.categories.include_any).toEqual(['100']);
   }, 30_000);
 
+  it.each([true, false])('explicitly refreshes an unexpired result and preserves conditions (initial denial: %s)', async denied => {
+    const f = setup(); let unavailable = denied;
+    const plan = (job: Record<string, unknown>) => planPlacesWithDgis(f.fixture.client(async (url, init) => {
+      if (unavailable && init?.body) return Response.json({}, { status: 429 });
+      return f.fixture.defaultFetch(url, init);
+    }), job, { retrieval: { radiusMeters: 5000, maxPages: 1 }, dataMode: 'test', now: demoNow });
+    let sessions = new PlanningSessions({ now: demoNow, plan });
+    const draft = sessions.create('owner', f.fixture.input.intent, f.context);
+    const confirmed = sessions.confirm('owner', draft.id, event());
+    const first = await sessions.calculate('owner', draft.id, event(confirmed.version, 'first-calculation'));
+    expect(first.result?.status).toBe(denied ? 'ERROR' : 'AVAILABLE');
+    unavailable = false;
+    const refresh = { ...event(first.version, 'explicit-refresh'), refresh: true };
+    const refreshed = await sessions.calculate('owner', draft.id, refresh);
+    expect(refreshed.result?.status).toBe('AVAILABLE');
+    expect(refreshed.draft).toEqual(confirmed.draft);
+    expect(refreshed.version).toBe(first.version + 1);
+    expect(refreshed.confirmed_version).toBe(refreshed.version);
+    const paidCalls = f.fixture.requests.length;
+    sessions = new PlanningSessions({ now: demoNow, plan, checkpoint: sessions.checkpoint() });
+    expect(await sessions.calculate('owner', draft.id, refresh)).toEqual(refreshed);
+    expect(f.fixture.requests.length).toBe(paidCalls);
+    await expect(sessions.calculate('owner', draft.id, { ...refresh, event_id: 'stale-refresh' })).rejects.toThrow('STALE_VERSION');
+    await expect(sessions.calculate('foreign-owner', draft.id, { ...refresh, base_version: refreshed.version }))
+      .rejects.toThrow('DRAFT_NOT_FOUND');
+    expect(f.fixture.requests.length).toBe(paidCalls);
+  }, 30_000);
+
   it('derives the route-walk upper bound from the time window, not a fixed stop count', async () => {
     const f = setup(); let submitted: Record<string, unknown> | undefined;
     const context = { ...f.context, visit_policy: { ...f.context.visit_policy, walkable_category_ids: ['100'] } };
@@ -249,7 +277,10 @@ describe('server-owned form revisions', () => {
       max_stops_by_activity: { culture: 7 } });
   });
 
-  it('plans a walking route and a later cafe as separate ordered activities', async () => {
+  it.each([
+    { end: '19:00', status: 'LIMITED', activityIds: ['culture', 'food'] },
+    { end: '20:00', status: 'AVAILABLE', activityIds: ['culture', 'culture', 'food'] },
+  ])('preserves walk durations and the later cafe until $end ($status)', async ({ end, status, activityIds }) => {
     const f = setup();
     f.fixture.items.find(item => item.id === 'far')!.point = { lat: 55.752, lon: 37.625 };
     const context = { ...f.context, visit_policy: { ...f.context.visit_policy, walkable_category_ids: ['100'] } };
@@ -258,12 +289,17 @@ describe('server-owned form revisions', () => {
     const seed = structuredClone(f.fixture.input.intent);
     seed.days[0]!.activities[0]!.label = 'Прогуляться по городу';
     seed.days[0]!.activities[0]!.intent_kind = 'route_walk';
+    seed.days[0]!.window.end = end;
     const view = sessions.create('owner', seed, context);
     const confirmed = sessions.confirm('owner', view.id, event());
     const planned = await sessions.calculate('owner', view.id, event(confirmed.version, 'event-0002'));
-    expect(planned.result?.status).toBe('AVAILABLE');
-    expect(planned.result?.days[0]?.visits.map(visit => visit.activity_id)).toEqual(['culture', 'culture', 'food']);
-    expect(new Set(planned.result?.days[0]?.visits.map(visit => visit.place_id)).size).toBe(3);
+    expect(planned.result?.status).toBe(status);
+    expect(planned.result?.days[0]?.visits.map(visit => visit.activity_id)).toEqual(activityIds);
+    expect(planned.result?.days[0]?.missing_activity_ids).toEqual([]);
+    expect(planned.result?.days[0]?.visits.map(visit => visit.ends_at - visit.starts_at))
+      .toEqual(activityIds.map(id => id === 'culture' ? 60 : 45));
+    expect(planned.result?.warnings.includes('WALK_WAYPOINTS_INCOMPLETE')).toBe(status === 'LIMITED');
+    expect(new Set(planned.result?.days[0]?.visits.map(visit => visit.place_id)).size).toBe(activityIds.length);
   }, 30_000);
 
   it('does not let a broad model proposal route a walk to a hotel category', async () => {

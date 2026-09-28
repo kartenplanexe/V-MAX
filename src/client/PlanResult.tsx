@@ -46,6 +46,7 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
   const remaining = requestedDay?.window && day?.ends_at != null ? Math.max(0, minutes(requestedDay.window.end) - day.ends_at) : null;
   const codes = planWarningCodes(plan), warnings = [...new Set(codes.map(warningText))];
   const hasVisits = plan.days.some(value => value.visits.length);
+  const routingUnavailable = plan.status === 'ERROR' && plan.issues?.includes('ROUTING_PROVIDER_UNAVAILABLE');
   const title = plan.status === 'AVAILABLE' ? 'План помещается в ваше время' : plan.status === 'LIMITED' ? 'Получился частичный план' : plan.status === 'ERROR' ? 'Расчёт не завершён' : plan.status === 'NEEDS_INPUT' ? 'Нужно уточнить условия' : 'Подходящий план пока не найден';
   const status = day?.status === 'AVAILABLE' ? 'Готово' : day?.status === 'LIMITED' ? 'Частично' : 'Нет плана';
   const stamp = (value: string) => { const at = new Date(value); return Number.isFinite(at.getTime()) ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: draft.locality.timezone }).format(at) : 'не указано'; };
@@ -60,7 +61,7 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
     </div>
     {view.capabilities.data_mode === 'test' && <p className="data-label">Учебный пример · места и время в пути синтетические</p>}
     {plan.search_scope && <p className="scope-note">{searchScopeNotice(plan)}</p>}
-    {plan.search_scope && plan.status !== 'AVAILABLE' && <Action variant="ghost" disabled={busy} onClick={editSearch}>Изменить область поиска</Action>}
+    {plan.search_scope && plan.status !== 'AVAILABLE' && plan.status !== 'ERROR' && <Action variant="ghost" disabled={busy} onClick={editSearch}>Изменить область поиска</Action>}
     {plan.days.length > 1 && <nav className="day-tabs" aria-label="Дни маршрута">{plan.days.map(value => <button key={value.day_id} type="button" aria-pressed={day?.day_id === value.day_id}
       onClick={() => { setSelectedDay(value.day_id); setSelectedVisit(0); }}><strong>{date(value.date)}</strong><span>{value.status === 'AVAILABLE' ? 'Готово' : value.status === 'LIMITED' ? 'Частично' : 'Нет плана'}</span></button>)}</nav>}
     {day && <>{plan.days.length > 1 && <div className="day-heading"><h3>{date(day.date)}</h3><span>{requestedDay?.window ? `${requestedDay.window.start}–${requestedDay.window.end}` : status}</span></div>}
@@ -107,8 +108,10 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
     {!!plan.issues?.length && hasVisits && <ul className="form-issues">{plan.issues.map(issue => <li key={issue}>{humanError(issue)}</li>)}</ul>}
     {(warnings.length > 0 || plan.shortlist?.groups.some(group => group.truncated)) && <details className="plan-evidence"><summary>Что учтено и что стоит проверить</summary>
       <ul>{warnings.map(text => <li key={text}>{text}</li>)}{plan.shortlist?.groups.some(group => group.truncated) && <li>{shortlistNotice}</li>}</ul></details>}
-    <div className="result-actions">{hasVisits && <Action stretched disabled={busy} onClick={share}>Поделиться</Action>}<Action variant={hasVisits ? 'secondary' : 'primary'} stretched disabled={busy} onClick={edit} iconBefore={<Icon name="filters" />}>Изменить условия</Action></div><div className="result-secondary">
-      <Action variant="ghost" stretched disabled={busy} onClick={retry} iconBefore={<Icon name="refresh" />}>Проверить заново</Action></div>
+    <div className="result-actions">{hasVisits && <Action stretched disabled={busy} onClick={share}>Поделиться</Action>}
+      {routingUnavailable && <Action stretched disabled={busy} onClick={retry} iconBefore={<Icon name="refresh" />}>Повторить расчёт</Action>}
+      <Action variant={hasVisits || routingUnavailable ? 'secondary' : 'primary'} stretched disabled={busy} onClick={edit} iconBefore={<Icon name="filters" />}>Изменить условия</Action></div>
+    {!routingUnavailable && <div className="result-secondary"><Action variant="ghost" stretched disabled={busy} onClick={retry} iconBefore={<Icon name="refresh" />}>Проверить заново</Action></div>}
     <p className="field-hint">Условия сохранены в «Моих маршрутах». Места и дорогу проверяем заново при следующем расчёте.</p>
   </section>;
 }

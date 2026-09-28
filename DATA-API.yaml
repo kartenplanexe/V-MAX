@@ -978,6 +978,8 @@
   ],
   "follow_up_checks": [
     "After edit-window, confirm and calculate again with fresh versions/event IDs; the short-window case must expose unmet wishes, not silently call the result complete.",
+    "For a checked partial request, verify that activities, dates, time and order survive alongside draft.clarifications. Confirm/plan must remain blocked until explicit version-bound resolution. Edit one relevant field, resolve only that question and verify no new LLM calls. Pending questions must survive own save/reopen/process restart; sharing must fail without exposing their quotes.",
+    "For an unexpired result, explicitly POST /plan with refresh:true, the current base_version and a new event_id. Conditions must remain identical and the version must advance. Replay that exact action: no further provider work or version change. A new event using the old version must fail with STALE_VERSION. Routing service denial must produce ERROR / ROUTING_PROVIDER_UNAVAILABLE, not claim the wishes are impossible; retry after service recovery without another LLM call.",
     "Repeat read-saved and restore-saved after draft/provider expiration and a process restart. Latest edits must survive; categories/addresses/itineraries must not be reused as durable provider facts. Check stale revision 409 and foreign/expired saved ID 404.",
     "Use MAX chat /routes and the mini-app to reopen a saved route, inspect saved conditions and explicitly refresh context before confirmation/calculation. API read/restore does not replace this user interaction.",
     "Run the same request with an unsigned header and another user: 401/404 without leaking route contents.",

@@ -5,6 +5,7 @@ import type { BotNavigation, OwnerState, PlanningDatabase } from './planning-dat
 import { MaxChatController, formatChatPlanMessages, maxWebhookSecret, navigationButtons, registerMaxChatRoute } from './max-chat.js';
 import { PlanningSessions, PlanningSessionError } from './planning-sessions.js';
 import { planningFixture, demoNow } from './place-planning.fixture.js';
+import { planPlacesWithDgis } from './place-planning.js';
 import { projectSavedConditions } from './saved-conditions.js';
 import { planWarningCodes } from '../shared/plan-evidence-text.js';
 
@@ -60,6 +61,90 @@ const press = (id: string, payload: string) => ({ update_type: 'message_callback
   user: { user_id: 123 }, callback_id: id, payload }, message: { recipient: { chat_type: 'dialog' } } });
 
 describe('MAX chat', () => {
+  it('keeps the blocking question and its action inside the MAX message limit even with a long draft', async () => {
+    const h = harness(), view = draftView(), routeId = '55555555-5555-4555-8555-555555555556';
+    const template = view.draft.days[0]!.activities[0]!;
+    view.draft.days[0]!.activities = Array.from({ length: 12 }, (_, i) => ({ ...template, id: `a${i}`, label: `Занятие ${i}: ${'Описание '.repeat(48)}` }));
+    view.draft.clarifications = [{ id: 'q-budget', field: 'budget', day_ids: [], text: 'Какой бюджет? ' + 'Неопределённая сумма '.repeat(100), reason: 'ambiguous' }];
+    view.issues = [{ code: 'INPUT_CLARIFICATION_REQUIRED', field: 'clarifications.q-budget' }];
+    h.navigation.mode = 'planning'; h.navigation.activeRouteId = routeId;
+    h.navigation.routes.push({ id: routeId, draftId: view.id, createdAt: demoNow().toISOString(),
+      title: 'Многословное пожелание', requestText: 'Synthetic request', localityName: view.draft.locality.name, status: 'draft' });
+    const chat = new MaxChatController({ ...h.deps, planning: { ...h.planning, get: async () => view } });
+    await chat.handle(press('open-long-partial-question', `nav:open:${routeId}`));
+    const last = h.messages.at(-1)!;
+    expect(last.text.length).toBeLessThanOrEqual(4000);
+    expect(last.text).toContain('Нужно уточнить: «Какой бюджет?');
+    expect(last.text).toContain('Сейчас указано: Не указан');
+    expect(JSON.stringify(last.buttons)).toContain('Уточнить в форме');
+    expect(h.planning.start).not.toHaveBeenCalled();
+  });
+
+  it('shows a specific retained question and resolves only that question through a real version-bound callback', async () => {
+    const h = harness(), f = planningFixture(), owner = 'max:123';
+    const sessions = new PlanningSessions({ now: demoNow, plan: async () => { throw Error('Must not calculate'); } });
+    const view = sessions.create(owner, { ...f.input.intent, clarifications: [{ id: 'question-1', field: 'mobility',
+      day_ids: [], text: 'как удобнее добраться', reason: 'ambiguous' }] }, { catalog: f.input.catalog,
+      visit_policy: f.input.visit_policy, modes: ['walking'], data_mode: 'test' });
+    const routeId = '55555555-5555-4555-8555-555555555555';
+    h.navigation.mode = 'planning'; h.navigation.activeRouteId = routeId;
+    h.navigation.routes.push({ id: routeId, draftId: view.id, createdAt: demoNow().toISOString(),
+      title: 'Partial request', requestText: 'Synthetic request', localityName: view.draft.locality.name, status: 'draft' });
+    const chat = new MaxChatController({ ...h.deps, planning: { ...h.planning,
+      get: async (actor, id) => sessions.get(actor, id), edit: async (actor, id, input) => sessions.edit(actor, id, input) } });
+    await chat.handle(press('open-partial-question', `nav:open:${routeId}`));
+    expect(h.messages.at(-1)?.text).toContain('как удобнее добраться');
+    expect(h.messages.at(-1)?.text).toContain('Пешком');
+    const callback = press('answer-partial-question', `clarify:${view.id}:${view.version}:question-1`);
+    await chat.handle(callback);
+    const resolved = sessions.get(owner, view.id);
+    expect(resolved.draft.clarifications).toBeUndefined();
+    expect(resolved.draft.days).toEqual(view.draft.days);
+    expect(resolved.confirmed_version).toBeNull();
+    await chat.handle(callback);
+    expect(sessions.get(owner, view.id)).toEqual(resolved);
+    expect(h.planning.start).not.toHaveBeenCalled();
+  });
+
+  it('recalculates a service error from the result button without losing conditions or reparsing text', async () => {
+    const h = harness(), fixture = planningFixture(), owner = 'max:123';
+    let denied = true, providerCalls = 0;
+    const sessions = new PlanningSessions({ now: demoNow, plan: job => planPlacesWithDgis(fixture.client(async (url, init) => {
+      providerCalls++;
+      if (denied && new URL(String(url)).hostname === 'routing.api.2gis.com') return new Response('', { status: 429 });
+      return fixture.defaultFetch(url, init);
+    }), job, { retrieval: { radiusMeters: 5000, maxPages: 1 }, dataMode: 'test', now: demoNow }) });
+    const view = sessions.create(owner, fixture.input.intent, { catalog: fixture.input.catalog,
+      visit_policy: fixture.input.visit_policy, modes: ['walking'], data_mode: 'test' });
+    const routeId = '44444444-4444-4444-8444-444444444444';
+    h.navigation.mode = 'planning'; h.navigation.activeRouteId = routeId;
+    h.navigation.routes.push({ id: routeId, draftId: view.id, createdAt: demoNow().toISOString(),
+      title: 'Synthetic retry', requestText: 'Synthetic request', localityName: view.draft.locality.name, status: 'draft' });
+    const chat = new MaxChatController({ ...h.deps, planning: { ...h.planning,
+      get: async (actor, id) => sessions.get(actor, id),
+      confirm: async (actor, id, input) => sessions.confirm(actor, id, input),
+      calculate: (actor, id, input) => sessions.calculate(actor, id, input),
+    } });
+    await chat.handle(press('outage-initial-plan', `plan:${view.id}:${view.version}`));
+    const failed = sessions.get(owner, view.id);
+    expect(failed.result).toMatchObject({ status: 'ERROR', issues: ['ROUTING_PROVIDER_UNAVAILABLE'] });
+    expect(h.messages.at(-1)?.buttons).toEqual(expect.arrayContaining([
+      [expect.objectContaining({ text: 'Повторить расчёт', payload: `replan:${view.id}:${failed.version}` })],
+    ]));
+    denied = false;
+    const retry = press('outage-explicit-retry', `replan:${view.id}:${failed.version}`);
+    await chat.handle(retry);
+    const refreshed = sessions.get(owner, view.id);
+    expect(refreshed.result?.status).toBe('AVAILABLE');
+    expect(refreshed.draft).toEqual(failed.draft);
+    expect(refreshed.version).toBe(failed.version + 1);
+    const afterRefresh = providerCalls;
+    await chat.handle(retry);
+    await chat.handle(press('outage-stale-button', `replan:${view.id}:${failed.version}`));
+    expect(providerCalls).toBe(afterRefresh);
+    expect(h.planning.start).not.toHaveBeenCalled();
+  }, 30_000);
+
   it('does not invent an original request for an expired imported or mini-app route', async () => {
     const h = harness(), routeId = 'e0ad035c-d95e-4ee4-aa22-93852967be3a';
     h.navigation.routes.push({ id: routeId, draftId: 'expired-no-source-text', createdAt: new Date().toISOString(),
@@ -296,23 +381,30 @@ describe('MAX chat', () => {
     expect(h.messages.filter(item => item.text.startsWith('Привет!'))).toHaveLength(1);
   });
 
-  it('recovers from a parser failure without trapping the next request in city selection', async () => {
+  it.each([
+    ['INTENT_INVALID_RESPONSE', 'ошибка разбора'],
+    ['INTENT_NEEDS_CLARIFICATION', 'разобрать условия пожелания'],
+  ])('explains %s and accepts a new request without trapping it in city selection', async (code, explanation) => {
     const h = harness(); const chat = new MaxChatController(h.deps);
     const { InitialIntentError } = await import('./intent-start.js');
-    h.planning.start.mockRejectedValueOnce(new InitialIntentError('INTENT_INVALID_RESPONSE'));
+    h.planning.start.mockRejectedValueOnce(new InitialIntentError(code));
     await chat.handle(message('failed-request', 'Хочу погулять завтра в Москве после 16'));
-    expect(h.state.chat?.pending?.kind).toBe('intent_retry');
-    expect(h.messages.at(-1)?.text).toContain('ошибка разбора');
+    expect(h.state.chat?.pending).toMatchObject({ kind: 'intent_retry',
+      requestText: 'Хочу погулять завтра в Москве после 16', localityToken: 'trusted-city' });
+    expect(h.navigation.routes).toHaveLength(0);
+    expect(h.messages.at(-1)?.text).toContain(explanation);
+    expect(h.messages.at(-1)?.text).not.toContain('Проверьте условия');
     await chat.handle(message('new-request-after-failure', 'Хочу сходить в музей в Москве завтра'));
     expect(h.planning.start).toHaveBeenCalledTimes(2);
     expect(h.planning.start.mock.calls[1]?.[1]).toMatchObject({ user_text: 'Хочу сходить в музей в Москве завтра' });
     expect(h.state.chat?.pending?.kind).toBe('origin');
   });
 
-  it('retries a failed parse only on the current explicit button', async () => {
+  it.each(['INTENT_INVALID_RESPONSE', 'INTENT_NEEDS_CLARIFICATION'])(
+    'retries %s only on the current explicit button', async code => {
     const h = harness(); const chat = new MaxChatController(h.deps);
     const { InitialIntentError } = await import('./intent-start.js');
-    h.planning.start.mockRejectedValueOnce(new InitialIntentError('INTENT_INVALID_RESPONSE'));
+    h.planning.start.mockRejectedValueOnce(new InitialIntentError(code));
     await chat.handle(message('first-failed', 'Хочу погулять завтра в Москве после 16'));
     const retry = (h.messages.at(-1)?.buttons as { payload: string }[][]).flat()
       .find(button => button.payload.startsWith('intent-retry:'))!;
@@ -416,6 +508,16 @@ describe('MAX chat', () => {
     expect(text).toContain('не удалось проверить путь');
     expect(text).not.toContain('Подтверждённых подходящих мест не нашлось');
     expect(text).not.toContain('0 ₽');
+  });
+
+  it('explains a routing service denial without asking the user to change valid conditions', () => {
+    const view = draftView();
+    view.result = { status: 'ERROR', issues: ['ROUTING_PROVIDER_UNAVAILABLE'], warnings: [], days: [] };
+    const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
+    expect(text).toContain('Сервис проверки дороги сейчас недоступен');
+    expect(text).toContain('условия сохранены');
+    expect(text).toContain('позже');
+    expect(text).not.toMatch(/другой старт|изменить время|сократ|невыполним|ключ|квот/u);
   });
 
   it('does not mistake bounded search coverage for an upstream outage', () => {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Budget, DateValue, minutes, SearchRadiusMeters } from './planning-form.js';
+import { Budget, DateValue, minutes, SearchRadiusMeters, InputClarification } from './planning-form.js';
 import { SelectedEventTargetSchema } from './event-selection.js';
 
 const Id = z.string().min(1).max(128);
@@ -20,6 +20,7 @@ const PlaceActivity = z.object({ id: Id, label: z.string().min(1).max(500), targ
   requirements: z.array(z.object({ text: z.string().max(1000), strength: z.enum(['required', 'preferred']) }).strict()).max(100),
   semantic_key: z.enum(['route_walk', 'area_walk', 'food', 'named_types', 'unresolved']),
   category_reconfirmation_required: z.boolean(),
+  category_selection_pending: z.literal(true).optional(),
 }).strict();
 const EventActivity = z.object({ id: Id, label: z.literal('Выбранное событие'), intent_kind: z.literal('event_visit'),
   requirements: z.array(z.object({ text: z.string().max(1000), strength: z.enum(['required', 'preferred']) }).strict()).max(100),
@@ -29,6 +30,7 @@ const Activity = z.union([PlaceActivity, EventActivity]);
 /** Durable own conditions only. Provider context and observations never belong here. */
 const SavedUserConditionsV1Base = z.object({
   schema_version: z.literal('saved-user-conditions.v1'),
+  clarifications: z.array(InputClarification).max(100).optional(),
   conditions_revision: z.number().int().nonnegative(), updated_at: Timestamp,
   review_state: z.enum(['draft', 'user_confirmed']), semantic_policy_version: z.string().min(1).max(80),
   shared: z.object({ budget: Budget.optional(), mobility: z.array(z.string().min(1).max(40)).max(10).optional(),
@@ -47,6 +49,10 @@ const SavedUserConditionsV1Base = z.object({
   reconfirmation_required: z.array(Issue).max(200).default([]),
 }).strict();
 export const SavedUserConditionsV1Schema = SavedUserConditionsV1Base.superRefine((value, context) => {
+  const questions = value.clarifications ?? [];
+  if (new Set(questions.map(question => question.id)).size !== questions.length ||
+      questions.some(question => question.day_ids.some(id => !value.days.some(day => day.day_id === id))))
+    context.addIssue({ code: 'custom', path: ['clarifications'], message: 'Invalid saved clarification references.' });
   const ownPaths = new Set(['shared.budget', 'shared.mobility', 'shared.search_radius_meters', 'shared.party', 'shared.party.total', 'shared.party.child_ages',
     ...(['origin', 'destination'] as const).filter(field => value.points[field]).map(field => `points.${field}`),
     ...value.days.flatMap(day => ['date', 'window', 'window.start', 'window.end', 'duration_constraint_minutes', 'activities', 'order']

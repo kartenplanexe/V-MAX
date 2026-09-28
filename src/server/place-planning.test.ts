@@ -315,9 +315,12 @@ describe.skipIf(!existsSync(defaultPlannerPython()))('confirmed JSON -> 2GIS HTT
     Object.assign(input.visit_policy, { by_activity: { culture: 25 }, max_stops_by_activity: { culture: 19 } });
     const result = await planPlacesWithDgis(f.client(), input, options) as Record<string, any>;
     expect(result.status).toBe('AVAILABLE');
-    expect(result.days[0].visits).toHaveLength(8);
-    expect(new Set(result.days[0].visits.map((visit: any) => visit.place_id)).size).toBe(8);
-    expect(result.routing.checked_departures).toHaveLength(8);
+    // Six hour-long visits plus measured travel fit; eight do not. The separate
+    // Python budget fixture still fits eight genuinely short waypoints.
+    expect(result.days[0].visits).toHaveLength(6);
+    expect(result.days[0].visits.every((visit: any) => visit.duration_minutes === 60)).toBe(true);
+    expect(new Set(result.days[0].visits.map((visit: any) => visit.place_id)).size).toBe(6);
+    expect(result.routing.checked_departures).toHaveLength(6);
     expect(result.routing.route_pair_calculations).toBeLessThanOrEqual(200);
   }, 30_000);
 
@@ -364,6 +367,49 @@ describe.skipIf(!existsSync(defaultPlannerPython()))('confirmed JSON -> 2GIS HTT
     expect(result.warnings).toContain('ROUTING_PROVIDER_FAILURE');
     expect(result.days[0].visits).toEqual([]);
     expect(JSON.stringify(result)).not.toContain('test-only');
+  }, 30_000);
+
+  it('stops at the matrix when every routing key is denied instead of searching impossible alternatives', async () => {
+    const f = planningFixture(); let attempts = 0;
+    const client = new DgisClient({ placesApiKey: 'synthetic-primary', routingApiKey: 'synthetic-primary',
+      backupApiKey: 'synthetic-backup', tertiaryApiKey: 'synthetic-third', fetchImpl: async (url, init) => {
+        if (!init?.body) return f.defaultFetch(url, init);
+        attempts++; return Response.json({ message: 'private-provider-marker' }, { status: attempts < 3 ? 429 : 403 });
+      } });
+    const result = await planPlacesWithDgis(client, f.input, options) as Record<string, any>;
+    expect(result).toMatchObject({ status: 'ERROR', issues: ['ROUTING_PROVIDER_UNAVAILABLE'], days: [],
+      routing: { pipeline_stage: 'MATRIX', routing_http_calls: 3, routing_failed_batches: 1,
+        recovery: { attempts: 0 } } });
+    expect(attempts).toBe(3);
+    expect(safePlanningDiagnostic(result).stop_issue).toBe('ROUTING_PROVIDER_UNAVAILABLE');
+    expect(JSON.stringify(result)).not.toMatch(/private-provider-marker|synthetic-primary|synthetic-backup|synthetic-third/);
+  }, 30_000);
+
+  it('keeps a provider-confirmed absent road distinct from a service access failure', async () => {
+    const f = planningFixture();
+    const responseFetch: typeof fetch = async (url, init) => {
+      const response = await f.defaultFetch(url, init);
+      if (!init?.body) return response;
+      const rows = await response.json() as Record<string, unknown>[];
+      return Response.json(rows.map(row => ({ ...row, status: 'ROUTE_NOT_FOUND', duration: null, distance: null })));
+    };
+    const result = await planPlacesWithDgis(f.client(responseFetch), f.input, options) as Record<string, any>;
+    expect(result.status).toBe('UNAVAILABLE');
+    expect(result.routing.routing_failed_batches).toBe(0);
+    expect(result.days[0].visits).toEqual([]);
+    expect(result.issues ?? []).not.toContain('ROUTING_PROVIDER_UNAVAILABLE');
+  }, 30_000);
+
+  it('discards a previously solved route when the service denies the final departure check', async () => {
+    const f = planningFixture(); let attempts = 0;
+    const responseFetch: typeof fetch = async (url, init) => {
+      if (init?.body && ++attempts > 1) return Response.json({}, { status: 429 });
+      return f.defaultFetch(url, init);
+    };
+    const result = await planPlacesWithDgis(f.client(responseFetch), f.input, options) as Record<string, any>;
+    expect(result).toMatchObject({ status: 'ERROR', issues: ['ROUTING_PROVIDER_UNAVAILABLE'], days: [],
+      routing: { pipeline_stage: 'DEPARTURE_CHECKS', replans: 0 } });
+    expect(attempts).toBe(2);
   }, 30_000);
 
   it('samples driving at three planned times and leaves unknown transport cost unknown', async () => {

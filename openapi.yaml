@@ -791,7 +791,7 @@
             "MaxInitData": []
           }
         ],
-        "description": "May call paid providers. Body limit: 24 KiB. Reusing an event_id with different content returns EVENT_CONFLICT; a failed/unknown provider outcome is not silently retried. A parsed draft can still have issues requiring user clarification.",
+        "description": "May call paid providers. Body limit: 24 KiB. Reusing an event_id with different content returns EVENT_CONFLICT; a failed/unknown provider outcome is not silently retried. A structurally and semantically checked partial draft can retain clarifications with exact user quotes. Every unresolved question blocks confirm/plan. Review the corresponding field, then explicitly PATCH resolve_clarification for that question at the current version; unsupported or incomplete field values cannot be acknowledged. activity_choice selects trusted catalog types for an existing activity without losing its ID, requirements or order. No clarification action reparses the request with an LLM.",
         "requestBody": {
           "required": true,
           "content": {
@@ -2571,7 +2571,7 @@
       "post": {
         "operationId": "createRouteShare",
         "summary": "Creates an opaque revocable link for the exact saved revision",
-        "description": "Creates an opaque revocable link for the exact saved revision. Private origin/destination points are omitted unless explicitly included. Own conditions expire within seven days; provider preview retains its original shorter expiry. This call does not send a MAX message.",
+        "description": "Creates an opaque revocable link for the exact saved revision. Pending input clarifications return SHARE_CLARIFICATION_REQUIRED (422); they cannot be silently omitted or forwarded. Private origin/destination points are omitted unless explicitly included. Own conditions expire within seven days; provider preview retains its original shorter expiry. This call does not send a MAX message.",
         "security": [
           {
             "MaxInitData": []
@@ -3985,7 +3985,7 @@
     "/api/planning/drafts/{id}/plan": {
       "post": {
         "operationId": "calculatePlan",
-        "summary": "Calculate a confirmed plan with Places, routing and the deterministic planner",
+        "summary": "Calculate or explicitly refresh a confirmed plan with Places, routing and the deterministic planner",
         "security": [
           {
             "MaxInitData": []
@@ -4008,7 +4008,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/FormEvent"
+                "$ref": "#/components/schemas/CalculateInput"
               }
             }
           }
@@ -4254,6 +4254,68 @@
       "FormDraft": {
         "type": "object",
         "properties": {
+          "clarifications": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "field": {
+                  "type": "string",
+                  "enum": [
+                    "request",
+                    "locality",
+                    "dates",
+                    "time",
+                    "budget",
+                    "mobility",
+                    "origin",
+                    "destination",
+                    "party",
+                    "activities",
+                    "order",
+                    "requirements",
+                    "scope"
+                  ]
+                },
+                "day_ids": {
+                  "maxItems": 31,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "ambiguous",
+                    "conflict",
+                    "not_representable"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "field",
+                "day_ids",
+                "text",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
           "locality": {
             "type": "object",
             "properties": {
@@ -4809,6 +4871,98 @@
                   "properties": {
                     "op": {
                       "type": "string",
+                      "const": "resolve_clarification"
+                    },
+                    "clarification_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "clarification_id"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "activity_choice"
+                    },
+                    "day_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "activity_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "catalog_version": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "choice": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "walk"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "place"
+                            },
+                            "category_ids": {
+                              "minItems": 1,
+                              "maxItems": 10,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              }
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "category_ids"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "day_id",
+                    "activity_id",
+                    "catalog_version",
+                    "choice"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
                       "const": "window"
                     },
                     "day_ids": {
@@ -5307,6 +5461,31 @@
           "event_id"
         ],
         "additionalProperties": false
+      },
+      "CalculateInput": {
+        "type": "object",
+        "properties": {
+          "base_version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "event_id": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          },
+          "refresh": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "base_version",
+          "event_id"
+        ],
+        "additionalProperties": false,
+        "description": "An explicit calculation action. With an existing result, refresh:true starts a new calculation of the same confirmed conditions at the current base_version, advancing the version and invalidating the previous result. Without refresh an existing result is rejected. Replay the same event_id only for the same action; replay does not repeat provider work."
       },
       "PublicPlan": {
         "type": "object",
@@ -5955,6 +6134,68 @@
             "type": "string",
             "const": "saved-user-conditions.v1"
           },
+          "clarifications": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "field": {
+                  "type": "string",
+                  "enum": [
+                    "request",
+                    "locality",
+                    "dates",
+                    "time",
+                    "budget",
+                    "mobility",
+                    "origin",
+                    "destination",
+                    "party",
+                    "activities",
+                    "order",
+                    "requirements",
+                    "scope"
+                  ]
+                },
+                "day_ids": {
+                  "maxItems": 31,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "ambiguous",
+                    "conflict",
+                    "not_representable"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "field",
+                "day_ids",
+                "text",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
           "conditions_revision": {
             "type": "integer",
             "minimum": 0,
@@ -6322,6 +6563,10 @@
                           },
                           "category_reconfirmation_required": {
                             "type": "boolean"
+                          },
+                          "category_selection_pending": {
+                            "type": "boolean",
+                            "const": true
                           }
                         },
                         "required": [
@@ -6553,6 +6798,68 @@
               "schema_version": {
                 "type": "string",
                 "const": "saved-user-conditions.v1"
+              },
+              "clarifications": {
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "field": {
+                      "type": "string",
+                      "enum": [
+                        "request",
+                        "locality",
+                        "dates",
+                        "time",
+                        "budget",
+                        "mobility",
+                        "origin",
+                        "destination",
+                        "party",
+                        "activities",
+                        "order",
+                        "requirements",
+                        "scope"
+                      ]
+                    },
+                    "day_ids": {
+                      "maxItems": 31,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4000
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "ambiguous",
+                        "conflict",
+                        "not_representable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "field",
+                    "day_ids",
+                    "text",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                }
               },
               "conditions_revision": {
                 "type": "integer",
@@ -6921,6 +7228,10 @@
                               },
                               "category_reconfirmation_required": {
                                 "type": "boolean"
+                              },
+                              "category_selection_pending": {
+                                "type": "boolean",
+                                "const": true
                               }
                             },
                             "required": [
@@ -8126,6 +8437,68 @@
                 "type": "string",
                 "const": "saved-user-conditions.v1"
               },
+              "clarifications": {
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "field": {
+                      "type": "string",
+                      "enum": [
+                        "request",
+                        "locality",
+                        "dates",
+                        "time",
+                        "budget",
+                        "mobility",
+                        "origin",
+                        "destination",
+                        "party",
+                        "activities",
+                        "order",
+                        "requirements",
+                        "scope"
+                      ]
+                    },
+                    "day_ids": {
+                      "maxItems": 31,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4000
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "ambiguous",
+                        "conflict",
+                        "not_representable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "field",
+                    "day_ids",
+                    "text",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                }
+              },
               "conditions_revision": {
                 "type": "integer",
                 "minimum": 0,
@@ -8493,6 +8866,10 @@
                               },
                               "category_reconfirmation_required": {
                                 "type": "boolean"
+                              },
+                              "category_selection_pending": {
+                                "type": "boolean",
+                                "const": true
                               }
                             },
                             "required": [

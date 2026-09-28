@@ -3,8 +3,8 @@ import type { ManualChoices } from '../shared/manual-planning';
 import type { ActivityChoice } from '../shared/activity-choice';
 import { Action, Icon } from './PlannerUi';
 
-export function ActivityPicker({ load, walking, add, disabled }: { load: () => Promise<ManualChoices>; walking: boolean;
-  add: (choice: ActivityChoice, options: ManualChoices) => void; disabled: boolean }) {
+export function ActivityPicker({ load, walking, add, disabled, triggerLabel = 'Добавить занятие', replacing = false }: { load: () => Promise<ManualChoices>; walking: boolean;
+  add: (choice: ActivityChoice, options: ManualChoices) => void; disabled: boolean; triggerLabel?: string; replacing?: boolean }) {
   const [open, setOpen] = useState(false), [options, setOptions] = useState<ManualChoices | null>(null);
   const [pending, setPending] = useState(false), [error, setError] = useState('');
   const [query, setQuery] = useState(''), [selected, setSelected] = useState('');
@@ -16,7 +16,7 @@ export function ActivityPicker({ load, walking, add, disabled }: { load: () => P
     finally { setPending(false); }
   }
   function select(choice: ActivityChoice) { add(choice, options!); setOpen(false); setSelected(''); setQuery(''); }
-  if (!open) return <Action variant="secondary" disabled={disabled} onClick={() => void show()}><Icon name="plus" />Добавить занятие</Action>;
+  if (!open) return <Action variant="secondary" disabled={disabled} onClick={() => void show()}><Icon name="plus" />{triggerLabel}</Action>;
   const categories = options?.categories.filter(c => c.name.toLocaleLowerCase('ru').includes(query.trim().toLocaleLowerCase('ru'))) ?? [];
   return <div className="category-picker activity-picker">
     {pending && <p role="status">Загружаем занятия…</p>}
@@ -27,8 +27,8 @@ export function ActivityPicker({ load, walking, add, disabled }: { load: () => P
         {categories.map(c => <option key={c.id} value={c.id}>{c.name} · около {c.estimated_visit_minutes} мин</option>)}</select></label>
       {!categories.length && <p className="field-hint">В доступном каталоге нет такой категории. Попробуйте другое название.</p>}
       <p className="field-hint">Время посещения приблизительное. Конкретные места подберём при расчёте.</p>
-      <div className="point-actions"><Action variant="primary" disabled={disabled || !selected} onClick={() => select({ kind: 'place', category_ids: [selected] })}>Добавить выбранное занятие</Action>
-        {options.walking_available && <Action variant="secondary" disabled={disabled || !walking} onClick={() => select({ kind: 'walk' })}><Icon name="walk" />Добавить прогулку</Action>}</div>
+      <div className="point-actions"><Action variant="primary" disabled={disabled || !selected} onClick={() => select({ kind: 'place', category_ids: [selected] })}>{replacing ? 'Выбрать этот тип' : 'Добавить выбранное занятие'}</Action>
+        {options.walking_available && <Action variant="secondary" disabled={disabled || !walking} onClick={() => select({ kind: 'walk' })}><Icon name="walk" />{replacing ? 'Выбрать прогулку' : 'Добавить прогулку'}</Action>}</div>
       {options.walking_available && !walking && <p className="field-hint">Для прогулки выберите передвижение пешком.</p>}
     </>}
     <Action variant="ghost" onClick={() => setOpen(false)}>Закрыть выбор занятия</Action>

@@ -20,6 +20,7 @@ from .events import event_target, validate_event_candidate, event_window, event_
 POLICY_VERSION = "place-selection.v1"
 SUPPORTED_MODES = {"walking", "driving", "cycling", "public_transport"}
 MAX_OPTIONS_PER_DAY = 120
+WALK_QUALITY_POLICY = {"version": "walk-quality-floor.v1", "minimum_waypoints": 2, "rating_ceiling": 500}
 
 
 def integer(value, name, minimum=0, maximum=10**10):
@@ -352,10 +353,9 @@ def prepare(job, *, enforce_option_limit=True):
                 # rubrics; one known visit estimate is enough to schedule it. Unknown
                 # secondary rubrics must not veto a known applicable estimate.
                 category_duration = max((durations.get(c, 0) for c in matching), default=0) if target is None else 0
-                # A generic walk is not reduced to a 15–20 minute photo stop
-                # merely because the selected POI has a shorter category estimate.
-                duration = (activity_durations[activity["id"]] if activity["id"] in multi_stop
-                            else max(category_duration, activity_durations.get(activity["id"], 0)))
+                # The activity estimate is a floor, not permission to shorten
+                # an hour-long park visit into a 25-minute waypoint.
+                duration = max(category_duration, activity_durations.get(activity["id"], 0))
                 if target is None and matching and not duration: reasons.append("DURATION_UNKNOWN")
                 raw_windows = (place.get("opening_intervals") or {}).get(day["date"])
                 windows = []
@@ -481,6 +481,7 @@ def select_places(job, *, time_limit_seconds=3.0):
         return {"schema_version": POLICY_VERSION, "status": "NEEDS_INPUT", "issues": p["issues"], "days": []}
     model = cp_model.CpModel()
     chosen, starts, covered, arcs, ends, objectives = {}, {}, [], [], {}, []
+    complete_walks, walk_quality_floors = [], []
     options = p["options"]
     for i, option in enumerate(options):
         chosen[i] = model.new_bool_var(f"choose_{i}")
@@ -497,6 +498,20 @@ def select_places(job, *, time_limit_seconds=3.0):
             model.add(sum(chosen[i] for i in group) >= present)
             model.add(sum(chosen[i] for i in group) <= cap * present)
             covered.append(present)
+            if activity["id"] in p["multi_stop"]:
+                complete = model.new_bool_var(f"complete_walk_{did}_{activity['id']}")
+                count = sum(chosen[i] for i in group)
+                minimum = WALK_QUALITY_POLICY["minimum_waypoints"]
+                model.add(count >= minimum).only_enforce_if(complete)
+                model.add(count < minimum).only_enforce_if(complete.Not())
+                complete_walks.append(complete)
+                ceiling = WALK_QUALITY_POLICY["rating_ceiling"]
+                floor = model.new_int_var(0, ceiling, f"walk_quality_{did}_{activity['id']}")
+                # Unselected options cannot lower the floor. The presence term
+                # makes an empty walk score zero, including an empty option pool.
+                model.add_min_equality(floor, [ceiling * present] + [
+                    options[i].quality * chosen[i] + ceiling * (1 - chosen[i]) for i in group])
+                walk_quality_floors.append(floor)
         for pid in {options[i].place_id for i in index}:
             model.add(sum(chosen[i] for i in index if options[i].place_id == pid) <= 1)
         if p['replacement'] is not None:
@@ -546,9 +561,13 @@ def select_places(job, *, time_limit_seconds=3.0):
     # True lexicographic stages: no arbitrary coefficient trades hard constraints
     # or one requested activity against rating, distance, or provider rank.
     objectives = [sum(covered)]
+    if complete_walks:
+        objectives.append(sum(complete_walks))
+    objectives.append(sum(o.preference * chosen[i] for i, o in enumerate(options)))
+    if walk_quality_floors:
+        objectives.append(sum(walk_quality_floors))
     if p["multi_stop"]:
         objectives.append(sum(chosen[i] for i, o in enumerate(options) if o.activity_id in p["multi_stop"]))
-    objectives.append(sum(o.preference * chosen[i] for i, o in enumerate(options)))
     if p["walk_targets"]:
         deviations = []
         for did, target in sorted(p["walk_targets"].items()):
@@ -580,7 +599,7 @@ def select_places(job, *, time_limit_seconds=3.0):
         return {"schema_version": POLICY_VERSION, "status": "ERROR", "issues": ["SOLVER_NO_SOLUTION_WITHIN_LIMIT"], "days": []}
     selected = {i: final_solver.value(starts[i]) for i in chosen if final_solver.boolean_value(chosen[i])}
     result = _output(p, selected)
-    result["optimization"] = {"engine": "ortools-cp-sat", "stages": stages,
+    result["optimization"] = {"engine": "ortools-cp-sat", "policy": WALK_QUALITY_POLICY["version"], "stages": stages,
                               "optimal_in_candidate_pool": len(stages) == len(objectives) and all(s["status"] == "OPTIMAL" for s in stages)}
     validate_selection(job, result)
     return result
@@ -626,7 +645,7 @@ def _output(p, selected):
         missing = [a["id"] for a in day["activities"] if a["id"] not in ids_selected]
         # One waypoint is not a walking route. Fewer than the theoretical
         # maximum is normal when travel or opening hours consume the window.
-        short_walk = any(0 < sum(v["activity_id"] == aid for v in visits) < 2
+        short_walk = any(0 < sum(v["activity_id"] == aid for v in visits) < WALK_QUALITY_POLICY["minimum_waypoints"]
                          for aid in p["multi_stop"] if aid in {a["id"] for a in day["activities"]})
         if short_walk: warnings.add("WALK_WAYPOINTS_INCOMPLETE")
         ends_at = visits[-1]["ends_at"] + returned["safe_minutes"] if visits else clock(day["window"]["start"])

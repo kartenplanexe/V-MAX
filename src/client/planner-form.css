@@ -372,3 +372,7 @@
 .child-age-fields { display: grid; gap: 12px; }
 .child-age-row { display: flex; gap: 12px; align-items: end; }
 .child-age-row label { flex: 1; min-width: 0; }
+/* A partial request stays visible while each unresolved field is reviewed. */
+.input-clarifications { display: grid; gap: 20px; width: 100%; }
+.input-question { padding: 16px 0; border-top: 1px solid var(--border, #ddd7e7); overflow-wrap: anywhere; }
+.input-question > p:first-child { font-weight: 600; }

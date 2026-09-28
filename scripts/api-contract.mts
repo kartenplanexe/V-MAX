@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { z } from 'zod';
-import { FormDraft, FormEdit, FormEvent, PublicPlan } from '../src/shared/planning-form.js';
+import { CalculateInput, FormDraft, FormEdit, FormEvent, PublicPlan } from '../src/shared/planning-form.js';
 import { SavedConditionsViewSchema, SavedUserConditionsV1Schema } from '../src/shared/saved-conditions.js';
 import { RestoreSavedInputSchema } from '../src/server/durable-planning.js';
 import { PreviewAlternativeInputSchema, ApplyAlternativeInputSchema, AlternativePreviewSchema } from '../src/shared/route-alternatives.js';
@@ -43,6 +43,7 @@ const idParameter = { name: 'id', in: 'path', required: true, schema: string,
 export function buildOpenApi() {
   const schemas: Record<string, Schema> = {
     FormDraft: jsonSchema(FormDraft), FormEdit: jsonSchema(FormEdit), FormEvent: jsonSchema(FormEvent),
+    CalculateInput: { ...jsonSchema(CalculateInput), description: 'An explicit calculation action. With an existing result, refresh:true starts a new calculation of the same confirmed conditions at the current base_version, advancing the version and invalidating the previous result. Without refresh an existing result is rejected. Replay the same event_id only for the same action; replay does not repeat provider work.' },
     PublicPlan: { ...jsonSchema(PublicPlan), description: 'A provider/planner result, not proof that every wish or every city venue was covered. Optional search_scope identifies the radius around the start and retrieval coverage: PARTIAL means known incompleteness; BOUNDED_RESULTS still applies only to the bounded search and candidate policy. Neither value means exhaustive city-wide search. Older results may omit this field.' },
     SavedUserConditions: jsonSchema(SavedUserConditionsV1Schema),
     SavedConditionsView: jsonSchema(SavedConditionsViewSchema),
@@ -126,7 +127,7 @@ export function buildOpenApi() {
       responses: { '200': response('Address choices; the caller selects one before PATCH.', object({ choices: array(ref('AddressChoice')) }), true),
         ...errors([400, 401, 404, 409, 429, 503]), ...transportErrors } } },
     '/api/planning/requests': { post: { operationId: 'createPlanningDraft', summary: 'Parse a new request through geography and LLM into a draft', security: planningSecurity,
-      description: 'May call paid providers. Body limit: 24 KiB. Reusing an event_id with different content returns EVENT_CONFLICT; a failed/unknown provider outcome is not silently retried. A parsed draft can still have issues requiring user clarification.',
+      description: 'May call paid providers. Body limit: 24 KiB. Reusing an event_id with different content returns EVENT_CONFLICT; a failed/unknown provider outcome is not silently retried. A structurally and semantically checked partial draft can retain clarifications with exact user quotes. Every unresolved question blocks confirm/plan. Review the corresponding field, then explicitly PATCH resolve_clarification for that question at the current version; unsupported or incomplete field values cannot be acknowledged. activity_choice selects trusted catalog types for an existing activity without losing its ID, requirements or order. No clarification action reparses the request with an LLM.',
       requestBody: body(ref('InitialRequest')), responses: { '200': response('Off-topic input or a draft requiring confirmation.', ref('InitialResponse'), true),
         ...errors([400, 401, 404, 409, 422, 429, 500, 502, 503]), ...transportErrors } } },
     '/api/max/webhook': { post: { operationId: 'maxWebhook', summary: 'Receive MAX bot updates (provider-to-server only)', security: [{ MaxWebhookSecret: [] }],
@@ -159,7 +160,7 @@ export function buildOpenApi() {
     ['/api/planning/drafts/{id}/alternatives/apply', 'applyStopAlternative', 'ApplyAlternativeInput', 'PlanningView',
       'Applies the exact unexpired preview under owner/version checks without new provider work. Expired previews return 410. Neither original nor provider expiry is extended.'],
     ['/api/planning/shares', 'createRouteShare', 'CreateShareInput', 'ShareCreated',
-      'Creates an opaque revocable link for the exact saved revision. Private origin/destination points are omitted unless explicitly included. Own conditions expire within seven days; provider preview retains its original shorter expiry. This call does not send a MAX message.'],
+      'Creates an opaque revocable link for the exact saved revision. Pending input clarifications return SHARE_CLARIFICATION_REQUIRED (422); they cannot be silently omitted or forwarded. Private origin/destination points are omitted unless explicitly included. Own conditions expire within seven days; provider preview retains its original shorter expiry. This call does not send a MAX message.'],
     ['/api/planning/shares/resolve', 'resolveRouteShare', 'ResolveShareInput', 'SharePreview',
       'Authenticated read-only preview for a holder of the token. Expired provider facts are removed; expired/revoked/unknown links return 404. No LLM or provider calls. Token belongs in the POST body, never logs.'],
     ['/api/planning/shares/import', 'importRouteShare', 'ImportShareInput', 'PlanningView',
@@ -182,7 +183,7 @@ export function buildOpenApi() {
     ['get', '', 'getPlanningDraft', 'Read a draft owned by the authenticated user', null],
     ['patch', '', 'editPlanningDraft', 'Apply an atomic version-bound edit and invalidate prior confirmation/result', 'FormEdit'],
     ['post', '/confirm', 'confirmPlanningDraft', 'Confirm the current draft if all required fields are valid', 'FormEvent'],
-    ['post', '/plan', 'calculatePlan', 'Calculate a confirmed plan with Places, routing and the deterministic planner', 'FormEvent'],
+    ['post', '/plan', 'calculatePlan', 'Calculate or explicitly refresh a confirmed plan with Places, routing and the deterministic planner', 'CalculateInput'],
   ] as const) {
     const path = `/api/planning/drafts/{id}${suffix}`;
     paths[path] ??= {};
@@ -322,6 +323,8 @@ export function buildDataApi() {
         { ...expected(ref('RouteDeleted')), semantic_checks: ['Delete only the synthetic route created in this sequence. Other saved routes survive; replay is idempotent.'] }),
     ],
     follow_up_checks: ['After edit-window, confirm and calculate again with fresh versions/event IDs; the short-window case must expose unmet wishes, not silently call the result complete.',
+      'For a checked partial request, verify that activities, dates, time and order survive alongside draft.clarifications. Confirm/plan must remain blocked until explicit version-bound resolution. Edit one relevant field, resolve only that question and verify no new LLM calls. Pending questions must survive own save/reopen/process restart; sharing must fail without exposing their quotes.',
+      'For an unexpired result, explicitly POST /plan with refresh:true, the current base_version and a new event_id. Conditions must remain identical and the version must advance. Replay that exact action: no further provider work or version change. A new event using the old version must fail with STALE_VERSION. Routing service denial must produce ERROR / ROUTING_PROVIDER_UNAVAILABLE, not claim the wishes are impossible; retry after service recovery without another LLM call.',
       'Repeat read-saved and restore-saved after draft/provider expiration and a process restart. Latest edits must survive; categories/addresses/itineraries must not be reused as durable provider facts. Check stale revision 409 and foreign/expired saved ID 404.',
       'Use MAX chat /routes and the mini-app to reopen a saved route, inspect saved conditions and explicitly refresh context before confirmation/calculation. API read/restore does not replace this user interaction.',
       'Run the same request with an unsigned header and another user: 401/404 without leaking route contents.',

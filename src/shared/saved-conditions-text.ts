@@ -4,6 +4,7 @@ import type { SavedConditionsView } from './saved-conditions.js';
 export function savedConditionsText(saved: SavedConditionsView): string {
   const conditions = saved.conditions;
   const lines = ['Сохранённые условия', 'Места и прежний маршрут нужно проверить заново.'];
+  for (const question of conditions.clarifications ?? []) lines.push(`Осталось уточнить: «${question.text}». До уточнения расчёт не выполняется.`);
   for (const day of conditions.days) {
     lines.push(`${day.date}${day.window ? ` · ${day.window.start}–${day.window.end}` : ' · время не указано'}`);
     lines.push(day.activities.map(activity => activity.label).join(' · ') || 'Занятия не выбраны');

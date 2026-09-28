@@ -1,4 +1,5 @@
 import { InitialIntentError } from './intent-start.js';
+import { initialWireAdapter } from './intent/initial-wire.mjs';
 
 // Reviewed 2026-09-24: https://aistudio.yandex.ru/ru/docs/ai-studio/pricing
 // Conservative reservation: full 65,536 input + 4,096 output; NOT a billing guarantee.
@@ -18,7 +19,9 @@ export class YandexIntentClient {
   async generate(request: Record<string, unknown>): Promise<unknown> {
     if (this.#calls >= this.options.maxCalls || this.#reservedRub + callReserveRub > this.options.maxEstimatedRub)
       throw new InitialIntentError('INTENT_RUN_LIMIT', 429);
-    const body = JSON.stringify({ messages: request.messages, response_format: request.response_format,
+    const adapter = initialWireAdapter(request);
+    const wire = adapter ?? request;
+    const body = JSON.stringify({ messages: wire.messages, response_format: wire.response_format,
       model: `gpt://${this.options.folderId}/aliceai-llm-flash`, temperature: 0, max_tokens: 4096, stream: false, store: false });
     if (Buffer.byteLength(body) > 512 * 1024) throw new InitialIntentError('INTENT_INPUT_TOO_LARGE', 413);
     // Reserve synchronously, including failed/time-out attempts: no optimistic refund or retry.
@@ -46,7 +49,8 @@ export class YandexIntentClient {
       const choice = data.choices?.[0];
       if (choice?.finish_reason !== 'stop') throw new InitialIntentError('INTENT_TRUNCATED', 502);
       if (choice.message?.refusal || typeof choice.message?.content !== 'string') throw new InitialIntentError('INTENT_PROVIDER_FAILED', 502);
-      return JSON.parse(choice.message.content);
+      const proposal = JSON.parse(choice.message.content);
+      return adapter ? adapter.decode(proposal) : proposal;
     } catch (error) {
       if (error instanceof InitialIntentError) throw error;
       throw new InitialIntentError('INTENT_PROVIDER_FAILED', 502);

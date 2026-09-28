@@ -9,11 +9,12 @@ import { AddressPicker, type AddressChoice } from './AddressPicker';
 import { PlanResult } from './PlanResult';
 import { ConditionsPanel, type ConditionSectionId } from './ConditionsPanel';
 import { InitialRequestForm } from './InitialRequestForm';
+import { ClarificationsPanel } from './ClarificationsPanel';
 import { Action, Icon, Sheet } from './PlannerUi';
 import { readMaxLaunchData, waitForMaxLaunchData } from './max-launch-data';
 import type { SavedConditionsView } from '../shared/saved-conditions';
 import { SavedConditionsPanel } from './SavedConditionsPanel';
-import { partialSearchNotice } from '../shared/plan-evidence-text';
+import { partialSearchNotice, routingUnavailableNotice } from '../shared/plan-evidence-text';
 import { useColorScheme } from '@maxhub/max-ui';
 import { AlternativePanel } from './AlternativePanel';
 import type { AlternativePreview, AlternativeTarget } from '../shared/route-alternatives';
@@ -107,7 +108,13 @@ const messages: Record<string, string> = {
   PLANNING_FAILED: 'Сервис расчёта сейчас недоступен. Ваши параметры сохранены.',
   SESSION_CAPACITY: 'Слишком много открытых планов. Вернитесь к последнему или подождите.',
   CATALOG_MISMATCH: 'Категории нужно обновить перед подбором мест.',
+  INPUT_CLARIFICATION_REQUIRED: 'Часть пожеланий нужно уточнить. Понятные условия уже сохранены.',
+  CLARIFICATION_VALUE_REQUIRED: 'Сначала укажите значение в условиях, затем подтвердите уточнение.',
+  CLARIFICATION_NOT_FOUND: 'Это уточнение уже изменилось. Загрузите сохранённую версию.',
+  ACTIVITY_EXCLUSIONS_REVIEW_REQUIRED: 'Этот тип конфликтует с сохранёнными исключениями занятия. Выберите совместимый тип; исключения не сняты.',
+  SHARE_CLARIFICATION_REQUIRED: 'Перед отправкой маршрута разберите оставшиеся уточнения.',
   PLANNING_PIPELINE_FAILED: 'Не удалось завершить расчёт. Ваши параметры сохранены — попробуйте позже.',
+  ROUTING_PROVIDER_UNAVAILABLE: routingUnavailableNotice,
   ROUTE_RECHECK_FAILED: 'Время дороги изменилось: прежний план больше не помещается. Попробуйте расширить свободное окно.',
   PLAN_EXPIRED_OR_INVALID: 'Данные устарели во время расчёта. Этот план не выдаём как проверенный.',
   ROUTING_BUDGET_EXCEEDED: 'Для такого плана требуется слишком много расчётов маршрута. Сократите число занятий.',
@@ -282,7 +289,7 @@ export function PlannerForm() {
     </div></div>;
   }
   const patch = (edit: (value: Draft) => void) => setDraft(current => { if (!current) return current; const next = structuredClone(current); edit(next); return next; });
-  async function calculate(current = session?.view) {
+  async function calculate(current = session?.view, refresh = false) {
     if (!session || !current) return;
     const base = `/api/planning/drafts/${current.id}`;
     if (current.phase === 'DRAFT') {
@@ -290,7 +297,19 @@ export function PlannerForm() {
       accept(current);
     }
     setBusy('Подбираем места и проверяем маршрут…');
-    accept(await request<PlanningView>(base + '/plan', session.token, 'POST', { base_version: current.version, event_id: crypto.randomUUID() }));
+    accept(await request<PlanningView>(base + '/plan', session.token, 'POST', { base_version: current.version, event_id: crypto.randomUUID(),
+      ...(refresh && current.result ? { refresh: true } : {}) }));
+  }
+  async function retryResult() {
+    if (!session?.view) return;
+    const displayed = session.view;
+    const latest = await request<PlanningView>(`/api/planning/drafts/${displayed.id}`, session.token);
+    accept(latest);
+    if (!same(latest.draft, displayed.draft)) {
+      setNotice('Условия уже изменились. Загружена сохранённая версия — проверьте её перед расчётом.');
+      return;
+    }
+    await calculate(latest, true);
   }
   function openConditions(section: ConditionSectionId | null = null) { setDetailsSection(section); setDetailsOpen(true); }
   async function save() {
@@ -386,11 +405,17 @@ export function PlannerForm() {
       {view.capabilities.data_mode === 'test' && !view.result && <p className="data-label">Учебный пример · синтетические данные</p>}
       </aside>
       <div className="planner-content">{view.result && !dirty ? <PlanResult key={`${view.id}:${view.version}`} view={view} mapsAvailable={mapsAvailable} busy={!!busy} editSearch={() => openConditions('points')}
-        edit={() => openConditions()} share={() => setShareOpen(true)} chooseEvent={browseEvents} replace={target => void act('Проверяем замену…', () => previewAlternative(target))} retry={() => void act('Проверяем места заново…', async () => { const latest = await request<PlanningView>(`/api/planning/drafts/${view.id}`, session!.token); accept(latest); await calculate(latest); })} warningText={warningText} humanError={humanError} /> : <section className="clarification" aria-labelledby="next-step">
+        edit={() => openConditions()} share={() => setShareOpen(true)} chooseEvent={browseEvents} replace={target => void act('Проверяем замену…', () => previewAlternative(target))} retry={() => void act('Проверяем места заново…', retryResult)} warningText={warningText} humanError={humanError} /> : <section className="clarification" aria-labelledby="next-step">
         {draft.days.flatMap(day => day.activities.filter(activity => activity.intent_kind === 'event_visit').map(activity => <SelectedEventItem key={JSON.stringify([day.day_id, activity.id])} view={view} dayId={day.day_id} activityId={activity.id} busy={!!busy || dirty}
           recheck={() => void act('Перепроверяем событие…', () => recheckEvent(day.day_id, activity.id))} chooseOther={() => browseEvents({ day_id: day.day_id, replace_activity_id: activity.id })}
           remove={() => void act('Убираем событие…', () => quickSave({ op: 'remove_activity', day_id: day.day_id, activity_id: activity.id }))} />))}
-        {firstIssue?.code === 'ORIGIN_REQUIRED' ? <><span className="step-symbol"><Icon name="pin" /></span><h2 id="next-step">Откуда начинаем?</h2><p>Выберите удобную точку — от неё посчитаем время в пути.</p>
+        {(firstIssue?.code === 'INPUT_CLARIFICATION_REQUIRED' || firstIssue?.code === 'CATALOG_MISMATCH') ? <><h2 id="next-step">Уточним пожелания</h2><p>То, что удалось понять, уже в условиях. Осталось разобраться с этим:</p>
+          <ClarificationsPanel view={view} busy={!!busy || dirty} edit={openConditions}
+            resolve={id => void act('Сохраняем уточнение…', () => quickSave({ op: 'resolve_clarification', clarification_id: id }))}
+            loadActivities={() => request<ManualChoices>(`/api/planning/drafts/${view.id}/activity-options`, session!.token)}
+            choose={(dayId, activityId, choice, options) => void act('Сохраняем занятие…', () => quickSave({ op: 'activity_choice', day_id: dayId,
+              activity_id: activityId, catalog_version: options.catalog_version, choice }))} /></> :
+          firstIssue?.code === 'ORIGIN_REQUIRED' ? <><span className="step-symbol"><Icon name="pin" /></span><h2 id="next-step">Откуда начинаем?</h2><p>Выберите удобную точку — от неё посчитаем время в пути.</p>
           <div className="choice-list"><Action stretched disabled={!!busy} onClick={() => void act('Определяем местоположение…', () => locate(true))} iconBefore={<Icon name="pin" />}>Моё местоположение</Action>
             <Action variant="secondary" stretched disabled={!!busy} onClick={() => setPointEditor('address')}>Указать адрес</Action>
             {mapsAvailable && <Action variant="ghost" stretched disabled={!!busy} onClick={() => setPointEditor('map')}>Выбрать на карте</Action>}</div></> :

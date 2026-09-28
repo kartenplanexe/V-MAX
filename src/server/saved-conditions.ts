@@ -101,6 +101,7 @@ export function projectSavedConditions(view: PlanningView, options: { now?: Date
       selection: { category_policy: activity.selection.category_policy, named_types: [...activity.selection.named_types] },
       requirements: activity.requirements.map(value => ({ text: value.text, strength: value.strength })),
       semantic_key: semanticKey(activity), category_reconfirmation_required: activity.categories.exclude.length > 0,
+      ...(activity.categories.state !== 'matched' || !activity.categories.include_any.length ? { category_selection_pending: true as const } : {}),
       };
     }), order: day.order.map(([before, after]) => [before, after] as [string, string]),
   }));
@@ -110,6 +111,7 @@ export function projectSavedConditions(view: PlanningView, options: { now?: Date
   ]);
   const provenance = Object.fromEntries(Object.entries(view.provenance).filter(([path, value]) => paths.has(path) && provenanceValues.has(value)));
   return SavedUserConditionsV1Schema.parse({ schema_version: 'saved-user-conditions.v1', conditions_revision: view.version,
+    ...(draft.clarifications?.length ? { clarifications: structuredClone(draft.clarifications) } : {}),
     updated_at: now, review_state: view.confirmed_version === view.version ? 'user_confirmed' : 'draft',
     semantic_policy_version: SAVED_REMAP_POLICY, shared, queries, points, days, provenance, reconfirmation_required: required });
 }
@@ -142,6 +144,10 @@ export function remapSavedConditions(raw: SavedUserConditionsV1, context: Initia
       }
       let include: string[] = [];
       if (activity.category_reconfirmation_required) blockers.push({ code: 'SAVED_EXCLUSIONS_RECONFIRM_REQUIRED', field: path });
+      if (activity.category_selection_pending) return { id: activity.id, label: activity.label,
+        ...(activity.intent_kind ? { intent_kind: activity.intent_kind } : {}), selection: structuredClone(activity.selection),
+        requirements: structuredClone(activity.requirements), categories: { state: 'no_match', include_any: [], exclude: [],
+          region_id: context.locality.region_id, catalog_version: context.catalog.version } };
       if (activity.selection.category_policy === 'named_types_only' || activity.semantic_key === 'named_types') {
         const matches = activity.selection.named_types.map(name => rows.filter(row => canonicalType(row[1]) === canonicalType(name)));
         if (matches.length && matches.every(group => group.length === 1)) include = matches.map(group => group[0]![0]);
@@ -172,7 +178,8 @@ export function remapSavedConditions(raw: SavedUserConditionsV1, context: Initia
   const shared = { ...structuredClone(saved.shared),
     ...(saved.queries.origin ? { origin_text: saved.queries.origin } : {}),
     ...(saved.queries.destination || destinationRequired ? { destination_text: saved.queries.destination ?? unresolvedDestination } : {}) };
-  const draft = FormDraft.parse({ locality: context.locality, shared, points, days });
+  const draft = FormDraft.parse({ locality: context.locality, shared, points, days,
+    ...(saved.clarifications?.length ? { clarifications: structuredClone(saved.clarifications) } : {}) });
   const now = new Date(context.now);
   const local = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: context.locality.timezone,
     year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })

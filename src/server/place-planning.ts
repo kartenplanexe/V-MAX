@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DgisClient, DgisProviderError, DgisRequestBudgetError, pairKey, type Coordinates } from './dgis.js';
+import { DgisClient, DgisProviderError, DgisRoutingUnavailableError, DgisRequestBudgetError, pairKey, type Coordinates } from './dgis.js';
 import { retrievePlaceCandidates } from './place-retrieval.js';
 import { runPythonPlanner } from './planner-process.js';
 import type { RouteLine } from './route-geometry.js';
@@ -35,7 +35,7 @@ const PIPELINE_STAGES = ['PREFLIGHT', 'EVENTS', 'PLACES', 'SHORTLIST', 'MATRIX',
   'SOLVE', 'RECOVERY', 'DEPARTURE_CHECKS', 'FINAL_VALIDATION'] as const;
 const BUDGET_STOP_CODES = ['HTTP_BUDGET_EXHAUSTED', 'PAIR_BUDGET_EXHAUSTED', 'DEADLINE_EXCEEDED'] as const;
 const STOP_ISSUES = ['ROUTING_BUDGET_EXCEEDED', 'ROUTING_BUDGET_OR_DEADLINE_EXCEEDED',
-  'PLAN_EXPIRED_OR_INVALID', 'ROUTE_RECHECK_FAILED', 'PLANNING_PIPELINE_FAILED'] as const;
+  'PLAN_EXPIRED_OR_INVALID', 'ROUTE_RECHECK_FAILED', 'PLANNING_PIPELINE_FAILED', 'ROUTING_PROVIDER_UNAVAILABLE'] as const;
 const allowedCode = (value: unknown, allowed: readonly string[]) =>
   typeof value === 'string' && allowed.includes(value) ? value : null;
 
@@ -265,6 +265,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
         if (error instanceof DgisRequestBudgetError) throw error;
         if (!(error instanceof DgisProviderError)) throw error;
         counters.routing_failed_batches++; // No automatic HTTP retries, missing edges stay forbidden.
+        if (error instanceof DgisRoutingUnavailableError) throw error;
         batch.entries.forEach(entry => entry.indices.forEach(index => {
           cache.set(queryKey(pending[index]!), { value: null, source: observedSource });
         }));
@@ -524,6 +525,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
     }
     return stop('ROUTE_RECHECK_FAILED');
   } catch (error) {
+    if (error instanceof DgisRoutingUnavailableError) return stop('ROUTING_PROVIDER_UNAVAILABLE');
     if (error instanceof DgisRequestBudgetError) {
       budgetStopCode = error.code;
       return stop('ROUTING_BUDGET_OR_DEADLINE_EXCEEDED');

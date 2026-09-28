@@ -49,6 +49,7 @@ export class RouteSharing {
       if (old) { if (old.fingerprint !== fingerprint) reject('EVENT_CONFLICT'); return this.created(this.active(old)); }
       const saved = await database.loadSaved(client, owner, body.draft_id);
       if (!saved) reject('SAVED_CONDITIONS_NOT_FOUND', 404);
+        if (saved.conditions.clarifications?.length) reject('SHARE_CLARIFICATION_REQUIRED', 422);
       const sessions = new PlanningSessions({ checkpoint: state.checkpoint, now: () => this.now(), plan: noPlan });
       let view: PlanningView | undefined;
       try { view = sessions.get(owner, saved.id); }

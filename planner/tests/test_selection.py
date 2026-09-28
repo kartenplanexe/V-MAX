@@ -61,7 +61,7 @@ def test_generic_walk_can_visit_two_distinct_waypoints(job):
     result = select_places(job)
     assert result["status"] == "AVAILABLE"
     assert {v["place_id"] for v in result["days"][0]["visits"]} == {"museum-near", "museum-far"}
-    assert all(v["duration_minutes"] == 25 for v in result["days"][0]["visits"])
+    assert all(v["duration_minutes"] == 60 for v in result["days"][0]["visits"])
     validate_selection(job, result)
 
 
@@ -125,7 +125,9 @@ def test_walk_then_eat_keeps_the_meal_after_multiple_walk_stops(job):
     result = select_places(job)
     visits = result["days"][0]["visits"]
     assert result["status"] == "AVAILABLE"
-    assert [visit["activity_id"] for visit in visits] == ["culture", "culture", "culture", "food"]
+    # Three hour-long visits plus food and verified travel cannot fit four hours.
+    assert [visit["activity_id"] for visit in visits] == ["culture", "culture", "food"]
+    assert [visit["duration_minutes"] for visit in visits] == [60, 60, 45]
     assert result["days"][0]["missing_activity_ids"] == []
     validate_selection(job, result)
 
@@ -469,3 +471,106 @@ def test_tiny_solver_objective_matches_exhaustive_oracle(job, seed):
 def test_partial_retrieval_is_visible_even_when_every_activity_fits(job):
     job["retrieval"] = {"coverage": "PARTIAL"}
     assert "RETRIEVAL_PARTIAL" in select_places(job)["warnings"]
+
+
+def walk_quality_job(job):
+    """Two feasible branches, identical source quality and no cross-branch roads.
+
+    Ratings are synthetic observations, not provider fixtures. The longer branch
+    adds one poorly rated stop; it must not win just by increasing cardinality.
+    """
+    job["intent"]["shared"].pop("budget")
+    job["visit_policy"].update(by_activity={"culture": 25}, max_stops_by_activity={"culture": 9})
+    job["visit_policy"]["by_category"]["museum"] = 25
+    template, meal = deepcopy(job["places"][0]), deepcopy(job["places"][-1])
+    job["places"] = [dict(deepcopy(template), id=pid, name=pid,
+                          reviews={"rating": rating, "count": 200})
+                     for pid, rating in [("weak-1", 2), ("weak-2", 2), ("weak-3", 2),
+                                         ("strong-1", 4.8), ("strong-2", 4.8)]] + [meal]
+    edges = [("@origin", "weak-1"), ("weak-1", "weak-2"), ("weak-2", "weak-3"),
+             ("@origin", "strong-1"), ("strong-1", "strong-2")]
+    edges += [(p["id"], "cafe") for p in job["places"] if p["id"] != "cafe"]
+    job["route_legs"] = [dict(deepcopy(job["route_legs"][0]), from_id=a, to_id=b, safe_minutes=10)
+                         for a, b in edges]
+    return job
+
+
+def test_walk_quality_is_not_replaced_by_a_count_of_weak_stops(job):
+    job = walk_quality_job(job)
+    result = select_places(job)
+    assert [v["place_id"] for v in result["days"][0]["visits"]] == ["strong-1", "strong-2", "cafe"]
+    assert result["days"][0]["missing_activity_ids"] == []
+    validate_selection(job, result)
+
+
+def test_quality_cannot_drop_the_meal_or_break_confirmed_order(job):
+    job = walk_quality_job(job)
+    job["route_legs"] = [leg for leg in job["route_legs"] if not
+                         (leg["from_id"].startswith("strong") and leg["to_id"] == "cafe")]
+    result = select_places(job)
+    visits = result["days"][0]["visits"]
+    assert len(visits) >= 3
+    assert visits[-1]["activity_id"] == "food"
+    assert all(v["place_id"].startswith("weak") for v in visits[:-1])
+    assert result["days"][0]["missing_activity_ids"] == []
+    validate_selection(job, result)
+
+
+def test_a_single_high_rating_does_not_replace_a_complete_walk(job):
+    job = walk_quality_job(job)
+    job["route_legs"] = [leg for leg in job["route_legs"] if leg["to_id"] != "strong-2"]
+    result = select_places(job)
+    visits = result["days"][0]["visits"]
+    assert len([v for v in visits if v["activity_id"] == "culture"]) >= 2
+    assert visits[-1]["activity_id"] == "food"
+    validate_selection(job, result)
+
+
+def test_multistop_walk_does_not_shorten_a_known_category_duration(job):
+    job["intent"]["days"][0]["activities"] = job["intent"]["days"][0]["activities"][:1]
+    job["intent"]["days"][0]["order"] = []
+    job["visit_policy"].update(by_activity={"culture": 25}, max_stops_by_activity={"culture": 9})
+    result = select_places(job)
+    assert result["days"][0]["visits"]
+    assert all(v["duration_minutes"] == 60 for v in result["days"][0]["visits"])
+    validate_selection(job, result)
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_walk_quality_and_feasibility_match_independent_enumeration(job, seed):
+    from itertools import permutations
+    from random import Random
+    job = walk_quality_job(job)
+    rng = Random(seed)
+    job["intent"]["days"][0]["window"]["end"] = rng.choice(["12:20", "13:30", "14:00", "16:00"])
+    end = int(job["intent"]["days"][0]["window"]["end"][:2]) * 60 + int(job["intent"]["days"][0]["window"]["end"][3:])
+    for place in job["places"]:
+        place["reviews"] = {"rating": rng.choice([2, 3.5, 4.8]), "count": 200}
+    for leg in job["route_legs"]:
+        leg["safe_minutes"] = rng.randint(1, 25)
+        leg["window"]["end"] = job["intent"]["days"][0]["window"]["end"]
+    paths = {(leg["from_id"], leg["to_id"]): leg["safe_minutes"] for leg in job["route_legs"]}
+    ratings = {p["id"]: round(100 * (p["reviews"]["rating"] * 200 + 70) / 220) for p in job["places"]}
+    def objective(order, travel, finish):
+        walk = [pid for pid in order if pid != "cafe"]
+        covered = int(bool(walk)) + int("cafe" in order)
+        return (covered, int(len(walk) >= 2), min((ratings[pid] for pid in walk), default=0),
+                len(walk), -travel, sum(ratings[pid] for pid in order), -finish)
+    possibilities = [objective([], 0, 720)]
+    for length in range(1, len(ratings) + 1):
+        for order in permutations(ratings, length):
+            if "cafe" in order and order[-1] != "cafe": continue
+            travel, current, before = 0, 720, "@origin"
+            for pid in order:
+                minutes = paths.get((before, pid))
+                if minutes is None: break
+                travel += minutes
+                current += minutes + 5 + (45 if pid == "cafe" else 25)
+                before = pid
+            else:
+                if current <= end: possibilities.append(objective(order, travel, current))
+    result = select_places(job)
+    day = result["days"][0]
+    actual = objective([v["place_id"] for v in day["visits"]], day["total_safe_travel_minutes"], day["ends_at"])
+    assert actual == max(possibilities)
+    validate_selection(job, result)

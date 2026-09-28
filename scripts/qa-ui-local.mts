@@ -35,11 +35,15 @@ const qaNow = () => new Date(Date.now() + clockOffsetMs);
 const planning: PlanningContext = { catalog: { ...fixture.input.catalog, category_names: { '100': 'Музеи', '200': 'Кафе', '300': 'Парки' } }, visit_policy: fixture.input.visit_policy,
   modes: ['walking', 'driving'], data_mode: 'test', point_area: { south: 55.7, north: 55.8, west: 37.5, east: 37.8 }, map_center: { lat: 55.75, lon: 37.62 } };
 function context() { const value = intentFixture().context; value.catalog.rows.push(['300', 'Парки', []]); return { ...value, now: qaNow().toISOString(), planning }; }
-const sessions = new PlanningSessions({ now: qaNow, plan: job => planPlacesWithDgis(fixture.client(), job, { retrieval: { radiusMeters: 5000, maxPages: 1 }, dataMode: 'test', now: qaNow, resolveEvents: resolveQaEvents }) });
+let routingDenied = false;
+const sessions = new PlanningSessions({ now: qaNow, plan: job => planPlacesWithDgis(fixture.client(async (url, init) => {
+  if (routingDenied && new URL(String(url)).hostname === 'routing.api.2gis.com') return new Response('', { status: 429 });
+  return fixture.defaultFetch(url, init);
+}), job, { retrieval: { radiusMeters: 5000, maxPages: 1 }, dataMode: 'test', now: qaNow, resolveEvents: resolveQaEvents }) });
 const active = new Map<string, string>(), saved = new Map<string, Map<string, SavedConditionsView>>(), expired = new Set<string>();
 const authenticate: PlanningAuthenticator = request => {
   const value = request.headers['x-max-init-data'];
-  return typeof value === 'string' && /^qa-synthetic:(initial|result|limited|three|saved)(?:&start_param=share_[A-Za-z0-9_-]{43})?$/u.test(value) ? value.split('&')[0]! : null;
+  return typeof value === 'string' && /^qa-synthetic:(initial|result|limited|three|saved|partial)(?:&start_param=share_[A-Za-z0-9_-]{43})?$/u.test(value) ? value.split('&')[0]! : null;
 };
 function remember(owner: string, view: PlanningView) {
   active.set(owner, view.id); const items = saved.get(owner) ?? new Map();
@@ -56,7 +60,11 @@ function seed(owner: string, kind: string, text?: string) {
     input.seed.points.origin = { lat: 55.75, lon: 37.62, locality_id: input.seed.locality.id, label: 'Учебная точка старта', source: 'user_map' };
     input.provenance['points.origin'] = 'user_map';
   }
-  const view = sessions.create(owner, input.seed, planning, input.provenance); remember(owner, view); return view;
+  const seedDraft = kind === 'partial' ? { ...input.seed,
+    clarifications: [{ id: 'question-1', field: 'budget', text: 'бюджет как обычно', reason: 'ambiguous', day_ids: [] }],
+    days: input.seed.days.map(day => ({ ...day, activities: day.activities.map((activity, index) => index === 1 && activity.intent_kind !== 'event_visit'
+      ? { ...activity, categories: { ...activity.categories, state: 'no_match', include_any: [] } } : activity) })) } : input.seed;
+  const view = sessions.create(owner, seedDraft, planning, input.provenance); remember(owner, view); return view;
 }
 app.addHook('onRequest', async (request, reply) => {
   if (request.headers.host !== `${host}:${port}` || request.headers.origin && request.headers.origin !== origin || !['GET', 'HEAD'].includes(request.method) && request.headers.origin !== origin)
@@ -74,6 +82,13 @@ app.post('/qa/clock/expire-drafts', async (request, reply) => {
   clockOffsetMs += 31 * 60_000;
   return { data_mode: 'test', clock_advanced_minutes: 31 };
 });
+app.post('/qa/routing', async (request, reply) => {
+  if (!authenticate(request)) return reply.code(401).send({ error: 'AUTH_REQUIRED' });
+  const denied = (request.body as { denied?: unknown } | null)?.denied;
+  if (typeof denied !== 'boolean') return reply.code(400).send({ error: 'QA_INPUT_INVALID' });
+  routingDenied = denied;
+  return { data_mode: 'test', routing_denied: routingDenied };
+});
 function currentView(owner: string, id: string) {
   if (expired.has(id)) return null;
   try { return sessions.get(owner, id); }
@@ -87,7 +102,7 @@ app.get('/api/planning/bootstrap', async request => {
   if (!id && owner !== 'qa-synthetic:initial') {
     let view = seed(owner, owner.split(':')[1]!); id = view.id;
     if (owner.endsWith(':saved')) expired.add(id);
-    else { view = sessions.confirm(owner, id, { base_version: view.version, event_id: randomUUID() }); view = await sessions.calculate(owner, id, { base_version: view.version, event_id: randomUUID() }); remember(owner, view); }
+    else if (!owner.endsWith(':partial')) { view = sessions.confirm(owner, id, { base_version: view.version, event_id: randomUUID() }); view = await sessions.calculate(owner, id, { base_version: view.version, event_id: randomUUID() }); remember(owner, view); }
   }
   if (!id) return { view: null };
   const view = currentView(owner, id);
@@ -125,6 +140,7 @@ app.post<{ Params: { id: string } }>('/api/planning/saved/:id/activate', async r
   return view ? { view } : { view: null, saved: service.getSaved(owner, id), expiredRoute: 'Учебный маршрут' }; });
 const shares = new Map<string, { owner: string; share_id: string; preview: Record<string, unknown> }>();
 app.post('/api/planning/shares', async request => { const input = CreateShareInputSchema.parse(request.body), owner = authenticate(request)!; const own = service.getSaved(owner, input.draft_id);
+  if (own.conditions.clarifications?.length) throw new PlanningSessionError('SHARE_CLARIFICATION_REQUIRED', 422);
   const conditions = structuredClone(own.conditions), omissions: string[] = []; conditions.queries = {};
   if (!input.include_private_points) for (const field of ['origin', 'destination'] as const) if (conditions.points[field]) { delete conditions.points[field]; delete conditions.provenance[`points.${field}`]; omissions.push(field); }
   const token = randomBytes(32).toString('base64url'), share_id = randomUUID(), expires_at = new Date(Date.now() + 3600000).toISOString();
@@ -142,4 +158,4 @@ await app.register(fastifyStatic, { root, index: false });
 app.get('/', async (_request, reply) => reply.type('text/html').send(await html()));
 app.get('/favicon.ico', async (_request, reply) => reply.code(204).send());
 await app.listen({ host, port });
-console.log(`Synthetic UI QA only: ${origin}/?qa=initial (also result, limited, three, saved). No real credentials/providers.`);
+console.log(`Synthetic UI QA only: ${origin}/?qa=initial (also result, limited, three, saved, partial). No real credentials/providers.`);

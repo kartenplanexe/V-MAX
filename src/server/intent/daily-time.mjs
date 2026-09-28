@@ -75,8 +75,8 @@ export function suggestDayWindow({date=null,dateOrigin=null,time={},now,timezone
   return result;
 }
 
-export function projectNewDailyIntent(raw,input) {
-  const guard=reviewDailyResponse(raw,input);
+export function projectNewDailyIntent(raw,input,options={}) {
+  const guard=reviewDailyResponse(raw,input,options);
   const result={status:guard.status,guard,days:[],shared_updates:[],requires_confirmation:true,ready_for_planning:false};
   if(!guard.proposal)return result;
   const p=guard.proposal;

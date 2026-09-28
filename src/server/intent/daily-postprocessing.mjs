@@ -4,8 +4,8 @@ import {validateDailyProposal} from './daily-contract.mjs';
 import {inspectSemanticCoverage} from './semantic-coverage.mjs';
 export const postprocessingVersion='daily-postprocessing.v2';
 
-export function reviewDailyResponse(raw,input) {
-  const original=validateDailyProposal(raw,input);
+export function reviewDailyResponse(raw,input,options={}) {
+  const original=validateDailyProposal(raw,input,options);
   let checked=original;
   const repairs=[];
   // An anchor unused by every day has no effect on the meaning of dates. Drop
@@ -16,7 +16,7 @@ export function reviewDailyResponse(raw,input) {
     const copy=structuredClone(raw);
     repairs.push({kind:'unused_date_anchor',path:'/date_anchor',from:copy.date_anchor,to:null});
     copy.date_anchor=null;
-    checked=validateDailyProposal(copy,input);
+    checked=validateDailyProposal(copy,input,options);
   }
   // A single explicit «завтра» has a deterministic date regardless of whether
   // the model redundantly used an anchor and offset=1. Repair only date fields;
@@ -33,7 +33,7 @@ export function reviewDailyResponse(raw,input) {
     copy.date_anchor=null;
     copy.days[0].date={kind:'relative',days:1};
     copy.days[0].date_evidence=tomorrow;
-    const fixed=validateDailyProposal(copy,input);
+    const fixed=validateDailyProposal(copy,input,options);
     if(fixed.errors.length<checked.errors.length) {
       repairs.push({kind:'explicit_tomorrow_single_day',path:'/days/0/date',from:raw.days[0].date,to:copy.days[0].date});
       checked=fixed;
@@ -67,7 +67,9 @@ export function reviewDailyResponse(raw,input) {
   result.errors.push(...semantic.issues.map(issue=>issue.code));
   result.errors=[...new Set(result.errors)];result.reasons=[...new Set(result.reasons)];
   if(result.errors.length){result.status='invalid_response';result.proposal=null;}
-  else if(result.reasons.length){result.status='needs_clarification';result.proposal=null;}
+  else if(result.reasons.length){result.status='needs_clarification';
+    if(!(options.allowInitialPartial&&input.mode==='parse'&&input.draft===null&&result.proposal.action==='new_request'&&
+      result.reasons.every(code=>code==='UNRESOLVED')))result.proposal=null;}
   return result;
 }
 

@@ -141,5 +141,20 @@ it('validates actual draft HTTP success/error responses against the submitted Op
     // Catch accidental stripping at the actual Python -> PlanningView -> HTTP boundary.
     expect(planned.json().result.search_scope).toMatchObject({ radius_meters: 5000 });
     expect(['PARTIAL', 'BOUNDED_RESULTS']).toContain(planned.json().result.search_scope.coverage);
+    const refresh = { base_version: planned.json().version, event_id: 'contract-explicit-refresh', refresh: true };
+    const requestSchema = openapi.paths[contractPath + '/plan'].post.requestBody.content['application/json'].schema;
+    const validateRequest = ajv.compile(localRefs({ ...requestSchema, $defs: openapi.components.schemas }) as object);
+    expect(validateRequest(refresh), JSON.stringify(validateRequest.errors)).toBe(true);
+    const refreshed = await app.inject({ method: 'POST', url: path + '/plan', headers, payload: refresh });
+    expect(refreshed.statusCode).toBe(200); validateResponse(contractPath + '/plan', 'post', 200, refreshed.json());
+    expect(refreshed.json().draft).toEqual(planned.json().draft);
+    expect(refreshed.json().version).toBe(planned.json().version + 1);
+    expect(refreshed.json().result.status).toBe('AVAILABLE');
+    const afterRefresh = fixture.requests.length;
+    const replay = await app.inject({ method: 'POST', url: path + '/plan', headers, payload: refresh });
+    expect(replay.statusCode).toBe(200); expect(replay.json()).toEqual(refreshed.json());
+    const staleRefresh = await app.inject({ method: 'POST', url: path + '/plan', headers, payload: { ...refresh, event_id: 'contract-stale-refresh' } });
+    expect(staleRefresh.statusCode).toBe(409); expect(staleRefresh.json()).toMatchObject({ error: 'STALE_VERSION' });
+    expect(fixture.requests).toHaveLength(afterRefresh);
   } finally { await app.close(); }
 }, 30_000);

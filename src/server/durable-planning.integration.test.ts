@@ -36,6 +36,17 @@ it.skipIf(!process.env.TEST_DATABASE_URL)('resumes on another instance, uses one
     expect(result.result?.days[0]?.visits.map(v => v.name)).toEqual(['Учебный музей', 'Учебное кафе']);
     expect((await first.get(owner, edited.id)).result).toEqual(result.result);
     expect((await first.calculate(owner, edited.id, event)).result).toEqual(result.result);
+    const refresh = { base_version: result.version, event_id: randomUUID(), refresh: true };
+    const refreshed = await first.calculate(owner, edited.id, refresh);
+    expect(refreshed.result?.status).toBe('AVAILABLE');
+    expect(refreshed.draft).toEqual(result.draft);
+    expect(refreshed.version).toBe(result.version + 1);
+    const afterRefresh = places.requests.length;
+    const restarted = new DurablePlanning({ ...options, provider: async () => { throw new Error('Unexpected model after refresh'); } });
+    expect(await restarted.calculate(owner, edited.id, refresh)).toEqual(refreshed);
+    expect((await other.get(owner, edited.id)).result).toEqual(refreshed.result);
+    await expect(other.calculate(owner, edited.id, { ...refresh, event_id: randomUUID() })).rejects.toMatchObject({ code: 'STALE_VERSION' });
+    expect(places.requests).toHaveLength(afterRefresh);
     expect(calls).toBe(1);
     await expect(first.get('someone-else', edited.id)).rejects.toMatchObject({ code: 'DRAFT_NOT_FOUND' });
   } finally { await db.pool.query('DELETE FROM planning_owners WHERE owner=$1', [owner]);

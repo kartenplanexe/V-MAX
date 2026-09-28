@@ -34,11 +34,17 @@ export const PlaceActivitySchema = z.object({ ...ActivityCommon, target: z.never
 export const EventActivitySchema = z.object({ ...ActivityCommon, intent_kind: z.literal('event_visit'),
   target: SelectedEventTargetSchema }).strict();
 const Activity = z.union([PlaceActivitySchema, EventActivitySchema]);
+export const InputClarification = z.object({ id: Id,
+  field: z.enum(['request', 'locality', 'dates', 'time', 'budget', 'mobility', 'origin', 'destination', 'party', 'activities', 'order', 'requirements', 'scope']),
+  day_ids: z.array(Id).max(31), text: z.string().min(1).max(4000),
+  reason: z.enum(['ambiguous', 'conflict', 'not_representable']),
+}).strict();
 export type Activity = z.infer<typeof Activity>;
 export function isEventActivity(activity: Activity): activity is z.infer<typeof EventActivitySchema> {
   return activity.target?.kind === 'event';
 }
 export const FormDraft = z.object({
+  clarifications: z.array(InputClarification).max(100).optional(),
   locality: z.object({ id: Id, name: z.string().max(200), region_id: Id, timezone: z.string().max(80) }),
   shared: z.object({ mobility: z.array(z.string()).max(10).optional(), budget: Budget.optional(), search_radius_meters: SearchRadiusMeters.optional(),
     party: z.object({ total: z.number().int().min(1).max(100).optional(), child_ages: z.array(z.number().int().min(0).max(17)).max(99).optional() }).passthrough().optional(),
@@ -48,9 +54,20 @@ export const FormDraft = z.object({
     activities: z.array(Activity).max(120), order: z.array(z.tuple([Id, Id])).max(1000),
     duration_constraint_minutes: z.number().int().positive().max(1440).optional(),
   })).min(1).max(31),
+}).superRefine((draft, context) => {
+  const questions = draft.clarifications ?? [];
+  if (new Set(questions.map(question => question.id)).size !== questions.length)
+    context.addIssue({ code: 'custom', path: ['clarifications'], message: 'Duplicate clarification IDs.' });
+  questions.forEach((question, index) => {
+    if (new Set(question.day_ids).size !== question.day_ids.length || question.day_ids.some(id => !draft.days.some(day => day.day_id === id)))
+      context.addIssue({ code: 'custom', path: ['clarifications', index, 'day_ids'], message: 'Invalid clarification day references.' });
+  });
 });
 const DayIds = z.array(Id).min(1).max(31).refine(ids => new Set(ids).size === ids.length);
 export const FormChange = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('resolve_clarification'), clarification_id: Id }).strict(),
+  z.object({ op: z.literal('activity_choice'), day_id: Id, activity_id: Id,
+    catalog_version: z.string().min(1).max(200), choice: ActivityChoiceSchema }).strict(),
   z.object({ op: z.literal('window'), day_ids: DayIds, start: Time, end: Time }).strict(),
   z.object({ op: z.literal('date'), day_id: Id, date: DateValue }).strict(),
   z.object({ op: z.literal('mobility'), mode: z.string().min(1).max(40) }).strict(),
@@ -71,6 +88,7 @@ export const FormChange = z.discriminatedUnion('op', [
     precedence: z.array(z.tuple([Id, Id])).max(1000).optional() }).strict(),
 ]);
 export const FormEvent = z.object({ base_version: z.number().int().nonnegative(), event_id: z.string().min(8).max(128) }).strict();
+export const CalculateInput = FormEvent.extend({ refresh: z.literal(true).optional() }).strict();
 export const FormEdit = FormEvent.extend({ changes: z.array(FormChange).min(1).max(160) }).strict();
 export const PublicPlan = z.object({ status: z.enum(['AVAILABLE', 'LIMITED', 'UNAVAILABLE', 'ERROR', 'NEEDS_INPUT']),
   origin: Point.optional(),
