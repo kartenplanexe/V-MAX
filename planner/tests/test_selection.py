@@ -554,8 +554,8 @@ def test_walk_quality_and_feasibility_match_independent_enumeration(job, seed):
     def objective(order, travel, finish):
         walk = [pid for pid in order if pid != "cafe"]
         covered = int(bool(walk)) + int("cafe" in order)
-        return (covered, int(len(walk) >= 2), min((ratings[pid] for pid in walk), default=0),
-                len(walk), -travel, sum(ratings[pid] for pid in order), -finish)
+        return (covered, int(len(walk) >= 2), sum(ratings[pid] >= 350 for pid in walk),
+                -sum(ratings[pid] < 350 for pid in walk), -travel, sum(ratings[pid] for pid in order), -finish)
     possibilities = [objective([], 0, 720)]
     for length in range(1, len(ratings) + 1):
         for order in permutations(ratings, length):

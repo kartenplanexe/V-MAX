@@ -27,6 +27,7 @@ export const Budget = z.discriminatedUnion('kind', [
 const ActivityCommon = { id: Id, label: z.string().min(1).max(500),
   requirements: z.array(z.object({ text: z.string().max(1000), strength: z.enum(['required', 'preferred']) })).max(100) };
 export const PlaceActivitySchema = z.object({ ...ActivityCommon, target: z.never().optional(),
+  duration_minutes: z.number().int().min(1).max(1440).optional(),
   intent_kind: z.enum(['route_walk', 'area_walk', 'place_visit']).optional(),
   selection: z.object({ category_policy: z.enum(['related_allowed', 'named_types_only']), named_types: z.array(z.string()).max(100) }),
   categories: z.object({ state: z.string(), include_any: z.array(Id).max(2000), exclude: z.array(Id).max(2000),
@@ -66,6 +67,10 @@ export const FormDraft = z.object({
 });
 const DayIds = z.array(Id).min(1).max(31).refine(ids => new Set(ids).size === ids.length);
 export const FormChange = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('activity_details'), day_id: Id, activity_id: Id,
+    duration_minutes: z.number().int().min(1).max(1440).nullable(),
+    requirements: z.array(z.object({ text: z.string().max(1000), strength: z.enum(['required', 'preferred']) }).strict()).max(100) }).strict(),
+  z.object({ op: z.literal('discard_clarification'), clarification_id: Id }).strict(),
   z.object({ op: z.literal('resolve_clarification'), clarification_id: Id }).strict(),
   z.object({ op: z.literal('activity_choice'), day_id: Id, activity_id: Id,
     catalog_version: z.string().min(1).max(200), choice: ActivityChoiceSchema }).strict(),

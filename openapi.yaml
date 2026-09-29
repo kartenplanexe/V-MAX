@@ -4625,6 +4625,11 @@
                           "target": {
                             "not": {}
                           },
+                          "duration_minutes": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1440
+                          },
                           "intent_kind": {
                             "type": "string",
                             "enum": [
@@ -4866,6 +4871,89 @@
             "type": "array",
             "items": {
               "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "activity_details"
+                    },
+                    "day_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "activity_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "duration_minutes": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 1440
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "requirements": {
+                      "maxItems": 100,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string",
+                            "maxLength": 1000
+                          },
+                          "strength": {
+                            "type": "string",
+                            "enum": [
+                              "required",
+                              "preferred"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "text",
+                          "strength"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "day_id",
+                    "activity_id",
+                    "duration_minutes",
+                    "requirements"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "discard_clarification"
+                    },
+                    "clarification_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "clarification_id"
+                  ],
+                  "additionalProperties": false
+                },
                 {
                   "type": "object",
                   "properties": {
@@ -6614,6 +6702,11 @@
                           "target": {
                             "not": {}
                           },
+                          "duration_minutes": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1440
+                          },
                           "intent_kind": {
                             "type": "string",
                             "enum": [
@@ -7278,6 +7371,11 @@
                               },
                               "target": {
                                 "not": {}
+                              },
+                              "duration_minutes": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 1440
                               },
                               "intent_kind": {
                                 "type": "string",
@@ -9038,6 +9136,11 @@
                               },
                               "target": {
                                 "not": {}
+                              },
+                              "duration_minutes": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 1440
                               },
                               "intent_kind": {
                                 "type": "string",

@@ -14,6 +14,13 @@ export function changesFor(view: PlanningView, draft: Draft): Change[] {
     });
     if (removed.length || additions.length) changes.push({ op: 'activities', day_id: day.day_id, remove_ids: removed, additions });
     if (day.date !== before.date) changes.push({ op: 'date', day_id: day.day_id, date: day.date });
+    for (const activity of day.activities) {
+      const previous = before.activities.find(value => value.id === activity.id);
+      if (activity.intent_kind !== 'event_visit' && previous?.intent_kind !== 'event_visit' &&
+          (activity.duration_minutes !== previous?.duration_minutes || !same(activity.requirements, previous?.requirements ?? [])))
+        changes.push({ op: 'activity_details', day_id: day.day_id, activity_id: activity.id,
+          duration_minutes: activity.duration_minutes ?? null, requirements: activity.requirements });
+    }
     if (day.window && !same(day.window, before.window)) changes.push({ op: 'window', day_ids: [day.day_id], ...day.window });
     const remainingOrder = removed.reduce((order, id) => orderWithoutActivity(order, id), before.order);
     if (!same(day.order, remainingOrder)) changes.push({ op: 'order', day_id: day.day_id,

@@ -92,3 +92,13 @@ CREATE TABLE IF NOT EXISTS planning_event_previews (
 );
 CREATE INDEX IF NOT EXISTS planning_event_previews_expiry ON planning_event_previews(expires_at);
 CREATE INDEX IF NOT EXISTS planning_event_previews_parent ON planning_event_previews(owner,draft_id,parent_id);
+-- Physical subscription accounting, additive and independent of user data retention.
+CREATE TABLE IF NOT EXISTS routing_quota_counters (
+  scope text NOT NULL, kind text NOT NULL CHECK(kind IN ('day','month')),
+  period date NOT NULL, objects integer NOT NULL CHECK(objects >= 0),
+  PRIMARY KEY(scope,kind,period)
+);
+CREATE TABLE IF NOT EXISTS routing_quota_attempts (
+  scope text NOT NULL, sent_at timestamptz NOT NULL, objects integer NOT NULL CHECK(objects > 0)
+);
+CREATE INDEX IF NOT EXISTS routing_quota_attempts_scope_time ON routing_quota_attempts(scope,sent_at);

@@ -38,10 +38,13 @@ export function boundsFromWkt(wkt: string) {
 }
 
 // Versioned visit-duration estimates, not provider facts. Full catalog still goes to Alice.
-// Unmapped categories are not assigned an invented default duration by the planner.
+// The generic 60-minute estimate remains editable; it is not a provider fact.
 const visitMinutes: Record<string, number> = {
   'музеи': 90, 'художественные галереи': 60, 'выставочные центры': 90, 'выставки': 90,
   'кафе': 60, 'кофейни': 45, 'рестораны': 90, 'столовые': 45, 'быстрое питание': 30,
+  'пиццерии': 60, 'бистро': 45, 'кафе-кондитерские': 45, 'рестораны быстрого питания': 30, 'суши-бары': 60,
+  'кинотеатры': 120, 'кинозалы': 120, 'автокинотеатры': 120, 'театры': 150,
+  'бассейны': 60, 'боулинг': 60, 'бильярдные залы': 60, 'катки': 60, 'спортивные залы': 60,
   'бары': 90, 'пабы': 90, 'парки культуры и отдыха': 60, 'парки': 60, 'скверы': 45, 'набережные': 60,
   'достопримечательности': 45, 'природные достопримечательности': 45, 'памятники и скульптуры': 30,
   // Walkable POI categories from the 2GIS "Места" catalog. These are product
@@ -69,11 +72,13 @@ export function visitPolicy(items: { id: string; name: string }[]): PlanningCont
   const park_category_ids: string[] = [];
   for (const item of items) {
     const name = item.name.trim().toLocaleLowerCase('ru-RU');
-    const duration = visitMinutes[name]; if (duration) by_category[item.id] = duration;
+    // Product estimate, never an official session length. Every catalog choice
+    // remains schedulable; a typed user duration can replace this estimate.
+    by_category[item.id] = visitMinutes[name] ?? 60;
     if (walkableNames.has(name)) walkable_category_ids.push(item.id);
     if (name === 'парки' || name === 'парки культуры и отдыха') park_category_ids.push(item.id);
   }
-  return { version: 'visit-duration-estimates.v4', by_category, walkable_category_ids, park_category_ids,
+  return { version: 'visit-duration-estimates.v5', by_category, walkable_category_ids, park_category_ids,
     arrival_buffer_minutes: 5 };
 }
 

@@ -23,6 +23,12 @@ const secretKeys = [
 ];
 const publicEnvironment = {
   HOST: '0.0.0.0', NODE_ENV: 'production', PUBLIC_BASE_URL: baseUrl,
+  DGIS_ROUTING_LIMIT_MINUTE: '5', DGIS_ROUTING_LIMIT_DAY: '50', DGIS_ROUTING_LIMIT_MONTH: '1000',
+  // Provider reset/restoration + empty application logs since 2026-09-28T21:00Z.
+  // Monthly figure is the owner's last observed usage, not a live balance.
+  // INSERT ON CONFLICT never overwrites an existing durable counter.
+  DGIS_ROUTING_INITIAL_DAY: '2026-09-29', DGIS_ROUTING_INITIAL_DAY_USED: '0',
+  DGIS_ROUTING_INITIAL_MONTH: '2026-09-20', DGIS_ROUTING_INITIAL_MONTH_USED: '462',
 };
 const retainedEnvironmentKeys = new Set(['MAX_INIT_DATA_TTL_SECONDS']);
 const ignoredOldEnvironmentKeys = new Set(['PORT']); // Reserved by Yandex; Dockerfile already sets 8080.

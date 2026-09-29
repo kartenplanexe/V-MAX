@@ -149,6 +149,7 @@ const warningText = (code: string) => ({
   EVENT_AGE_UNKNOWN: 'Источник не указал возрастное ограничение события. Уточните его у организатора.',
   PRICE_UNKNOWN: 'Не все цены известны: общий бюджет не подтверждён.',
   PRICE_ESTIMATED: 'Цена — ориентир, а не гарантированная стоимость.',
+  AGE_ELIGIBILITY_UNVERIFIED: 'Возрастные ограничения места неизвестны. Уточните возможность посещения с детьми перед поездкой.',
   BUDGET_ESTIMATED_NOT_GUARANTEED: 'Расходы оценены приблизительно. Соблюдение лимита не гарантируется.',
   TRANSPORT_COST_UNKNOWN: 'Стоимость транспорта неизвестна.',
   RETRIEVAL_PARTIAL: partialSearchNotice,
@@ -412,6 +413,7 @@ export function PlannerForm() {
         {(firstIssue?.code === 'INPUT_CLARIFICATION_REQUIRED' || firstIssue?.code === 'CATALOG_MISMATCH') ? <><h2 id="next-step">Уточним пожелания</h2><p>То, что удалось понять, уже в условиях. Осталось разобраться с этим:</p>
           <ClarificationsPanel view={view} busy={!!busy || dirty} edit={openConditions}
             resolve={id => void act('Сохраняем уточнение…', () => quickSave({ op: 'resolve_clarification', clarification_id: id }))}
+            discard={id => void act('Убираем условие…', () => quickSave({ op: 'discard_clarification', clarification_id: id }))}
             loadActivities={() => request<ManualChoices>(`/api/planning/drafts/${view.id}/activity-options`, session!.token)}
             choose={(dayId, activityId, choice, options) => void act('Сохраняем занятие…', () => quickSave({ op: 'activity_choice', day_id: dayId,
               activity_id: activityId, catalog_version: options.catalog_version, choice }))} /></> :

@@ -27,15 +27,21 @@ def project_batches(job):
     batches = job["provider_batches"]
     if not isinstance(batches, list) or len(batches) > 30: raise ValueError("invalid batches")
     dates = [d["date"] for d in job["intent"]["days"]]
-    places = {}
+    places, rejected = {}, 0
     for batch in batches:
         if batch["region_id"] != job["intent"]["locality"]["region_id"]: raise ValueError("region mismatch")
         for item in batch["items"]:
-            if item["id"] in places: continue
             if len(places) >= 2000: raise ValueError("candidate pool too large")
-            places[item["id"]] = normalize_place(item, dates=dates, requested_region_id=batch["region_id"],
-                fetched_at=batch["fetched_at"], valid_until=batch["valid_until"], data_mode=batch["data_mode"])
-    return {k: v for k, v in job.items() if k != "provider_batches"} | {"places": list(places.values())}
+            try:
+                if item["id"] in places: continue
+                places[item["id"]] = normalize_place(item, dates=dates, requested_region_id=batch["region_id"],
+                    fetched_at=batch["fetched_at"], valid_until=batch["valid_until"], data_mode=batch["data_mode"])
+            except (ValueError, KeyError, TypeError, AttributeError, InvalidOperation):
+                rejected += 1
+    projected = {k: v for k, v in job.items() if k != "provider_batches"} | {"places": list(places.values())}
+    if rejected:
+        projected['retrieval'] = {**job.get('retrieval', {}), 'coverage': 'PARTIAL', 'normalization_rejected': rejected}
+    return projected
 
 
 def main(argv=None):

@@ -7,6 +7,7 @@ import { buildInitialCategoryRequest } from './intent/initial-wire.mjs';
 import { resolveGenericCategories } from './intent/generic-categories.mjs';
 import { inspectTimeLiteralCoverage } from './intent/time-literal-coverage.mjs';
 import { reviewBudgetAssertion } from './budget-assertion.js';
+import { relativeDateDays, dateAfter, overlapsBusyTime } from './intent-scalar-evidence.js';
 
 export type CatalogRow = [string, string, string[], { type?: string; caption?: string; declared_parent_ids?: string[] }?];
 export interface InitialContext {
@@ -30,9 +31,10 @@ export const isExactGreeting = (text: string) => greetings.has(name(text).replac
 // Narrow projection of the proposal AFTER the frozen JSON-schema/evidence guard.
 interface ValidatedProposal {
   action: string;
+  date_anchor: { value: { kind: string; days?: number }; evidence: string } | null;
   unresolved: { field: string; day_ids: string[]; text: string; reason: string }[];
   shared_updates: { op: string; field: string; value: unknown; evidence: string }[];
-  days: { day_id: string; activity_edits: { activity_id: string; label: string; evidence: string;
+  days: { day_id: string; date: { kind: string; days?: number }; date_evidence: string | null; activity_edits: { activity_id: string; label: string; evidence: string;
     selection: { named_types: string[]; category_policy: string }; requirements: unknown[] }[];
     category_matches: { activity_id: string; state: string; include_any: string[]; exclude: string[] }[];
     order_changes: { op: string; before: string; after: string }[] }[];
@@ -148,7 +150,7 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
       const path = field === 'date' ? `days.${dayId}.date` : `days.${dayId}.window.${field}`;
       if (projected.origins?.[field]) provenance[path] = projected.origins[field];
     }
-    return { day_id: dayId, date: projected.date,
+    return { day_id: dayId, date: projected.date as string | null,
       ...(projected.window ? { window: projected.window } : {}),
       ...(projected.duration_constraint_minutes != null ? { duration_constraint_minutes: projected.duration_constraint_minutes } : {}),
       activities: day.activity_edits.map(a => {
@@ -162,6 +164,19 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
       order: day.order_changes.filter(e => e.op === 'add').map(e => [ids.get(e.before), ids.get(e.after)]),
     };
   });
+  const scalarQuestions: { field: string; day_ids: string[]; text: string; reason: string }[] = [];
+  for (const [index, day] of days.entries()) {
+    const proposed = proposal.days[index]!;
+    const anchorOffset = proposed.date.kind === 'anchor_offset' ? relativeDateDays(proposal.date_anchor?.evidence) : null;
+    const relative = proposed.date.kind === 'anchor_offset' && anchorOffset !== null
+      ? anchorOffset + (proposed.date.days ?? 0) : relativeDateDays(proposed.date_evidence);
+    if (relative !== null) day.date = dateAfter(context.now, context.locality.timezone, relative);
+    if (day.window && overlapsBusyTime(text, day.window)) {
+      delete day.window;
+      delete provenance[`days.${day.day_id}.window.start`]; delete provenance[`days.${day.day_id}.window.end`];
+      scalarQuestions.push({ field: 'time', day_ids: [proposed.day_id], text: 'Укажите свободное время: распознанный интервал пересекается с занятостью.', reason: 'conflict' });
+    }
+  }
   // A verified walking activity implies walking between places unless the user
   // specified another mode. The decision is based on typed activities, not on
   // one exact spelling of the whole user request.
@@ -173,9 +188,10 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
   const budgetUpdate = proposal.shared_updates.find(update => update.field === 'budget');
   const budgetReview = reviewBudgetAssertion({ userText: text, evidence: budgetUpdate?.evidence,
     budgetKind: (shared.budget as { kind?: string } | undefined)?.kind,
+    amountRub: (shared.budget as { amount_rub?: number } | undefined)?.amount_rub,
     hasBudgetQuestion: proposal.unresolved.some(issue => issue.field === 'budget') });
   if (budgetReview.discardBudget) { delete shared.budget; delete provenance['shared.budget']; }
-  const questions = [...proposal.unresolved, ...(budgetReview.question ? [budgetReview.question] : [])];
+  const questions = [...proposal.unresolved, ...scalarQuestions, ...(budgetReview.question ? [budgetReview.question] : [])];
   const clarifications = questions.map((issue, index) => ({ ...issue, id: `question-${index + 1}`,
     day_ids: issue.day_ids.map(id => `day-${proposal.days.findIndex(day => day.day_id === id) + 1}`) }));
   const draft = FormDraft.safeParse({ locality: context.locality, shared, points: {}, days,

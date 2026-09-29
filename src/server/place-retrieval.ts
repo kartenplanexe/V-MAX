@@ -119,7 +119,7 @@ export async function retrievePlaceCandidates(
           search.stop_reason = 'PAGE_LIMIT'; state.done = true;
         }
       } catch (error) {
-        if (error instanceof DgisRequestBudgetError && error.code !== 'PAIR_BUDGET_EXHAUSTED') {
+        if (error instanceof DgisRequestBudgetError && (error.code === 'HTTP_BUDGET_EXHAUSTED' || error.code === 'DEADLINE_EXCEEDED')) {
           stopIncomplete(error.code); break rounds;
         }
         if (!(error instanceof DgisProviderError)) throw error;

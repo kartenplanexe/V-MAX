@@ -3,6 +3,7 @@ import { loadDatabaseCa, requireDatabaseTls } from './database-tls.js';
 import { z } from 'zod';
 import { config } from './config.js';
 import { PlanningDatabase } from './planning-database.js';
+import { RoutingQuota } from './routing-quota.js';
 import { DurablePlanning } from './durable-planning.js';
 import { LiveGeography, LocalityTokens } from './live-geography.js';
 import { YandexIntentClient } from './yandex-intent.js';
@@ -59,17 +60,20 @@ export async function registerLiveRuntime(app: FastifyInstance) {
   const client = new DgisClient({ placesApiKey: config.dgisPlacesApiKey, routingApiKey: config.dgisRoutingApiKey,
     backupApiKey: config.dgisBackupApiKey, tertiaryApiKey: config.dgisTertiaryApiKey });
   const events = new KudagoClient();
+  const routingQuota = new RoutingQuota(database.pool, config.routingQuota);
   const resolveEvents = createResolvePlanEvents(events);
   const planning = new DurablePlanning({ database, context: token => geography.context(token),
-    // Per-call bounds prevent a runaway transport loop; there is no daily usage quota.
+    // Per-operation bounds and a shared durable subscription quota limit physical attempts.
     provider: request => new YandexIntentClient({ apiKey: config.yandexApiKey, folderId: config.yandexFolderId,
       maxCalls: 1, maxEstimatedRub: 7.38 }).generate(request),
     plan: async job => {
       // The current 2GIS key rejects page_size=20 (meta.code=400, paramIsOutsideSet).
       // page_size=5 is verified by the live Places smoke test; five pages preserve a 25-item window.
       const result = await planPlacesWithDgis(client, job, { retrieval: { radiusMeters: 5000, pageSize: 5, maxPages: 5, maxRequests: 30 },
-        maxRoutingHttpCalls: 30, maxRoutePairs: 200, dataMode: 'live', includeGeometry: true, resolveEvents });
-      if (result.status !== 'AVAILABLE') app.log.warn(safePlanningDiagnostic(result), 'Planning outcome summary');
+        maxRoutingHttpCalls: 30, maxRoutePairs: 10, routingStrategy: 'progressive',
+        consumeRoutingQuota: (count, remainingMs) => routingQuota.consume(count, remainingMs),
+        dataMode: 'live', includeGeometry: true, resolveEvents });
+      app.log.info(safePlanningDiagnostic(result), 'Planning outcome summary');
       return result;
     },
   });

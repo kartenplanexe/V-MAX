@@ -38,6 +38,17 @@ function fixture() {
 }
 
 describe('saved own conditions allowlist and fresh binding', () => {
+  it('preserves a user visit duration and a relaxed requirement through reopening', () => {
+    const { view, context } = fixture(), activity = view.draft.days[0]!.activities[0]!;
+    if (activity.intent_kind === 'event_visit') throw Error('fixture');
+    activity.duration_minutes = 17;
+    activity.requirements = [{ text: 'тихое место', strength: 'preferred' }];
+    const saved = projectSavedConditions(view, { now });
+    const restored = remapSavedConditions(saved, context);
+    expect(restored.status).toBe('RESTORABLE');
+    if (restored.status === 'RESTORABLE') expect(restored.draft.days[0]!.activities[0]).toMatchObject({
+      duration_minutes: 17, requirements: [{ text: 'тихое место', strength: 'preferred' }] });
+  });
   it('preserves explicit search radius and provenance through saving and fresh-context remapping', () => {
     const { view, context } = fixture();
     view.draft.shared.search_radius_meters = 12_000;

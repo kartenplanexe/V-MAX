@@ -164,12 +164,20 @@ export function ConditionsPanel({ draft, view, busy, dirty, mapsAvailable, patch
         {draft.days.map((day, dayIndex) => <div key={day.day_id}>{draft.days.length > 1 && <h4>День {dayIndex + 1}</h4>}
           <ol className="activity-editor">{day.activities.map((activity, index) => <li key={activity.id}>
             <span><strong>{activity.label}</strong>{activity.intent_kind !== 'event_visit' && activity.selection.category_policy === 'named_types_only' && <small>Только: {activity.selection.named_types.join(', ')}</small>}
-              {activity.requirements.map((requirement, i) => <small key={i}>{requirement.strength === 'required' ? 'Обязательно' : 'Желательно'}: {requirement.text}</small>)}</span>
+              {activity.intent_kind !== 'event_visit' && <label>Минут на одно место<input type="number" min="1" max="1440" step="1" placeholder="Оценка приложения" value={activity.duration_minutes ?? ''}
+                onChange={event => patch(value => { const target = value.days[dayIndex]!.activities[index]!;
+                  if (target.intent_kind !== 'event_visit') { if (!event.target.value) delete target.duration_minutes; else target.duration_minutes = Number(event.target.value); } })} /></label>}
+              {activity.requirements.map((requirement, i) => <label key={i}>{requirement.text}
+                {activity.intent_kind === 'event_visit' ? <small>{requirement.strength === 'required' ? 'Обязательно' : 'Желательно'}</small> : <select value={requirement.strength}
+                  onChange={event => patch(value => { const requirements = value.days[dayIndex]!.activities[index]!.requirements;
+                    if (event.target.value === 'remove') requirements.splice(i, 1); else requirements[i]!.strength = event.target.value as 'required' | 'preferred'; })}>
+                  <option value="required">Обязательно</option><option value="preferred">Желательно</option><option value="remove">Не учитывать</option></select>}</label>)}</span>
             <div className="order-actions">{day.activities.length > 1 && <><Action variant="ghost" className="icon-action" disabled={index === 0} aria-label={`Передвинуть «${activity.label}» раньше`} onClick={() => move(dayIndex, index, -1)}>↑</Action>
               <Action variant="ghost" className="icon-action" disabled={index === day.activities.length - 1} aria-label={`Передвинуть «${activity.label}» позже`} onClick={() => move(dayIndex, index, 1)}>↓</Action></>}
               <Action variant="ghost" className="icon-action" aria-label={`Убрать занятие «${activity.label}»`} onClick={() => remove(dayIndex, activity.id)}><Icon name="close" /></Action></div>
           </li>)}</ol>
           {!day.activities.length && <p className="field-hint">Добавьте занятие или событие, чтобы построить маршрут на этот день.</p>}
+          {day.activities.some(activity => activity.intent_kind !== 'event_visit') && <p className="field-hint">Длительность посещения — оценка. Задайте своё время, если хотите провести в месте больше или меньше минут.</p>}
           {day.activities.length > 1 && <label className="checkbox-label"><input type="checkbox" checked={day.order.length > 0} onChange={event => patch(value => {
             const target = value.days[dayIndex]!; target.order = event.target.checked ? target.activities.slice(1).map((a, i) => [target.activities[i]!.id, a.id]) : [];
           })} />Посетить в этом порядке</label>}

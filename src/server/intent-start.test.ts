@@ -170,8 +170,8 @@ it('marks server-suggested evening separately and preserves unknown budget units
   const f = intentFixture();
   f.text = f.text.replace('с 16 до 19', '');
   f.response.days[0]!.time_updates = [{ op: 'set', field: 'period', value: 'evening', evidence: 'вечером' }];
-  f.response.shared_updates = [{ op: 'set', field: 'budget', value: { kind: 'limit', amount_rub: 5000, basis: 'unknown', period: 'unknown' }, evidence: '5000' }];
-  const result = await parseInitialIntent({ ...f.context, userText: f.text + ' вечером 5000', inputId: 'defaults' }, async () => f.response);
+  f.response.shared_updates = [{ op: 'set', field: 'budget', value: { kind: 'limit', amount_rub: 5000, basis: 'unknown', period: 'unknown' }, evidence: '5000 рублей' }];
+  const result = await parseInitialIntent({ ...f.context, userText: f.text + ' вечером 5000 рублей', inputId: 'defaults' }, async () => f.response);
   expect(result.status).toBe('draft'); if (result.status !== 'draft') return;
   expect(result.draft.days[0]!.window).toEqual({ start: '18:00', end: '20:00' });
   expect(result.provenance['days.day-1.window.start']).toBe('suggested');

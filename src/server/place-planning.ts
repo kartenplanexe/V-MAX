@@ -21,6 +21,7 @@ const Pair = z.object({ day_id: z.string(), from_id: z.string(), to_id: z.string
   search_sample_utc: z.array(z.number().int()).max(2).optional(),
 });
 const Prepared = z.object({ job: z.record(z.string(), z.unknown()), pairs: z.array(Pair),
+  preview_job: z.record(z.string(), z.unknown()).optional(),
   shortlist: z.record(z.string(), z.unknown()), maximum_selected_legs: z.number().int().nonnegative() });
 const Checks = z.object({ checks: z.array(Pair.extend({ departure_utc: z.number().int(), safe_minutes: z.number().int() })) });
 const Candidate = z.object({ day_id: z.string(), activity_id: z.string(), place_id: z.string() });
@@ -34,7 +35,7 @@ type Leg = RoutePair & { safe_minutes: number; distance_meters?: number; source:
 const ROUTING_POLICY = 'dated-routing.v3';
 const PIPELINE_STAGES = ['PREFLIGHT', 'EVENTS', 'PLACES', 'SHORTLIST', 'MATRIX', 'TRANSIT_SAMPLING',
   'SOLVE', 'RECOVERY', 'DEPARTURE_CHECKS', 'FINAL_VALIDATION'] as const;
-const BUDGET_STOP_CODES = ['HTTP_BUDGET_EXHAUSTED', 'PAIR_BUDGET_EXHAUSTED', 'DEADLINE_EXCEEDED'] as const;
+const BUDGET_STOP_CODES = ['HTTP_BUDGET_EXHAUSTED', 'PAIR_BUDGET_EXHAUSTED', 'DEADLINE_EXCEEDED', 'SUBSCRIPTION_QUOTA_EXHAUSTED'] as const;
 const STOP_ISSUES = ['ROUTING_BUDGET_EXCEEDED', 'ROUTING_BUDGET_OR_DEADLINE_EXCEEDED',
   'PLAN_EXPIRED_OR_INVALID', 'ROUTE_RECHECK_FAILED', 'PLANNING_PIPELINE_FAILED', 'ROUTING_PROVIDER_UNAVAILABLE'] as const;
 const allowedCode = (value: unknown, allowed: readonly string[]) =>
@@ -138,7 +139,7 @@ export function conservativeTravelSeconds(pair: RoutePair, row: Measurement): nu
   if (direct > 1000 && row.durationSeconds < physicalMinimum * 0.5) return null;
   return Math.max(row.durationSeconds, physicalMinimum);
 }
-function batches(queries: Query[]) {
+function batches(queries: Query[], maxBatch = 50) {
   const groups = new Map<string, { utc: number; mode: RoutePair['mode']; entries: Map<string, { pair: [Coordinates, Coordinates]; indices: number[] }> }>();
   queries.forEach((query, index) => {
     const key = `${query.utc}:${query.pair.mode}`;
@@ -149,7 +150,7 @@ function batches(queries: Query[]) {
   });
   return [...groups.values()].flatMap(group => {
     const entries = [...group.entries.values()];
-    const size = group.mode === 'public_transport' ? 1 : 50;
+    const size = group.mode === 'public_transport' ? 1 : maxBatch;
     return Array.from({ length: Math.ceil(entries.length / size) }, (_, index) => ({
       utc: group.utc, mode: group.mode, entries: entries.slice(index * size, (index + 1) * size),
     }));
@@ -164,6 +165,8 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
   retrieval: { radiusMeters: number; pageSize?: number; maxPages?: number; maxRequests?: number };
   maxRoutePairs?: number;
   maxRoutingHttpCalls?: number;
+  routingStrategy?: 'progressive';
+  consumeRoutingQuota?: (objects: number, remainingMs: number) => Promise<void>;
   dataMode?: 'live' | 'test';
   includeGeometry?: boolean;
   resolveEvents?: ResolvePlanEvents;
@@ -233,19 +236,20 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
       if (previous && (reuse || previous.value === null)) output[index] = previous.value;
       else { pending.push(query); indices.push(index); }
     });
-    const grouped = batches(pending);
+    const grouped = batches(pending, options.consumeRoutingQuota ? 5 : 50);
     const requests = detailed ? grouped.flatMap(batch => batch.entries.map(entry => ({ ...batch, entries: [entry] }))) : grouped;
     if (counters.route_pair_calculations + requests.reduce((sum, b) => sum + b.entries.length, 0) > maxPairs ||
         counters.routing_http_calls + requests.length > maxHttp) throw new DgisRequestBudgetError('PAIR_BUDGET_EXHAUSTED');
     for (const batch of requests) {
       const observedSource = source();
       try {
-        const requestBudget = { consume() {
+        const requestBudget = { async consume() {
             if (!withinDeadline()) throw new DgisRequestBudgetError('DEADLINE_EXCEEDED');
             if (counters.route_pair_calculations + batch.entries.length + reserve > maxPairs)
               throw new DgisRequestBudgetError('PAIR_BUDGET_EXHAUSTED');
             if (counters.routing_http_calls + 1 + reserve > maxHttp)
               throw new DgisRequestBudgetError('HTTP_BUDGET_EXHAUSTED');
+            await options.consumeRoutingQuota?.(batch.entries.length, 90_000 - (performance.now() - started));
             // Every physical attempt, including a key denial, consumes allowance.
             counters.route_pair_calculations += batch.entries.length; counters.routing_http_calls++;
           } };
@@ -282,6 +286,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
       catalog: input.catalog, visit_policy: input.visit_policy, budget_policy: input.budget_policy,
       ...(input.replacement === undefined ? {} : { replacement: input.replacement }),
       routing_policy: { ...z.record(z.string(), z.unknown()).parse(input.routing_policy ?? {}),
+        ...(options.routingStrategy ? { strategy: options.routingStrategy } : {}),
         max_route_pair_calculations: maxPairs, max_routing_http_calls: maxHttp }, places: [], route_legs: [] };
     // The replacement roster needs fresh place facts. The initial structural
     // preflight deliberately contains no places, so check it after retrieval.
@@ -332,12 +337,12 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
         fetched_at: fetchedAt.toISOString(), valid_until: new Date(fetchedAt.getTime() + 900_000).toISOString(), data_mode: mode }] }, 'prepare-routes');
     if (preparedReply.status !== 'AVAILABLE') return { ...preparedReply, routing: metadata(), ...scope() };
     const prepared = Prepared.parse(preparedReply);
-    candidatePreviewJob = prepared.job;
+    candidatePreviewJob = prepared.preview_job ?? prepared.job;
     diagnosticShortlist = prepared.shortlist;
     hasTransit = prepared.pairs.some(pair => pair.mode === 'public_transport');
     shortlistTruncated = z.array(z.object({ truncated: z.boolean() })).parse(prepared.shortlist.groups).some(group => group.truncated);
     const queries = prepared.pairs.flatMap(pair => (pair.sample_utc ?? []).map(utc => ({ pair, utc })));
-    const matrixBatches = batches(queries);
+    const matrixBatches = batches(queries, options.consumeRoutingQuota ? 5 : 50);
     // Reserve both verification rounds before spending on the matrix. Each route pair can be billed.
     const reserve = prepared.maximum_selected_legs * 2;
     pipelineStage = 'MATRIX';
@@ -421,7 +426,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
         let observed: Measurement[];
         try { observed = await measure(queries, 2 * proposal.maximum_selected_legs, true); }
         catch (error) {
-          if (!(error instanceof DgisRequestBudgetError) || error.code === 'DEADLINE_EXCEEDED') throw error;
+          if (!(error instanceof DgisRequestBudgetError) || error.code === 'DEADLINE_EXCEEDED' || error.code === 'SUBSCRIPTION_QUOTA_EXHAUSTED') throw error;
           recovery.added_pairs += counters.route_pair_calculations - beforePairs;
           recovery.stop_reason = 'BUDGET_EXHAUSTED'; break;
         }
@@ -444,7 +449,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
         additions.forEach(leg => legs.set(edgeKey(leg), leg));
         const candidate = proposal.proposal.candidate;
         currentJob = { ...currentJob, candidate_pool: [...z.array(Candidate).parse(currentJob.candidate_pool), candidate] };
-        candidatePreviewJob = currentJob;
+        candidatePreviewJob = prepared.preview_job ?? currentJob;
         recovery.added_candidates++;
         const groups = z.array(z.object({ day_id: z.string(), activity_id: z.string(), eligible: z.number(), selected: z.number(),
           truncated: z.boolean() }).passthrough()).parse(prepared.shortlist.groups);

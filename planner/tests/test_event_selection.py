@@ -139,12 +139,13 @@ def test_age_is_checked_per_candidate_and_unknown_poi_age_is_an_explicit_gap(job
     _, event = selected_event(job)
     job['intent']['shared']['party'] = {'total': 2, 'child_ages': [7]}
     result = select_places(job)
-    assert result['status'] == 'LIMITED'
-    assert [v['place_id'] for v in result['days'][0]['visits']] == [event['id']]
-    assert 'AGE_ELIGIBILITY_DATA_REQUIRED' in result['issues']
+    assert result['status'] == 'AVAILABLE'
+    assert event['id'] in [v['place_id'] for v in result['days'][0]['visits']]
+    assert any('AGE_ELIGIBILITY_UNVERIFIED' in v['warnings'] for v in result['days'][0]['visits'])
     event['age']['minimum_age'] = None
     result = select_places(job)
-    assert result['status'] == 'UNAVAILABLE'
+    assert result['status'] == 'LIMITED'
+    assert event['id'] not in [v['place_id'] for v in result['days'][0]['visits']]
     assert 'AGE_ELIGIBILITY_DATA_REQUIRED' in result['issues']
     event['age']['minimum_age'] = 12
     result = select_places(job)

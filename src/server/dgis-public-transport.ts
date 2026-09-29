@@ -36,7 +36,9 @@ export function normalizePublicTransport(value: unknown, input: { from: Coordina
     a.transfer_count + a.crossing_count - b.transfer_count - b.crossing_count || a.total_distance - b.total_distance)[0]!;
   const waiting = route.movements.map(item => item.waiting_duration ?? null);
   const waitingSeconds = waiting.every(value => value !== null) ? waiting.reduce<number>((sum, value) => sum + value!, 0) : null;
-  if (waiting.filter(value => value !== null).reduce((sum, value) => sum + value!, 0) > route.total_duration ||
+  const knownDuration = route.movements.reduce((sum, movement) =>
+    sum + (movement.moving_duration ?? 0) + (movement.waiting_duration ?? 0), 0);
+  if (knownDuration > route.total_duration ||
       route.pedestrian && route.movements.some(movement => movement.type === 'passage'))
     throw Error('Invalid public transport duration or mode.');
   const transit: TransitEvidence = { pedestrian: route.pedestrian, waitingSeconds,

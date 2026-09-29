@@ -9,7 +9,7 @@ it('binds locality tokens to signed evidence and expiry', () => {
   expect(() => signer.verify(token.slice(0, -5) + 'xxxxx')).toThrow();
   now += 1_800_001; expect(() => signer.verify(token)).toThrow();
 });
-it('parses provider bounds, excludes businesses from walks and does not invent durations for unsupported categories', () => {
+it('parses provider bounds, excludes businesses from walks and provides editable estimates for catalog choices', () => {
   expect(boundsFromWkt('POLYGON((37 55,38 55,38 56,37 56,37 55))')).toEqual({ west: 37, east: 38, south: 55, north: 56 });
   expect(() => boundsFromWkt('wrong')).toThrow();
   const policy = visitPolicy([{ id: '10', name: 'Музеи' }, { id: '11', name: 'Кафе' }, { id: '12', name: 'Банки' },
@@ -18,7 +18,7 @@ it('parses provider bounds, excludes businesses from walks and does not invent d
     { id: '112720', name: 'Фонтаны' }, { id: '112905', name: 'Стрит-арт' },
     { id: '114018', name: 'Туристические маршруты' }]);
   expect(policy.by_category)
-    .toEqual({ '10': 90, '11': 60, '168': 60, '112668': 45, '112900': 30,
+    .toEqual({ '10': 90, '11': 60, '12': 60, '168': 60, '112668': 45, '112900': 30,
       '112670': 20, '112720': 15, '112905': 20, '114018': 60 });
   expect(policy.walkable_category_ids).toEqual(['168', '112668', '112900', '112720', '112905', '114018']);
   expect(policy.park_category_ids).toEqual(['168']);

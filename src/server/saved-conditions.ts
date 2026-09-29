@@ -97,6 +97,7 @@ export function projectSavedConditions(view: PlanningView, options: { now?: Date
           target: structuredClone(activity.target), requirements: structuredClone(activity.requirements), semantic_key: 'selected_event' as const };
       }
       return { id: activity.id, label: activity.label,
+      ...(activity.duration_minutes === undefined ? {} : { duration_minutes: activity.duration_minutes }),
       ...(activity.intent_kind ? { intent_kind: activity.intent_kind } : {}),
       selection: { category_policy: activity.selection.category_policy, named_types: [...activity.selection.named_types] },
       requirements: activity.requirements.map(value => ({ text: value.text, strength: value.strength })),
@@ -145,6 +146,7 @@ export function remapSavedConditions(raw: SavedUserConditionsV1, context: Initia
       let include: string[] = [];
       if (activity.category_reconfirmation_required) blockers.push({ code: 'SAVED_EXCLUSIONS_RECONFIRM_REQUIRED', field: path });
       if (activity.category_selection_pending) return { id: activity.id, label: activity.label,
+        ...(activity.duration_minutes === undefined ? {} : { duration_minutes: activity.duration_minutes }),
         ...(activity.intent_kind ? { intent_kind: activity.intent_kind } : {}), selection: structuredClone(activity.selection),
         requirements: structuredClone(activity.requirements), categories: { state: 'no_match', include_any: [], exclude: [],
           region_id: context.locality.region_id, catalog_version: context.catalog.version } };
@@ -157,6 +159,7 @@ export function remapSavedConditions(raw: SavedUserConditionsV1, context: Initia
         include = rows.filter(row => foodRubrics.has(fold(row[1]))).map(row => row[0]);
       if (!include.length) blockers.push({ code: 'SAVED_CATEGORY_RECONFIRM_REQUIRED', field: path });
       return { id: activity.id, label: activity.label, ...(activity.intent_kind ? { intent_kind: activity.intent_kind } : {}),
+        ...(activity.duration_minutes === undefined ? {} : { duration_minutes: activity.duration_minutes }),
         selection: structuredClone(activity.selection), requirements: structuredClone(activity.requirements),
         categories: { state: 'matched', include_any: [...new Set(include)].sort(), exclude: [],
           region_id: context.locality.region_id, catalog_version: context.catalog.version } };

@@ -1,5 +1,5 @@
 /** Explicit live acceptance probe. Synthetic requests, real providers and solver.
- * No MAX messages, database writes, persisted provider payloads or browser auth.
+ * No MAX messages, persisted provider payloads or browser auth. Shared quota DB writes only.
  * Run: node --env-file=.env.local --use-system-ca --import tsx scripts/verify-live-journey.mts --run
  */
 import { randomUUID } from 'node:crypto';
@@ -10,9 +10,10 @@ import { DgisClient } from '../src/server/dgis.js';
 import { PlanningSessions } from '../src/server/planning-sessions.js';
 import { planPlacesWithDgis, safePlanningDiagnostic } from '../src/server/place-planning.js';
 import { extractionFidelityErrors, liveJourneyCases, simulatedJourneyChanges } from './live-journey-fidelity.mts';
+import { liveProbeQuota } from './live-routing-quota.mts';
 
 if (!process.argv.includes('--run')) {
-  console.log('Explicit --run required: 4 synthetic journeys through live 2GIS/Alice; at most 8 LLM calls, existing per-plan Places/Routing bounds. Add --parse-only to stop after extraction fidelity checks (no Places/Routing plan calls). No MAX messages or DB writes.');
+  console.log('Explicit --run required: 4 synthetic journeys through live 2GIS/Alice; at most 8 LLM calls, 10 Routing objects per plan with shared DB quota. Add --parse-only for extraction only. No MAX messages; only quota DB writes.');
   process.exit(0);
 }
 const parseOnly = process.argv.includes('--parse-only');
@@ -34,6 +35,7 @@ const diagnosticFetch: typeof fetch = async (url, options) => {
 const geography = new LiveGeography(env('DGIS_PLACES_API_KEY'), new LocalityTokens(randomUUID()), diagnosticFetch,
   env('DGIS_BACKUP_API_KEY'), env('DGIS_TERTIARY_API_KEY'));
 let failed = false;
+const quota = liveProbeQuota();
 try {
   const choices = await geography.search('Нижний Новгород');
   const selected = choices.find(choice => choice.name === 'Нижний Новгород');
@@ -69,7 +71,8 @@ try {
       let diagnostic: unknown;
       const sessions = new PlanningSessions({ plan: async job => {
         const result = await planPlacesWithDgis(client, job, { retrieval: { radiusMeters: 5000, pageSize: 5, maxPages: 5, maxRequests: 30 },
-          maxRoutePairs: 200, maxRoutingHttpCalls: 30, dataMode: 'live' });
+          maxRoutePairs: 10, maxRoutingHttpCalls: 30, dataMode: 'live', routingStrategy: 'progressive',
+          consumeRoutingQuota: (objects, remaining) => quota.consume(objects, remaining) });
         diagnostic = safePlanningDiagnostic(result); return result;
       } });
       const owner = 'synthetic-live-acceptance';
@@ -102,4 +105,5 @@ try {
   console.log(JSON.stringify({ stage: 'setup', error: error instanceof InitialIntentError ? error.code : 'PROBE_SETUP_FAILED' }));
   failed = true;
 }
+await quota.close();
 process.exitCode = failed ? 1 : 0;

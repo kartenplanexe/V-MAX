@@ -20,7 +20,7 @@ from .events import event_target, validate_event_candidate, event_window, event_
 POLICY_VERSION = "place-selection.v1"
 SUPPORTED_MODES = {"walking", "driving", "cycling", "public_transport"}
 MAX_OPTIONS_PER_DAY = 120
-WALK_QUALITY_POLICY = {"version": "walk-quality-floor.v1", "minimum_waypoints": 2, "rating_ceiling": 500}
+WALK_QUALITY_POLICY = {"version": "walk-quality-coverage.v2", "minimum_waypoints": 2, "acceptable_rating": 350}
 
 
 def integer(value, name, minimum=0, maximum=10**10):
@@ -356,6 +356,8 @@ def prepare(job, *, enforce_option_limit=True):
                 # The activity estimate is a floor, not permission to shorten
                 # an hour-long park visit into a 25-minute waypoint.
                 duration = max(category_duration, activity_durations.get(activity["id"], 0))
+                if target is None and activity.get("duration_minutes") is not None:
+                    duration = integer(activity["duration_minutes"], "user visit duration", 1, 1440)
                 if target is None and matching and not duration: reasons.append("DURATION_UNKNOWN")
                 raw_windows = (place.get("opening_intervals") or {}).get(day["date"])
                 windows = []
@@ -381,7 +383,9 @@ def prepare(job, *, enforce_option_limit=True):
                 minimum_age = (place.get('age') or {}).get('minimum_age')
                 if minimum_age is not None: integer(minimum_age, 'minimum age', 0, 18)
                 if child_ages:
-                    if minimum_age is None: reasons.append('AGE_ELIGIBILITY_UNKNOWN')
+                    if minimum_age is None:
+                        if target is not None: reasons.append('AGE_ELIGIBILITY_UNKNOWN')
+                        else: warnings.append('AGE_ELIGIBILITY_UNVERIFIED')
                     elif any(age < minimum_age for age in child_ages): reasons.append('AGE_RESTRICTION')
                 elif target is not None and minimum_age is None: warnings.append('EVENT_AGE_UNKNOWN')
                 facts = place.get("facts") or {}
@@ -481,7 +485,7 @@ def select_places(job, *, time_limit_seconds=3.0):
         return {"schema_version": POLICY_VERSION, "status": "NEEDS_INPUT", "issues": p["issues"], "days": []}
     model = cp_model.CpModel()
     chosen, starts, covered, arcs, ends, objectives = {}, {}, [], [], {}, []
-    complete_walks, walk_quality_floors = [], []
+    complete_walks = []
     options = p["options"]
     for i, option in enumerate(options):
         chosen[i] = model.new_bool_var(f"choose_{i}")
@@ -505,13 +509,6 @@ def select_places(job, *, time_limit_seconds=3.0):
                 model.add(count >= minimum).only_enforce_if(complete)
                 model.add(count < minimum).only_enforce_if(complete.Not())
                 complete_walks.append(complete)
-                ceiling = WALK_QUALITY_POLICY["rating_ceiling"]
-                floor = model.new_int_var(0, ceiling, f"walk_quality_{did}_{activity['id']}")
-                # Unselected options cannot lower the floor. The presence term
-                # makes an empty walk score zero, including an empty option pool.
-                model.add_min_equality(floor, [ceiling * present] + [
-                    options[i].quality * chosen[i] + ceiling * (1 - chosen[i]) for i in group])
-                walk_quality_floors.append(floor)
         for pid in {options[i].place_id for i in index}:
             model.add(sum(chosen[i] for i in index if options[i].place_id == pid) <= 1)
         if p['replacement'] is not None:
@@ -564,10 +561,12 @@ def select_places(job, *, time_limit_seconds=3.0):
     if complete_walks:
         objectives.append(sum(complete_walks))
     objectives.append(sum(o.preference * chosen[i] for i, o in enumerate(options)))
-    if walk_quality_floors:
-        objectives.append(sum(walk_quality_floors))
     if p["multi_stop"]:
-        objectives.append(sum(chosen[i] for i, o in enumerate(options) if o.activity_id in p["multi_stop"]))
+        walk_options = [(i, o) for i, o in enumerate(options) if o.activity_id in p["multi_stop"]]
+        # A tiny rating difference must not end an otherwise useful walk. Weak
+        # stops may help hard coverage, but never win just by their number.
+        objectives.append(sum(chosen[i] for i, o in walk_options if o.quality >= WALK_QUALITY_POLICY['acceptable_rating']))
+        objectives.append(-sum(chosen[i] for i, o in walk_options if o.quality < WALK_QUALITY_POLICY['acceptable_rating']))
     if p["walk_targets"]:
         deviations = []
         for did, target in sorted(p["walk_targets"].items()):

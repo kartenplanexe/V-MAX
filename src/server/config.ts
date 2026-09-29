@@ -19,6 +19,12 @@ function parsePositiveInteger(value: string | undefined, fallback: number, name:
   }
   return parsed;
 }
+function parseUsage(value: string | undefined, fallback: number) {
+  if (value === undefined || value === '') return fallback;
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n < 0) throw new Error('Invalid routing quota usage');
+  return n;
+}
 
 loadLocalEnvironment();
 
@@ -34,6 +40,13 @@ export const config = {
   dgisRoutingApiKey: process.env.DGIS_ROUTING_API_KEY?.trim() || '',
   dgisBackupApiKey: process.env.DGIS_BACKUP_API_KEY?.trim() || '',
   dgisTertiaryApiKey: process.env.DGIS_TERTIARY_API_KEY?.trim() || '',
+  routingQuota: {
+    minute: parsePositiveInteger(process.env.DGIS_ROUTING_LIMIT_MINUTE, 5, 'DGIS_ROUTING_LIMIT_MINUTE'),
+    day: parsePositiveInteger(process.env.DGIS_ROUTING_LIMIT_DAY, 50, 'DGIS_ROUTING_LIMIT_DAY'),
+    month: parsePositiveInteger(process.env.DGIS_ROUTING_LIMIT_MONTH, 1000, 'DGIS_ROUTING_LIMIT_MONTH'),
+    initialDay: process.env.DGIS_ROUTING_INITIAL_DAY ?? '', initialDayUsed: parseUsage(process.env.DGIS_ROUTING_INITIAL_DAY_USED, 50),
+    initialMonth: process.env.DGIS_ROUTING_INITIAL_MONTH ?? '', initialMonthUsed: parseUsage(process.env.DGIS_ROUTING_INITIAL_MONTH_USED, 1000),
+  },
   host: process.env.HOST?.trim() || '0.0.0.0',
   isProduction: process.env.NODE_ENV === 'production',
   initDataTtlSeconds: parsePositiveInteger(

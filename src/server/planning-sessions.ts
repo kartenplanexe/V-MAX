@@ -301,6 +301,23 @@ export class PlanningSessions {
     const getDay = (dayId: string) => { const day = draft.days.find(d => d.day_id === dayId); if (!day) reject('UNKNOWN_DAY', 422); return day; };
     for (const change of body.changes) {
       switch (change.op) {
+        case 'activity_details': {
+          const day = getDay(change.day_id), activity = day.activities.find(value => value.id === change.activity_id);
+          if (!activity || isEventActivity(activity)) reject('UNKNOWN_ACTIVITY', 422);
+          if (change.duration_minutes === null) delete activity.duration_minutes;
+          else activity.duration_minutes = change.duration_minutes;
+          activity.requirements = structuredClone(change.requirements);
+          provenance[`days.${day.day_id}.activities`] = 'user_form';
+          break;
+        }
+        case 'discard_clarification': {
+          const question = draft.clarifications?.find(value => value.id === change.clarification_id);
+          if (!question) reject('CLARIFICATION_NOT_FOUND', 422);
+          draft.clarifications = draft.clarifications!.filter(value => value.id !== question.id);
+          if (!draft.clarifications.length) delete draft.clarifications;
+          provenance[`clarifications.${question.id}`] = 'user_discarded';
+          break;
+        }
         case 'resolve_clarification': {
           const question = draft.clarifications?.find(value => value.id === change.clarification_id);
           if (!question) reject('CLARIFICATION_NOT_FOUND', 422);
@@ -319,7 +336,7 @@ export class PlanningSessions {
               old.categories.exclude.some(value => !record.context.catalog.leaf_ids.includes(value) || replacement.categories.include_any.includes(value))))
             reject('ACTIVITY_EXCLUSIONS_REVIEW_REQUIRED', 422);
           replacement.categories.exclude = [...old.categories.exclude];
-          day.activities = day.activities.map(activity => activity.id === old.id ? { ...replacement, requirements: structuredClone(old.requirements) } : activity);
+          day.activities = day.activities.map(activity => activity.id === old.id ? { ...replacement, duration_minutes: old.duration_minutes, requirements: structuredClone(old.requirements) } : activity);
           provenance[`days.${day.day_id}.activities`] = 'user_form';
           break;
         }
@@ -449,9 +466,9 @@ export class PlanningSessions {
           ? [] : walkIds.filter(id => !activity.categories.exclude.includes(id));
         if (!categories.length) reject('WALK_CATEGORY_UNAVAILABLE', 422);
         activity.categories.include_any = categories;
-        const routeWalk = kind === 'route_walk' && !planDraft.points.destination &&
+        const routeWalk = kind === 'route_walk' &&
           !!day.window && minutes(day.window.end) - minutes(day.window.start) >= 90;
-        by_activity[activity.id] = routeWalk ? 25 : 60;
+        by_activity[activity.id] = activity.duration_minutes ?? (routeWalk ? 25 : 60);
         if (routeWalk) {
           const window = minutes(day.window!.end) - minutes(day.window!.start);
           // This is only the mathematical upper bound from visit duration. The

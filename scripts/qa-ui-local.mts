@@ -39,7 +39,8 @@ let routingDenied = false;
 const sessions = new PlanningSessions({ now: qaNow, plan: job => planPlacesWithDgis(fixture.client(async (url, init) => {
   if (routingDenied && new URL(String(url)).hostname === 'routing.api.2gis.com') return new Response('', { status: 429 });
   return fixture.defaultFetch(url, init);
-}), job, { retrieval: { radiusMeters: 5000, maxPages: 1 }, dataMode: 'test', now: qaNow, resolveEvents: resolveQaEvents }) });
+}), job, { retrieval: { radiusMeters: 5000, maxPages: 1 }, dataMode: 'test', now: qaNow, resolveEvents: resolveQaEvents,
+  routingStrategy: 'progressive', maxRoutePairs: 10 }) });
 const active = new Map<string, string>(), saved = new Map<string, Map<string, SavedConditionsView>>(), expired = new Set<string>();
 const authenticate: PlanningAuthenticator = request => {
   const value = request.headers['x-max-init-data'];

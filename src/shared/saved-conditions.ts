@@ -14,6 +14,7 @@ const Issue = z.object({ code: z.enum(['SAVED_CATEGORY_RECONFIRM_REQUIRED', 'SAV
 const Point = z.object({ lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180),
   source: z.enum(['user_map', 'user_geolocation']), saved_at: Timestamp }).strict();
 const PlaceActivity = z.object({ id: Id, label: z.string().min(1).max(500), target: z.never().optional(),
+  duration_minutes: z.number().int().min(1).max(1440).optional(),
   intent_kind: z.enum(['route_walk', 'area_walk', 'place_visit']).optional(),
   selection: z.object({ category_policy: z.enum(['related_allowed', 'named_types_only']),
     named_types: z.array(z.string().min(1).max(500)).max(100) }).strict(),

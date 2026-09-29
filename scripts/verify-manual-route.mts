@@ -1,6 +1,6 @@
 /** Real manual-input -> Places -> Routing -> solver diagnostic, independent of LLM.
  * node --env-file=.env.local --use-system-ca --import tsx scripts/verify-manual-route.mts --run --case=walk
- * Cases: walk, walk-meal, short-window. One case per invocation; no MAX/DB writes.
+ * Cases: walk, walk-meal, short-window. One case per invocation; only shared quota DB writes.
  * Outputs synthetic conditions, aggregate diagnostics and the public plan only.
  */
 import { randomUUID } from 'node:crypto';
@@ -11,9 +11,10 @@ import { PlanningSessions } from '../src/server/planning-sessions.js';
 import { planPlacesWithDgis, safePlanningDiagnostic } from '../src/server/place-planning.js';
 import { localAcceptanceDate } from './live-journey-fidelity.mts';
 import type { ActivityChoice } from '../src/shared/activity-choice.js';
+import { liveProbeQuota } from './live-routing-quota.mts';
 
 if (!process.argv.includes('--run')) {
-  console.log('Use --run --case=walk|walk-meal|short-window. Real 2GIS calls (existing per-plan bounds), zero LLM calls, no MAX messages or DB writes.');
+  console.log('Use --run --case=walk|walk-meal|short-window. Real 2GIS, max 10 Routing objects, shared DB quota required, zero LLM calls or MAX messages.');
   process.exit(0);
 }
 const scenario = process.argv.find(arg => arg.startsWith('--case='))?.slice(7);
@@ -31,6 +32,7 @@ const fetchProvider: typeof fetch = async (url, options) => {
   return response;
 };
 const started = performance.now();
+const quota = liveProbeQuota();
 try {
   const geography = new LiveGeography(env('DGIS_PLACES_API_KEY'), new LocalityTokens(randomUUID()), fetchProvider,
     env('DGIS_BACKUP_API_KEY'), env('DGIS_TERTIARY_API_KEY'));
@@ -56,7 +58,8 @@ try {
   const sessions = new PlanningSessions({ plan: async job => {
     const result = await planPlacesWithDgis(client, job, {
       retrieval: { radiusMeters: 5000, pageSize: 5, maxPages: 5, maxRequests: 30 },
-      maxRoutePairs: 200, maxRoutingHttpCalls: 30, dataMode: 'live',
+      maxRoutePairs: 10, maxRoutingHttpCalls: 30, dataMode: 'live', routingStrategy: 'progressive',
+      consumeRoutingQuota: (objects, remaining) => quota.consume(objects, remaining),
     });
     diagnostic = safePlanningDiagnostic(result); return result;
   } });
@@ -103,3 +106,4 @@ try {
     seconds: Math.round((performance.now() - started) / 100) / 10 }));
   process.exitCode = 1;
 }
+await quota.close();

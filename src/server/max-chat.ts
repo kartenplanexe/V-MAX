@@ -224,6 +224,7 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
       if (visit.location_label) lines.push(`📍 ${visit.location_label}`);
       lines.push(`В пути ${visit.travel_before_minutes} мин${visit.distance_before_meters == null ? '' : ` / ≈${Math.round(visit.distance_before_meters / 100) / 10} км`} · запас ${visit.arrival_buffer_minutes} мин · ${visit.price_expected_minor == null ? 'цена неизвестна' : `≈ ${visit.price_expected_minor / 100} ₽`}`);
       if (visit.warnings.includes('OPENING_HOURS_UNVERIFIED')) lines.push('Часы работы не указаны; проверьте доступность перед выходом.');
+      if (visit.warnings.includes('AGE_ELIGIBILITY_UNVERIFIED')) lines.push('Возрастные ограничения места не указаны. Возможность посещения с детьми нужно уточнить.');
       const url = placeSourceLink(visit.source);
       if (url) lines.push(`Место в 2ГИС: ${url}`);
       previous = visit.place_id;

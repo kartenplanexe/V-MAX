@@ -102,6 +102,7 @@ def prepare_routes(job):
     if mode != "walking" and p["budget_limit"] is not None:
         return {"schema_version": POLICY_VERSION, "status": "NEEDS_INPUT", "issues": ["TRANSPORT_COST_POLICY_REQUIRED"], "days": []}
     policy = job.get("routing_policy", {})
+    progressive = policy.get("strategy") == "progressive"
     limit = integer(policy.get("candidates_per_activity", MAX_OPTIONS_PER_DAY), "shortlist size", 1, MAX_OPTIONS_PER_DAY)
     max_pairs = integer(policy.get("max_route_pair_calculations", 200), "route pair budget", 1, 1000)
     max_http = integer(policy.get("max_routing_http_calls", 30), "routing HTTP budget", 1, 100)
@@ -112,6 +113,17 @@ def prepare_routes(job):
             options = [o for o in p["options"] if o.day_id == day["day_id"] and o.activity_id == activity["id"]]
             ranked = sorted(options, key=lambda o: (-o.preference, direct_meters(origin, p["places"][o.place_id]["point"]), -o.quality, o.place_id))
             ranked_groups.append((day["day_id"], activity["id"], ranked))
+
+    if progressive and p['replacement'] is None:
+        groups = [{"day_id": did, "activity_id": aid, "eligible": len(ranked),
+                   "selected": 0, "truncated": bool(ranked)} for did, aid, ranked in ranked_groups]
+        return {"schema_version": POLICY_VERSION, "status": "AVAILABLE",
+                "job": job | {"candidate_pool": []}, "preview_job": job | {"candidate_pool": [
+                    {"day_id": did, "activity_id": aid, "place_id": o.place_id}
+                    for did, aid, ranked in ranked_groups for o in ranked[:120]]},
+                "pairs": [], "maximum_selected_legs": 0,
+                "shortlist": {"policy": "progressive-routing.v2", "groups": groups,
+                    "method": "measured_insertions", "global_optimality_claimed": False}}
 
     def materialize(counts):
         selected = []
@@ -213,6 +225,7 @@ def recover_routes(envelope):
     mode, timezone = full["intent"]["shared"]["mobility"][0], full["intent"]["locality"]["timezone"]
     operator_limit = integer(job.get("routing_policy", {}).get("candidates_per_activity", MAX_OPTIONS_PER_DAY),
                              "shortlist size", 1, MAX_OPTIONS_PER_DAY)
+    progressive = job.get("routing_policy", {}).get("strategy") == "progressive"
     proposals, targets, option_limit = [], 0, False
     for day_index, day in enumerate(full["days"]):
         did = day["day_id"]
@@ -222,7 +235,7 @@ def recover_routes(envelope):
         for activity_index, activity in enumerate(day["activities"]):
             aid = activity["id"]
             count = sum(visit["activity_id"] == aid for visit in visits)
-            if count and not (aid in full["multi_stop"] and count < 2):
+            if count and not (aid in full["multi_stop"] and count < (full["multi_stop"][aid] if progressive else 2)):
                 continue
             targets += 1
             group_count = sum(row["day_id"] == did and row["activity_id"] == aid for row in job["candidate_pool"])
@@ -233,6 +246,8 @@ def recover_routes(envelope):
                        and (did, aid, option.place_id) not in allowed and option.place_id not in visited_places]
             group_attempts = sum(key[:2] == (did, aid) for key in attempted)
             for option in options:
+                if progressive and count >= 2 and option.quality < 350:
+                    continue
                 for position in range(len(visits) + 1):
                     # Preserve every hard precedence relation with the existing
                     # prefix/suffix. The complete solver checks it again later.
@@ -245,6 +260,26 @@ def recover_routes(envelope):
                     key = (did, aid, option.place_id, before, after)
                     if key in attempted:
                         continue
+                    if progressive:
+                        # Optimistic feasibility only: zero NEW travel never certifies
+                        # a route. It avoids buying an insertion that cannot fit even
+                        # before measuring its two new edges. Existing travel is kept.
+                        sequence = visits[:position] + [{"activity_id": aid, "place_id": option.place_id}] + visits[position:]
+                        minute, previous, feasible = clock(day["window"]["start"]), "@origin", True
+                        for visit in sequence:
+                            candidate = next(o for o in full["options"] if o.day_id == did and
+                                o.activity_id == visit["activity_id"] and o.place_id == visit["place_id"])
+                            old_leg = current["legs"].get((did, previous, candidate.place_id))
+                            minute += (old_leg["safe_minutes"] if old_leg else 0) + full["buffer"]
+                            starts = [max(minute, left) for left, right in candidate.windows
+                                      if max(minute, left) <= right]
+                            if not starts:
+                                feasible = False
+                                break
+                            minute = min(starts) + candidate.duration
+                            previous = candidate.place_id
+                        if not feasible or minute > clock(day["window"]["end"]):
+                            continue
                     edges = [(before, option.place_id)]
                     if after != "@destination" or destination is not None:
                         edges.append((option.place_id, after))
@@ -259,7 +294,9 @@ def recover_routes(envelope):
                                       "to_point": destination if b == "@destination" else full["places"][b]["point"],
                                       "date": day["date"], "window": day["window"], "mode": mode,
                                       "sample_utc": [departure_utc(day, minute, timezone) for minute in samples]})
-                    score = (int(count > 0), group_attempts, len(pairs), -option.preference,
+                    predecessors_missing = sum(1 for before_aid, after_aid in full["precedence"][did]
+                        if after_aid == aid and not any(v["activity_id"] == before_aid for v in visits))
+                    score = (int(count > 0), predecessors_missing if progressive else 0, group_attempts, len(pairs), -option.preference,
                              direct_meters(origin, full["places"][option.place_id]["point"]), -option.quality,
                              day_index, activity_index, option.place_id, position)
                     proposals.append((score, option, {"key": list(key), "candidate": {
@@ -270,5 +307,10 @@ def recover_routes(envelope):
     _, option, proposal = min(proposals, key=lambda row: row[0])
     selected = current["options"] + [option]
     _, maximum_selected_legs = _route_graph(full, selected)
+    if progressive:
+        maximum_selected_legs = sum(len(day['visits']) + int(bool(day['visits']) and destination is not None)
+                                    for day in result['days']) + 1
+        if destination is not None and not by_day[option.day_id]['visits']:
+            maximum_selected_legs += 1
     return {"schema_version": POLICY_VERSION, "status": "AVAILABLE", "proposal": proposal,
             "maximum_selected_legs": maximum_selected_legs}

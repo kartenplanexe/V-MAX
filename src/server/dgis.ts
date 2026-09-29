@@ -72,11 +72,11 @@ export class DgisRoutingUnavailableError extends DgisProviderError {
   }
 }
 
-/** Owned by one operation, not by the shared client. Called synchronously before
+/** Owned by one operation, not by the shared client. Awaited before
  * every physical HTTP attempt, including denied-key fallback attempts. */
-export interface DgisRequestBudget { consume(): void }
+export interface DgisRequestBudget { consume(): void | Promise<void> }
 export class DgisRequestBudgetError extends Error {
-  constructor(readonly code: 'HTTP_BUDGET_EXHAUSTED' | 'PAIR_BUDGET_EXHAUSTED' | 'DEADLINE_EXCEEDED' = 'HTTP_BUDGET_EXHAUSTED') {
+  constructor(readonly code: 'HTTP_BUDGET_EXHAUSTED' | 'PAIR_BUDGET_EXHAUSTED' | 'DEADLINE_EXCEEDED' | 'SUBSCRIPTION_QUOTA_EXHAUSTED' = 'HTTP_BUDGET_EXHAUSTED') {
     super(code); this.name = 'DgisRequestBudgetError';
   }
 }
@@ -349,7 +349,7 @@ export class DgisClient {
       const requestUrl = new URL(url);
       requestUrl.searchParams.set('key', key);
       // Outside the fetch catch: a budget/deadline stop is not a provider failure.
-      requestBudget?.consume();
+      await requestBudget?.consume();
       let response: Response;
       try {
         response = await this.#fetch(requestUrl, { ...init, signal: AbortSignal.timeout(this.#timeoutMs) });

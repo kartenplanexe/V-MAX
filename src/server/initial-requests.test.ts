@@ -27,9 +27,9 @@ it('deduplicates an in-flight initial request, isolates owners and does not repe
 });
 it('requires typed fields and explicit confirmation after extraction; unknown budget cannot be confirmed', async () => {
   const f = intentFixture();
-  f.response.shared_updates.push({ op: 'set', field: 'budget', value: { kind: 'limit', amount_rub: 5000, basis: 'unknown', period: 'unknown' }, evidence: '5000' });
+  f.response.shared_updates.push({ op: 'set', field: 'budget', value: { kind: 'limit', amount_rub: 5000, basis: 'unknown', period: 'unknown' }, evidence: '5000 рублей' });
   const { initial, sessions } = setup(async () => f.response);
-  const result = await initial.start('owner-a', { event_id: 'event-two', user_text: f.text + ' 5000' });
+  const result = await initial.start('owner-a', { event_id: 'event-two', user_text: f.text + ' 5000 рублей' });
   expect(result.status).toBe('draft'); if (result.status !== 'draft') return;
   expect(result.view.phase).toBe('DRAFT'); expect(result.view.confirmed_version).toBeNull();
   expect(result.view.issues.map(i => i.code)).toContain('BUDGET_SCOPE_REQUIRED');
