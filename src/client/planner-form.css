@@ -1,4 +1,3 @@
-/* Composition: approved Stitch v2. Colour and type: MAX brandbook. */
 .planner-page {
   --panel: #fff; --page: #FAF8FF; --ink: #0D001A; --muted: #645B70; --line: #E4DDEE; --soft: #F4F0FF;
   --accent: #471AFF; --accent-text: #471AFF; --positive: #216442; --positive-soft: #F0F8F3; --caution: #83551B; --caution-soft: #FFF6E8; --negative: #A52240; --negative-soft: #FFF0F3;
@@ -341,7 +340,6 @@
 .transit-details strong, .transit-details span { display: block; }
 .transit-details strong { font-weight: 500; color: var(--ink); }
 
-/* Event selection follows the same conditions sheet and dayline tokens. */
 .event-panel > label, .event-panel > .ui-action { margin-bottom: 16px; }
 .event-coverage { margin: 18px 0; color: var(--muted); font-size: 13px; }
 .event-cards { list-style: none; padding: 0; margin: 16px 0; }
@@ -372,16 +370,25 @@
 .child-age-fields { display: grid; gap: 12px; }
 .child-age-row { display: flex; gap: 12px; align-items: end; }
 .child-age-row label { flex: 1; min-width: 0; }
-/* A partial request stays visible while each unresolved field is reviewed. */
 .input-clarifications { display: grid; gap: 20px; width: 100%; }
 .input-question { padding: 16px 0; border-top: 1px solid var(--border, #ddd7e7); overflow-wrap: anywhere; }
 .input-question > p:first-child { font-weight: 600; }
 .candidate-places { margin-block: 24px; }
 .candidate-places > h3 { margin-bottom: 8px; }
+.all-stops-link { display: flex; align-items: center; justify-content: center; min-height: 48px; padding: 12px 20px; margin-block: 16px; border-radius: 14px; background: var(--button-primary); color: #fff; font-weight: 600; text-decoration: none; text-align: center; }
+.all-stops-link:hover { background: var(--states-button-primary-hover); }
+.all-stops-link:focus-visible { outline: 3px solid var(--accent-text); outline-offset: 3px; }
 .candidate-group { margin-top: 24px; }
 .candidate-group > h4 { margin-bottom: 12px; text-transform: none; }
 .candidate-group > h4 > span { opacity: .65; font-weight: 400; }
-.candidate-group > ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.candidate-dayline { list-style: none; padding: 0; margin: 0; display: grid; gap: 0; counter-reset: none; }
+.candidate-dayline > li { position: relative; padding: 0 0 12px 38px; }
+.candidate-dayline > li::before { content: ''; position: absolute; top: 27px; bottom: -10px; left: 13px; width: 2px; background: var(--line); }
+.candidate-dayline > li:last-child::before { display: none; }
+.candidate-step-number { position: absolute; z-index: 1; top: 16px; left: 0; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.candidate-footnote { margin-top: 20px !important; }
 .candidate-card h5 { font: inherit; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
 .candidate-card .stop-content { padding-top: 18px; }
+.candidate-card > .button-secondary { margin: 0 18px 14px; min-height: 44px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--accent-text); font: inherit; cursor: pointer; }
+.candidate-card > .button-secondary[aria-pressed=true] { background: var(--soft); border-color: var(--accent-text); }
 .candidate-card .stop-footer > a { white-space: nowrap; }

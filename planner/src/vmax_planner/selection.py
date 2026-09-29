@@ -18,6 +18,7 @@ from .replacement import roster, filter_options, slot_index, validate_roster
 from .events import event_target, validate_event_candidate, event_window, event_display, event_candidate_id
 
 POLICY_VERSION = "place-selection.v1"
+EXTERNAL_VISIT_POLICY = {"version": "visit-duration-estimates.v7", "walk_stop_minutes": 5}
 SUPPORTED_MODES = {"walking", "driving", "cycling", "public_transport"}
 MAX_OPTIONS_PER_DAY = 120
 WALK_QUALITY_POLICY = {"version": "walk-quality-coverage.v2", "minimum_waypoints": 2, "acceptable_rating": 350}
@@ -358,6 +359,12 @@ def prepare(job, *, enforce_option_limit=True):
                 duration = max(category_duration, activity_durations.get(activity["id"], 0))
                 if target is None and activity.get("duration_minutes") is not None:
                     duration = integer(activity["duration_minutes"], "user visit duration", 1, 1440)
+                elif target is None and job.get('routing_policy', {}).get('external_compact'):
+                    # Flexible product estimate for an outdoor stop. Never change
+                    # an explicit user duration or claim this is provider evidence.
+                    kind = activity.get('intent_kind')
+                    if kind in ('route_walk', 'area_walk') or activity['id'] in multi_stop:
+                        duration = EXTERNAL_VISIT_POLICY['walk_stop_minutes']
                 if target is None and matching and not duration: reasons.append("DURATION_UNKNOWN")
                 raw_windows = (place.get("opening_intervals") or {}).get(day["date"])
                 windows = []

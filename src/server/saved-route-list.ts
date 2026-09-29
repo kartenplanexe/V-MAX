@@ -75,12 +75,12 @@ export class SavedRouteLibrary {
     const now = this.database.now();
     const [rows, ownerRow, navigation] = await Promise.all([
       this.database.pool.query(`SELECT draft_id,revision,conditions,expires_at FROM saved_user_conditions
-        WHERE owner=$1 AND expires_at>$2 AND ($3::timestamptz IS NULL OR
+        WHERE owner=$1 AND (retained OR expires_at>$2) AND ($3::timestamptz IS NULL OR
           (conditions->>'updated_at')::timestamptz < $3 OR
           ((conditions->>'updated_at')::timestamptz = $3 AND draft_id > $4))
         ORDER BY (conditions->>'updated_at')::timestamptz DESC,draft_id ASC LIMIT $5`,
       [owner, now, cursor?.updated_at ?? null, cursor?.id ?? null, PAGE_SIZE + 1]),
-      this.database.pool.query('SELECT state FROM planning_owners WHERE owner=$1 AND expires_at>$2', [owner, now]),
+      this.database.pool.query('SELECT state FROM planning_owners WHERE owner=$1 AND (retained OR expires_at>$2)', [owner, now]),
       this.database.pool.query('SELECT state FROM bot_navigation WHERE owner=$1 AND expires_at>now()', [owner]),
     ]);
     const checkpoint: PlanningCheckpoint | undefined = ownerRow.rows[0]?.state?.checkpoint;
@@ -88,9 +88,10 @@ export class SavedRouteLibrary {
     const activeDraft = nav?.mode === 'planning' ? nav.routes.find(route => route.id === nav.activeRouteId)?.draftId : undefined;
     const saved = rows.rows.slice(0, PAGE_SIZE).map(rowView);
     return SavedRouteListSchema.parse({ items: saved.map(snapshot => {
-      const record = checkpoint?.records.find(item => item.owner === owner && item.view.id === snapshot.id && item.expires > +now);
+      const record = checkpoint?.records.find(item => item.owner === owner && item.view.id === snapshot.id && (item.retained || item.expires > +now));
       return { id: snapshot.id, title: title(snapshot), revision: Math.max(snapshot.revision, record?.view.version ?? 0),
         updated_at: snapshot.conditions.updated_at, expires_at: snapshot.expires_at, active: activeDraft === snapshot.id,
+        ...(record?.view.result?.status === 'PLACES_FOUND' ? { has_saved_result: true } : {}),
         can_open: Boolean(record), has_fresh_result: Boolean(record?.view.result && record.resultExpires > +now && planFreshUntil(record.view.result) > +now) };
     }), next_cursor: rows.rows.length > PAGE_SIZE && saved.length ? Buffer.from(JSON.stringify({
       updated_at: saved.at(-1)!.conditions.updated_at, id: saved.at(-1)!.id })).toString('base64url') : null });

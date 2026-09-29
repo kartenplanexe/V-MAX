@@ -65,7 +65,7 @@
         "security": [],
         "responses": {
           "200": {
-            "description": "Public MapGL key only, when configured. Server-side Places/Routing keys are never returned.",
+            "description": "Browser-visible MapGL key when configured. Shared demo keys require explicit owner-approved opt-in. PLACES_FOUND contains alternatives, not a verified itinerary.",
             "headers": {
               "Cache-Control": {
                 "schema": {
@@ -79,6 +79,21 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "planning": {
+                      "type": "object",
+                      "properties": {
+                        "routingMode": {
+                          "enum": [
+                            "external",
+                            "verified"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "routingMode"
+                      ],
+                      "additionalProperties": false
+                    },
                     "maps": {
                       "type": "object",
                       "properties": {
@@ -100,6 +115,7 @@
                     }
                   },
                   "required": [
+                    "planning",
                     "maps"
                   ],
                   "additionalProperties": false
@@ -5698,7 +5714,8 @@
               "LIMITED",
               "UNAVAILABLE",
               "ERROR",
-              "NEEDS_INPUT"
+              "NEEDS_INPUT",
+              "PLACES_FOUND"
             ]
           },
           "candidate_preview": {
@@ -5748,6 +5765,31 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "estimated_visit_minutes": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1440
+                          },
+                          "point": {
+                            "type": "object",
+                            "properties": {
+                              "lat": {
+                                "type": "number",
+                                "minimum": -90,
+                                "maximum": 90
+                              },
+                              "lon": {
+                                "type": "number",
+                                "minimum": -180,
+                                "maximum": 180
+                              }
+                            },
+                            "required": [
+                              "lat",
+                              "lon"
+                            ],
+                            "additionalProperties": false
                           },
                           "source": {
                             "type": "object",
@@ -5822,6 +5864,47 @@
               "groups"
             ],
             "additionalProperties": false
+          },
+          "selection_policy": {
+            "type": "string",
+            "enum": [
+              "external-compact.v1",
+              "external-compact.v2",
+              "external-compact.v3",
+              "external-compact.v4"
+            ]
+          },
+          "selection_gaps": {
+            "maxItems": 120,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "activity_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "NO_ELIGIBLE_PLACES",
+                    "COMBINATION_NOT_FOUND"
+                  ]
+                }
+              },
+              "required": [
+                "day_id",
+                "activity_id",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
           },
           "origin": {
             "type": "object",
@@ -7934,7 +8017,8 @@
                         "LIMITED",
                         "UNAVAILABLE",
                         "ERROR",
-                        "NEEDS_INPUT"
+                        "NEEDS_INPUT",
+                        "PLACES_FOUND"
                       ]
                     },
                     "candidate_preview": {
@@ -7984,6 +8068,31 @@
                                           "type": "null"
                                         }
                                       ]
+                                    },
+                                    "estimated_visit_minutes": {
+                                      "type": "integer",
+                                      "minimum": 1,
+                                      "maximum": 1440
+                                    },
+                                    "point": {
+                                      "type": "object",
+                                      "properties": {
+                                        "lat": {
+                                          "type": "number",
+                                          "minimum": -90,
+                                          "maximum": 90
+                                        },
+                                        "lon": {
+                                          "type": "number",
+                                          "minimum": -180,
+                                          "maximum": 180
+                                        }
+                                      },
+                                      "required": [
+                                        "lat",
+                                        "lon"
+                                      ],
+                                      "additionalProperties": false
                                     },
                                     "source": {
                                       "type": "object",
@@ -8058,6 +8167,47 @@
                         "groups"
                       ],
                       "additionalProperties": false
+                    },
+                    "selection_policy": {
+                      "type": "string",
+                      "enum": [
+                        "external-compact.v1",
+                        "external-compact.v2",
+                        "external-compact.v3",
+                        "external-compact.v4"
+                      ]
+                    },
+                    "selection_gaps": {
+                      "maxItems": 120,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "day_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "activity_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "reason": {
+                            "type": "string",
+                            "enum": [
+                              "NO_ELIGIBLE_PLACES",
+                              "COMBINATION_NOT_FOUND"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "day_id",
+                          "activity_id",
+                          "reason"
+                        ],
+                        "additionalProperties": false
+                      }
                     },
                     "origin": {
                       "type": "object",
@@ -9560,7 +9710,8 @@
                       "LIMITED",
                       "UNAVAILABLE",
                       "ERROR",
-                      "NEEDS_INPUT"
+                      "NEEDS_INPUT",
+                      "PLACES_FOUND"
                     ]
                   },
                   "candidate_preview": {
@@ -9610,6 +9761,31 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "estimated_visit_minutes": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 1440
+                                  },
+                                  "point": {
+                                    "type": "object",
+                                    "properties": {
+                                      "lat": {
+                                        "type": "number",
+                                        "minimum": -90,
+                                        "maximum": 90
+                                      },
+                                      "lon": {
+                                        "type": "number",
+                                        "minimum": -180,
+                                        "maximum": 180
+                                      }
+                                    },
+                                    "required": [
+                                      "lat",
+                                      "lon"
+                                    ],
+                                    "additionalProperties": false
                                   },
                                   "source": {
                                     "type": "object",
@@ -9684,6 +9860,47 @@
                       "groups"
                     ],
                     "additionalProperties": false
+                  },
+                  "selection_policy": {
+                    "type": "string",
+                    "enum": [
+                      "external-compact.v1",
+                      "external-compact.v2",
+                      "external-compact.v3",
+                      "external-compact.v4"
+                    ]
+                  },
+                  "selection_gaps": {
+                    "maxItems": 120,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "day_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "activity_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "NO_ELIGIBLE_PLACES",
+                            "COMBINATION_NOT_FOUND"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "day_id",
+                        "activity_id",
+                        "reason"
+                      ],
+                      "additionalProperties": false
+                    }
                   },
                   "origin": {
                     "type": "object",
@@ -10375,6 +10592,9 @@
                   "type": "boolean"
                 },
                 "has_fresh_result": {
+                  "type": "boolean"
+                },
+                "has_saved_result": {
                   "type": "boolean"
                 }
               },

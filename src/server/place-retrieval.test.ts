@@ -10,6 +10,28 @@ function intent() {
 }
 
 describe('regional candidate retrieval', () => {
+  it('separates walk types so incidental nearest POIs cannot crowd out a park, without expanding confirmed categories', async () => {
+    const value = intent();
+    value.days.splice(1);
+    const walk = { ...value.days[0]!.activities[0]!, intent_kind: 'route_walk',
+      categories: { ...value.days[0]!.activities[0]!.categories, include_any: ['161', '162', '163'], exclude: ['164'] } };
+    value.days[0]!.activities = [walk];
+    const queries: string[] = [];
+    const client = new DgisClient({ placesApiKey: 'test', routingApiKey: 'test', fetchImpl: async url => {
+      const ids = new URL(String(url)).searchParams.get('rubric_id')!; queries.push(ids);
+      const rows = ids === '161,162,163' ? [{ id: 'board', name: 'Synthetic plaque' }]
+        : [{ id: ids, name: ids === '161' ? 'Synthetic park' : 'Synthetic outdoor' }];
+      return Response.json({ meta: { code: 200 }, result: { total: rows.length, items: rows } });
+    } });
+    const result = await retrievePlaceCandidates(client, value, { catalogVersion: 'v1', radiusMeters: 7000,
+      pageSize: 20, maxPages: 2, maxRequests: 3, sort: 'distance',
+      walkRubricScores: { '161': 2, '162': 1, '163': 0, '164': 2 } });
+    expect(new Set(queries)).toEqual(new Set(['161', '162', '163']));
+    expect(result.places.some(place => place.name === 'Synthetic park')).toBe(true);
+    expect(result.requests).toBe(3);
+    expect(result.searches.every(search => search.pages === 1)).toBe(true);
+    expect(result.coverage).toBe('BOUNDED_RESULTS');
+  });
   it.each([false, true])('continues past a full page with malformed rows (all rows invalid: %s) and reports partial coverage', async allInvalid => {
     const pages: number[] = [];
     const client = new DgisClient({ placesApiKey: 'test', routingApiKey: 'test', fetchImpl: async url => {

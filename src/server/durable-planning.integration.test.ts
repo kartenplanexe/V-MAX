@@ -5,8 +5,9 @@ import { DurablePlanning } from './durable-planning.js';
 import { intentFixture } from './intent-start.fixture.js';
 import { planningFixture } from './place-planning.fixture.js';
 import { planPlacesWithDgis } from './place-planning.js';
+import { SavedRouteLibrary } from './saved-route-list.js';
 
-it.skipIf(!process.env.TEST_DATABASE_URL)('resumes on another instance, uses one parser call and real Python after typed edits', async () => {
+it.skipIf(!process.env.TEST_DATABASE_URL).each(['verified', 'external'] as const)('resumes %s results on another instance with one parser call and real Python after typed edits', async routingMode => {
   const db = PlanningDatabase.connect(process.env.TEST_DATABASE_URL!), owner = 'integration:' + randomUUID();
   await db.migrate();
   const intent = intentFixture(), places = planningFixture(); let calls = 0;
@@ -16,7 +17,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL)('resumes on another instance, uses one
     context: async () => ({ ...intent.context, planning: { catalog: places.input.catalog, visit_policy: places.input.visit_policy,
       point_area: { south: 55, north: 56, west: 37, east: 38 }, modes: ['walking'] as const, data_mode: 'test' as const } }),
     provider: async () => { calls++; return intent.response; },
-    plan: (job: Record<string, unknown>) => planPlacesWithDgis(places.client(), job, { retrieval: { radiusMeters: 5000 }, dataMode: 'test' }),
+    plan: (job: Record<string, unknown>) => planPlacesWithDgis(places.client(), job, { routingMode, retrieval: { radiusMeters: 5000 }, dataMode: 'test' }),
   };
   try {
     const first = new DurablePlanning(options), body = { event_id: randomUUID(), user_text: intent.text, locality_token: 'synthetic-evidence' };
@@ -32,13 +33,17 @@ it.skipIf(!process.env.TEST_DATABASE_URL)('resumes on another instance, uses one
     const confirmed = await first.confirm(owner, edited.id, { base_version: edited.version, event_id: randomUUID() });
     const event = { base_version: confirmed.version, event_id: randomUUID() };
     const result = await other.calculate(owner, edited.id, event);
-    expect(result.result?.status).toBe('AVAILABLE');
-    expect(result.result?.days[0]?.visits.map(v => v.name)).toEqual(['Учебный музей', 'Учебное кафе']);
+    expect(result.result?.status).toBe(routingMode === 'external' ? 'PLACES_FOUND' : 'AVAILABLE');
+    if (routingMode === 'external') {
+      expect(result.result?.days).toEqual([]);
+      expect(result.result?.candidate_preview?.groups).toHaveLength(2);
+      expect(places.routingBatches()).toBe(0);
+    } else expect(result.result?.days[0]?.visits.map(v => v.name)).toEqual(['Учебный музей', 'Учебное кафе']);
     expect((await first.get(owner, edited.id)).result).toEqual(result.result);
     expect((await first.calculate(owner, edited.id, event)).result).toEqual(result.result);
     const refresh = { base_version: result.version, event_id: randomUUID(), refresh: true };
     const refreshed = await first.calculate(owner, edited.id, refresh);
-    expect(refreshed.result?.status).toBe('AVAILABLE');
+    expect(refreshed.result?.status).toBe(routingMode === 'external' ? 'PLACES_FOUND' : 'AVAILABLE');
     expect(refreshed.draft).toEqual(result.draft);
     expect(refreshed.version).toBe(result.version + 1);
     const afterRefresh = places.requests.length;
@@ -49,6 +54,24 @@ it.skipIf(!process.env.TEST_DATABASE_URL)('resumes on another instance, uses one
     expect(places.requests).toHaveLength(afterRefresh);
     expect(calls).toBe(1);
     await expect(first.get('someone-else', edited.id)).rejects.toMatchObject({ code: 'DRAFT_NOT_FOUND' });
+    if (routingMode === 'external') {
+      const future = () => new Date(Date.now() + 31 * 86_400_000);
+      const laterDb = PlanningDatabase.connect(process.env.TEST_DATABASE_URL!, undefined, { now: future });
+      try {
+        await laterDb.purge();
+        const later = new DurablePlanning({ ...options, database: laterDb, now: future,
+          plan: async () => { throw Error('REOPEN_MUST_NOT_RECALCULATE'); } });
+        const reopened = await later.get(owner, edited.id);
+        expect(reopened.result).toEqual(refreshed.result);
+        const library = new SavedRouteLibrary(laterDb), list = await library.list(owner);
+        expect(list.items.find(item => item.id === edited.id)).toMatchObject({ can_open: true, has_saved_result: true });
+        expect((await library.activate(owner, edited.id, { event_id: randomUUID() })).view?.result).toEqual(refreshed.result);
+        expect((await library.list(owner + ':other')).items).toEqual([]);
+        await library.remove(owner, edited.id, { base_revision: reopened.version, event_id: randomUUID() });
+        expect((await library.list(owner)).items).toEqual([]);
+        await expect(later.get(owner, edited.id)).rejects.toMatchObject({ code: 'DRAFT_NOT_FOUND' });
+      } finally { await laterDb.pool.end(); }
+    }
   } finally { await db.pool.query('DELETE FROM planning_owners WHERE owner=$1', [owner]);
     await db.pool.query('DELETE FROM saved_user_conditions WHERE owner=$1', [owner]); await db.pool.end(); }
 }, 60_000);

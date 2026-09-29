@@ -1,11 +1,135 @@
 """Eligibility first, bounded routing graph second; no network in Python."""
 from datetime import datetime, timedelta
+from math import ceil
 from zoneinfo import ZoneInfo
 
 from .selection import MAX_OPTIONS_PER_DAY, POLICY_VERSION, clock, direct_meters, integer, prepare, validate_selection
 from .replacement import slot_index
 
 ROUTING_POLICY = "dated-routing.v3"
+
+# A compact suggestion, NOT measured travel or a verified itinerary.
+EXTERNAL_COMPACT_POLICY = {"version": "external-compact.v4", "max_stops": 6,
+                           "detour_factor": 1.5, "meters_per_minute": 60, "transition_buffer": 5,
+                           "beam_width": 96, "alternatives_per_order": 12,
+                           "same_activity_min_meters": 400}
+
+
+def compact_external_pool(p, ranked_groups, walk_scores=None):
+    policy = EXTERNAL_COMPACT_POLICY
+    walk_scores = walk_scores or {}
+    if not isinstance(walk_scores, dict): raise ValueError('invalid walk type policy')
+    for score in walk_scores.values(): integer(score, 'walk type score', 0, 2)
+    activities = {a['id']: a for d in p['days'] for a in d['activities']}
+    profiles = {}
+    for _, aid, rows in ranked_groups:
+        activity = activities[aid]
+        is_walk = activity.get('intent_kind') in {'route_walk', 'area_walk'} or aid in p['multi_stop']
+        allowed = set(activity.get('categories', {}).get('include_any', []))
+        for o in rows:
+            profiles[(aid, o.place_id)] = max((walk_scores.get(c, 0) for c in
+                allowed & set(p['places'][o.place_id].get('rubric_ids', []))), default=0) if is_walk else 0
+    def profile(option): return profiles[(option.activity_id, option.place_id)]
+    def scenic_count(path): return len({o.activity_id for o in path if profile(o) == 2})
+    def type_score(path): return sum(profile(o) for o in path)
+    origin = p['intent']['points']['origin']
+    points = {'@origin': origin, **{pid: place['point'] for pid, place in p['places'].items() if place.get('point')}}
+    distance_cache = {}
+    def distance(a, b):
+        key = (a, b)
+        if key not in distance_cache:
+            distance_cache[key] = direct_meters(points[a], points[b])
+        return distance_cache[key]
+    def allowance(a, b):
+        return ceil(distance(a, b) * policy['detour_factor'] / policy['meters_per_minute']) + policy['transition_buffer']
+    def prune(states):
+        # Preserve different stop counts, so an extra walk stop cannot crowd out
+        # the shorter prefix needed for food. Keep different last places too.
+        best = {}
+        for state in states:
+            path, cursor, point, spent, covered, preference = state
+            key = (point, spent, covered, frozenset((o.activity_id, o.place_id) for o in path))
+            if key not in best or (cursor, -preference) < (best[key][1], -best[key][5]):
+                best[key] = state
+        buckets = {}
+        for state in best.values():
+            buckets.setdefault((len(state[4]), scenic_count(state[0]), len(state[0])), []).append(state)
+        for values in buckets.values():
+            values.sort(key=lambda s: (-s[5], -type_score(s[0]), s[1], s[3], tuple(o.place_id for o in s[0])))
+        keys = sorted(buckets, key=lambda k: (-k[0], -k[1], k[2]))
+        selected = []
+        for index in range(policy['beam_width']):
+            for key in keys:
+                if index < len(buckets[key]): selected.append(buckets[key][index])
+                if len(selected) == policy['beam_width']: return selected
+        return selected
+    pool, trip_spent = [], 0
+    for day in p['days']:
+        begin, end = clock(day['window']['start']), clock(day['window']['end'])
+        if p['destination']: points['@destination'] = p['destination']
+        # Topological order is independent of whether an earlier activity fits.
+        ordered, done = [], set()
+        pending = list(day['activities'])
+        while pending:
+            activity = next((a for a in pending if not any(
+                after == a['id'] and before not in done for before, after in day.get('order', []))), None)
+            if activity is None: break
+            ordered.append(activity); done.add(activity['id']); pending.remove(activity)
+        groups = {aid: rows for did, aid, rows in ranked_groups if did == day['day_id']}
+        # path, end minute, last place, charged cost, covered activities, preference
+        states = [((), begin, '@origin', 0, frozenset(), 0)]
+        for activity in ordered:
+            aid = activity['id']
+            choices = groups.get(aid, [])
+            choice_cache = {}
+            def candidates(point, same_activity):
+                key = (point, same_activity)
+                if key not in choice_cache:
+                    # Filter all pairs before truncation: otherwise a dense first
+                    # page crowds out eligible alternatives farther along the walk.
+                    spaced = [o for o in choices if all(distance(pid, o.place_id) >=
+                        policy['same_activity_min_meters'] for pid in same_activity)]
+                    rankings = [sorted(spaced, key=lambda o: (distance(point, o.place_id), -o.preference, -o.quality, o.place_id)),
+                                sorted(spaced, key=lambda o: (o.duration, distance(point, o.place_id), o.place_id)),
+                                sorted(spaced, key=lambda o: (o.charged, distance(point, o.place_id), o.place_id)),
+                                sorted(spaced, key=lambda o: (o.windows[-1][1], distance(point, o.place_id), o.place_id)),
+                                sorted(spaced, key=lambda o: (-o.preference, -profile(o), distance(point, o.place_id), o.place_id))]
+                    unique = {}
+                    for ranking in rankings:
+                        for option in ranking[:policy['alternatives_per_order']]: unique[option.place_id] = option
+                    choice_cache[key] = list(unique.values())
+                return choice_cache[key]
+            generated = list(states)
+            frontier = [s for s in states if not any(after == aid and before not in s[4]
+                for before, after in p['precedence'][day['day_id']])]
+            for _ in range(min(p['multi_stop'].get(aid, 1), policy['max_stops'])):
+                following = []
+                for path, cursor, point, spent, covered, preference in frontier:
+                    if len(path) >= policy['max_stops']: continue
+                    used = {o.place_id for o in path}
+                    same_activity = frozenset(o.place_id for o in path if o.activity_id == aid)
+                    for option in candidates(point, same_activity):
+                        if option.place_id in used: continue
+                        charged = spent + option.charged
+                        cost = charged + (trip_spent if p['period'] == 'whole_trip' else 0)
+                        if p['budget_limit'] is not None and cost > p['budget_limit']: continue
+                        arrival = cursor + allowance(point, option.place_id) + p['buffer']
+                        start = next((max(arrival, lo) for lo, hi in option.windows if max(arrival, lo) <= hi), None)
+                        finish_allowance = allowance(option.place_id, '@destination') if p['destination'] else 0
+                        if start is None or start + option.duration + finish_allowance > end: continue
+                        following.append((path + (option,), start + option.duration, option.place_id,
+                                          charged, covered | {aid}, preference + option.preference))
+                frontier = prune(following)
+                generated.extend(frontier)
+                if not frontier: break
+            states = prune(generated)
+        selected = min(states, key=lambda s: (-len(s[4]), -s[5], -scenic_count(s[0]), -len(s[0]),
+            -type_score(s[0]), s[1], s[3], tuple(o.place_id for o in s[0])))
+        for option in selected[0]:
+            pool.append({'day_id': day['day_id'], 'activity_id': option.activity_id,
+                         'place_id': option.place_id, 'estimated_visit_minutes': option.duration})
+        trip_spent += selected[3]
+    return pool
 
 
 def departure_utc(day, minutes, timezone):
@@ -117,13 +241,24 @@ def prepare_routes(job):
     if progressive and p['replacement'] is None:
         groups = [{"day_id": did, "activity_id": aid, "eligible": len(ranked),
                    "selected": 0, "truncated": bool(ranked)} for did, aid, ranked in ranked_groups]
+        preview_pool = (compact_external_pool(p, ranked_groups, job.get('visit_policy', {}).get('walk_rubric_scores')) if policy.get('external_compact') else [
+            {"day_id": did, "activity_id": aid, "place_id": o.place_id}
+            for did, aid, ranked in ranked_groups for o in ranked[:120]])
+        gaps = [{'day_id': did, 'activity_id': aid, 'reason': 'COMBINATION_NOT_FOUND' if ranked else 'NO_ELIGIBLE_PLACES'}
+                for did, aid, ranked in ranked_groups if not any(r['day_id'] == did and r['activity_id'] == aid for r in preview_pool)]
+        if policy.get('external_compact'):
+            for group, (_, _, ranked) in zip(groups, ranked_groups, strict=True):
+                group['selected'] = sum(r['day_id'] == group['day_id'] and r['activity_id'] == group['activity_id'] for r in preview_pool)
+                group['minimum_visit_minutes'] = min((o.duration for o in ranked), default=None)
+                group['minimum_start_allowance_minutes'] = min((ceil(direct_meters(origin, p['places'][o.place_id]['point']) *
+                    EXTERNAL_COMPACT_POLICY['detour_factor'] / EXTERNAL_COMPACT_POLICY['meters_per_minute']) +
+                    EXTERNAL_COMPACT_POLICY['transition_buffer'] + p['buffer'] for o in ranked), default=None)
         return {"schema_version": POLICY_VERSION, "status": "AVAILABLE",
-                "job": job | {"candidate_pool": []}, "preview_job": job | {"candidate_pool": [
-                    {"day_id": did, "activity_id": aid, "place_id": o.place_id}
-                    for did, aid, ranked in ranked_groups for o in ranked[:120]]},
+                "job": job | {"candidate_pool": []}, "preview_job": job | {"candidate_pool": preview_pool,
+                    **({'selection_gaps': gaps} if policy.get('external_compact') else {})},
                 "pairs": [], "maximum_selected_legs": 0,
                 "shortlist": {"policy": "progressive-routing.v2", "groups": groups,
-                    "method": "measured_insertions", "global_optimality_claimed": False}}
+                    "method": "estimated_compact_search" if policy.get('external_compact') else "measured_insertions", "global_optimality_claimed": False}}
 
     def materialize(counts):
         selected = []

@@ -4,6 +4,7 @@ import { collectEmbeddedCatalog } from './intent/category-catalog.mjs';
 import { DgisKeyFallback, shouldTryDgisBackup, type DgisService } from './dgis-key-fallback.js';
 import { InitialIntentError, type InitialContext, type CatalogRow } from './intent-start.js';
 import type { PlanningContext } from './planning-sessions.js';
+import { agreedVisitMinutes, VISIT_DURATION_POLICY } from './visit-duration-policy.js';
 
 const Point = z.object({ lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180) });
 const Locality = z.object({ id: z.string().min(1), region_id: z.string().regex(/^\d+$/u), name: z.string().min(1), timezone: z.string(),
@@ -74,11 +75,11 @@ export function visitPolicy(items: { id: string; name: string }[]): PlanningCont
     const name = item.name.trim().toLocaleLowerCase('ru-RU');
     // Product estimate, never an official session length. Every catalog choice
     // remains schedulable; a typed user duration can replace this estimate.
-    by_category[item.id] = visitMinutes[name] ?? 60;
+    by_category[item.id] = agreedVisitMinutes(name) ?? visitMinutes[name] ?? 60;
     if (walkableNames.has(name)) walkable_category_ids.push(item.id);
     if (name === 'парки' || name === 'парки культуры и отдыха') park_category_ids.push(item.id);
   }
-  return { version: 'visit-duration-estimates.v5', by_category, walkable_category_ids, park_category_ids,
+  return { version: VISIT_DURATION_POLICY, by_category, walkable_category_ids, park_category_ids,
     arrival_buffer_minutes: 5 };
 }
 

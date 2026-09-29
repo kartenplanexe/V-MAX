@@ -5,6 +5,7 @@ interface MaxWebApp {
   readonly version?: string;
   getViewportSize?: () => Promise<{ height: string; width: string }>;
   shareMaxContent?: (params: { text?: string; link?: string }) => unknown;
+  openLink?: (url: string) => unknown;
 }
 
 interface Window {

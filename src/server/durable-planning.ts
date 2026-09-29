@@ -55,6 +55,8 @@ export class DurablePlanning {
     state.checkpoint = sessions.checkpoint();
     try { await this.options.database.transaction(client, async () => {
       await save(); if (saved) await this.options.database.saveSaved(client, owner, saved);
+      if (saved && state.checkpoint?.records.some(record => record.view.id === saved.id && record.retained))
+        await client.query('UPDATE saved_user_conditions SET retained=true WHERE owner=$1 AND draft_id=$2', [owner, saved.id]);
     }); } catch (error) { state.checkpoint = previous; throw error; }
     return saved;
   }

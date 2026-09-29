@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CandidatePreview } from './candidate-preview-schema.js';
+import { CandidatePreview, SelectionGaps } from './candidate-preview-schema.js';
 import { SelectedEventTargetSchema, type SelectedEventDisplay } from './event-selection.js';
 import { ActivityChoiceSchema } from './activity-choice.js';
 import { MIN_SEARCH_RADIUS_METERS, MAX_SEARCH_RADIUS_METERS } from './search-radius.js';
@@ -96,8 +96,10 @@ export const FormChange = z.discriminatedUnion('op', [
 export const FormEvent = z.object({ base_version: z.number().int().nonnegative(), event_id: z.string().min(8).max(128) }).strict();
 export const CalculateInput = FormEvent.extend({ refresh: z.literal(true).optional() }).strict();
 export const FormEdit = FormEvent.extend({ changes: z.array(FormChange).min(1).max(160) }).strict();
-export const PublicPlan = z.object({ status: z.enum(['AVAILABLE', 'LIMITED', 'UNAVAILABLE', 'ERROR', 'NEEDS_INPUT']),
+export const PublicPlan = z.object({ status: z.enum(['AVAILABLE', 'LIMITED', 'UNAVAILABLE', 'ERROR', 'NEEDS_INPUT', 'PLACES_FOUND']),
   candidate_preview: CandidatePreview.optional(),
+  selection_policy: z.enum(['external-compact.v1', 'external-compact.v2', 'external-compact.v3', 'external-compact.v4']).optional(),
+  selection_gaps: SelectionGaps.optional(),
   origin: Point.optional(),
   valid_until: z.string().datetime().optional(),
   data_mode: z.string().optional(), warnings: z.array(z.string()).default([]), issues: z.array(z.string()).optional(),

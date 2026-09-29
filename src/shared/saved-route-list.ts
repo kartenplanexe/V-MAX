@@ -4,7 +4,7 @@ import type { SavedConditionsView } from './saved-conditions.js';
 
 export const SavedRouteListSchema = z.object({ items: z.array(z.object({ id: z.string(), title: z.string(),
   revision: z.number().int().nonnegative(), updated_at: z.string().datetime(), expires_at: z.string().datetime(),
-  active: z.boolean(), can_open: z.boolean(), has_fresh_result: z.boolean() }).strict()).max(50),
+  active: z.boolean(), can_open: z.boolean(), has_fresh_result: z.boolean(), has_saved_result: z.boolean().optional() }).strict()).max(50),
   next_cursor: z.string().nullable() }).strict();
 export type SavedRouteList = z.infer<typeof SavedRouteListSchema>;
 export const ActivateSavedRouteInputSchema = z.object({ event_id: z.string().min(8).max(128) }).strict();

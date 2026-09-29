@@ -32,6 +32,18 @@ CREATE TABLE IF NOT EXISTS saved_user_conditions (
   PRIMARY KEY(owner, draft_id)
 );
 CREATE INDEX IF NOT EXISTS saved_user_conditions_expiry ON saved_user_conditions(expires_at);
+-- Compact result snapshots are retained until user deletion. Expiry remains the
+-- temporary interaction lease; retained rows are excluded from TTL cleanup.
+-- Additive/rerunnable. On rollback retain both columns and data.
+ALTER TABLE planning_owners ADD COLUMN IF NOT EXISTS retained boolean NOT NULL DEFAULT false;
+ALTER TABLE saved_user_conditions ADD COLUMN IF NOT EXISTS retained boolean NOT NULL DEFAULT false;
+-- Preserve still-present results from the previous release; already purged
+-- snapshots cannot be reconstructed without an explicit new lookup.
+UPDATE planning_owners SET retained=true WHERE NOT retained
+  AND jsonb_path_exists(state, '$.checkpoint.records[*] ? (@.view.result.status == "PLACES_FOUND")');
+UPDATE saved_user_conditions s SET retained=true WHERE NOT s.retained AND EXISTS (
+  SELECT 1 FROM planning_owners p, jsonb_array_elements(p.state->'checkpoint'->'records') r
+  WHERE p.owner=s.owner AND r->'view'->>'id'=s.draft_id AND r->'view'->'result'->>'status'='PLACES_FOUND');
 -- Additive migration 003. Sharing owns conditions; provider preview has a separate
 -- original expiry. Retain tables on app rollback; never recreate provider facts.
 CREATE TABLE IF NOT EXISTS planning_share_links (

@@ -213,6 +213,7 @@ export function PlannerForm() {
   const [detailsOpen, setDetailsOpen] = useState(false), [newOpen, setNewOpen] = useState(false);
   const [detailsSection, setDetailsSection] = useState<ConditionSectionId | null>(null);
   const [pointEditor, setPointEditor] = useState<'address' | 'map' | null>(null), [mapsAvailable, setMapsAvailable] = useState(false);
+  const [externalRouting, setExternalRouting] = useState(true);
   const [alternative, setAlternative] = useState<AlternativePreview | null>(null);
   const [shareOpen, setShareOpen] = useState(false), [shareCreated, setShareCreated] = useState<ShareCreated | null>(null);
   const [incoming, setIncoming] = useState<{ token: string; preview: SharePreview } | null>(null);
@@ -224,7 +225,8 @@ export function PlannerForm() {
   useEffect(() => {
     let active = true;
     void fetch('/api/public-config', { cache: 'no-store' }).then(response => response.ok ? response.json() : null)
-      .then((value: PublicConfig | null) => { if (active) setMapsAvailable(Boolean(value?.maps.enabled)); }).catch(() => {});
+      .then((value: PublicConfig | null) => { if (active) { setMapsAvailable(Boolean(value?.maps.enabled));
+        setExternalRouting(value?.planning?.routingMode !== 'verified'); } }).catch(() => {});
     void waitForMaxLaunchData(() => readMaxLaunchData(window.WebApp?.initData, window.location.hash)).then(token => {
       if (!active) return;
       if (!token) { setBusy(''); setError('Откройте мини-приложение из чата с ботом — MAX передаст данные для входа.'); return; }
@@ -297,7 +299,7 @@ export function PlannerForm() {
       current = await request<PlanningView>(base + '/confirm', session.token, 'POST', { base_version: current.version, event_id: crypto.randomUUID() });
       accept(current);
     }
-    setBusy('Подбираем места и проверяем маршрут…');
+    setBusy(externalRouting ? 'Подбираем места…' : 'Подбираем места и проверяем маршрут…');
     accept(await request<PlanningView>(base + '/plan', session.token, 'POST', { base_version: current.version, event_id: crypto.randomUUID(),
       ...(refresh && current.result ? { refresh: true } : {}) }));
   }
@@ -417,11 +419,11 @@ export function PlannerForm() {
             loadActivities={() => request<ManualChoices>(`/api/planning/drafts/${view.id}/activity-options`, session!.token)}
             choose={(dayId, activityId, choice, options) => void act('Сохраняем занятие…', () => quickSave({ op: 'activity_choice', day_id: dayId,
               activity_id: activityId, catalog_version: options.catalog_version, choice }))} /></> :
-          firstIssue?.code === 'ORIGIN_REQUIRED' ? <><span className="step-symbol"><Icon name="pin" /></span><h2 id="next-step">Откуда начинаем?</h2><p>Выберите удобную точку — от неё посчитаем время в пути.</p>
+          firstIssue?.code === 'ORIGIN_REQUIRED' ? <><span className="step-symbol"><Icon name="pin" /></span><h2 id="next-step">Откуда начинаем?</h2><p>{externalRouting ? 'Выберите удобную точку — подберём близкие места.' : 'Выберите удобную точку — от неё посчитаем время в пути.'}</p>
           <div className="choice-list"><Action stretched disabled={!!busy} onClick={() => void act('Определяем местоположение…', () => locate(true))} iconBefore={<Icon name="pin" />}>Моё местоположение</Action>
             <Action variant="secondary" stretched disabled={!!busy} onClick={() => setPointEditor('address')}>Указать адрес</Action>
             {mapsAvailable && <Action variant="ghost" stretched disabled={!!busy} onClick={() => setPointEditor('map')}>Выбрать на карте</Action>}</div></> :
-          firstIssue?.code === 'TRANSPORT_REQUIRED' ? <><span className="step-symbol"><Icon name="walk" /></span><h2 id="next-step">Как будете передвигаться?</h2><p>Проверим дорогу для выбранного способа.</p>
+          firstIssue?.code === 'TRANSPORT_REQUIRED' ? <><span className="step-symbol"><Icon name="walk" /></span><h2 id="next-step">Как будете передвигаться?</h2><p>{externalRouting ? 'Передадим выбранный способ в 2ГИС.' : 'Проверим дорогу для выбранного способа.'}</p>
             <div className="choice-list">{view.capabilities.modes.map(mode => <Action variant="secondary" key={mode} disabled={!!busy} onClick={() => void act('Сохраняем…', () => quickSave({ op: 'mobility', mode }))}>{modeLabels[mode] ?? mode}</Action>)}</div></> :
           (firstIssue?.code === 'ACTIVITY_REQUIRED' || firstIssue?.code === 'ACTIVITIES_REQUIRED') ? <><span className="step-symbol"><Icon name="calendar" /></span><h2 id="next-step">Чем займёмся?</h2><p>Добавьте занятие или выберите событие из афиши. Затем проверим время, дорогу и остальные условия.</p>
             <Action stretched disabled={!!busy} onClick={() => openConditions()}>Выбрать занятия</Action>
@@ -429,10 +431,10 @@ export function PlannerForm() {
           firstIssue?.code === 'EVENT_RECHECK_REQUIRED' ? <><h2 id="next-step">Проверим выбранные события</h2><p>Используйте «Перепроверить событие» выше. Собственные пожелания остаются в плане.</p></> :
           firstIssue ? <><span className="step-symbol"><Icon name="filters" /></span><h2 id="next-step">Уточним один момент</h2><p>{humanError(firstIssue.code)}</p>
             <Action stretched disabled={!!busy} onClick={() => openConditions()}>Уточнить условия</Action></> :
-          <><span className="step-symbol"><Icon name="route" /></span><h2 id="next-step">Всё готово к расчёту</h2><p>Подберём места и проверим, что посещения и дорога помещаются в ваше время.</p>
+          <><span className="step-symbol"><Icon name="route" /></span><h2 id="next-step">{externalRouting ? 'Всё готово к подбору' : 'Всё готово к расчёту'}</h2><p>{externalRouting ? 'Подберём варианты мест и покажем их на карте. Путь и время дороги посмотрите в 2ГИС. Выполнимость общего плана здесь не проверяется.' : 'Подберём места и проверим, что посещения и дорога помещаются в ваше время.'}</p>
             {draft.points.origin && <div className="start-summary"><Icon name="pin" /><span><small>Начало маршрута</small><strong>{draft.points.origin.label ?? 'Выбранная точка'}</strong></span></div>}
             <p className="field-hint">Область подбора — {new Intl.NumberFormat('ru-RU').format((draft.shared.search_radius_meters ?? DEFAULT_SEARCH_RADIUS_METERS) / 1000)} км от старта. Радиус можно изменить в условиях.</p>
-            <Action stretched disabled={!!busy || !ready || view.phase === 'PLANNING'} onClick={() => void act('Подбираем места…', () => calculate())}>Составить план</Action></>}
+            <Action stretched disabled={!!busy || !ready || view.phase === 'PLANNING'} onClick={() => void act('Подбираем места…', () => calculate())}>{externalRouting ? 'Подобрать места' : 'Составить план'}</Action></>}
         {view.phase === 'PLANNING' && <Action variant="secondary" onClick={() => void act('Проверяем статус…', async () => { accept(await request<PlanningView>(`/api/planning/drafts/${view.id}`, session!.token)); })}>Проверить статус расчёта</Action>}
       </section>}</div>
       {eventPanel && <Sheet title="События для вашего дня" canClose={!eventPending} onClose={() => setEventPanel(null)}><EventPanel key={`${view.id}:${view.version}`} view={view} target={eventPanel.target} pending={setEventPending}

@@ -24,6 +24,7 @@ const secretKeys = [
 const publicEnvironment = {
   HOST: '0.0.0.0', NODE_ENV: 'production', PUBLIC_BASE_URL: baseUrl,
   MAX_WEBHOOK_ASYNC: 'yandex',
+  PLANNING_ROUTING_MODE: 'external', DGIS_MAPGL_ALLOW_SHARED_DEMO_KEY: 'false',
   DGIS_ROUTING_LIMIT_MINUTE: '5', DGIS_ROUTING_LIMIT_DAY: '50', DGIS_ROUTING_LIMIT_MONTH: '1000',
   // Provider reset/restoration + empty application logs since 2026-09-28T21:00Z.
   // Monthly figure is the owner's last observed usage, not a live balance.
@@ -139,10 +140,12 @@ try {
     process.exit(0);
   }
   const reuseArg = process.argv.slice(3).find(arg => arg.startsWith('--reuse-image-tag='));
+  const externalDemo = process.argv.includes('--external-places-demo');
   const validArgs = process.argv[2] === '--apply' &&
-    process.argv.slice(3).every(arg => arg === reuseArg) && process.argv.slice(3).length <= 1;
+    process.argv.slice(3).every(arg => arg === reuseArg || arg === '--external-places-demo') &&
+    new Set(process.argv.slice(3)).size === process.argv.slice(3).length;
   if (!validArgs) {
-    console.log('Выкладка существующего контейнера MAX: node scripts/deploy-yandex-live.mjs --apply [--reuse-image-tag=live-YYYYMMDDHHMMSS]');
+    console.log('Выкладка существующего контейнера MAX: node scripts/deploy-yandex-live.mjs --apply [--reuse-image-tag=live-YYYYMMDDHHMMSS] [--external-places-demo]');
     console.log('Команда выполняет проверку, docker build/push, выкладку и HTTP smoke. Секреты не выводятся.');
     process.exit(0);
   }
@@ -156,6 +159,16 @@ try {
   previousId = before.id;
   const detail = yc(['serverless', 'container', 'revision', 'get', '--id', previousId]);
   const retainedEnvironment = checkExistingConfiguration(detail);
+  // Owner-approved map demo rollout. Preserve the active webhook transport;
+  // this is not an async infrastructure probe or a claim that >30s work is fixed.
+  const deploymentEnvironment = { ...publicEnvironment, ...retainedEnvironment };
+  if (externalDemo) {
+    const currentAsync = (detail.image?.environment ?? detail.environment ?? {}).MAX_WEBHOOK_ASYNC ?? '';
+    if (!['', 'yandex'].includes(currentAsync)) throw new Error('Неизвестный режим действующего webhook.');
+    deploymentEnvironment.MAX_WEBHOOK_ASYNC = currentAsync;
+    deploymentEnvironment.DGIS_MAPGL_ALLOW_SHARED_DEMO_KEY = 'true';
+  }
+  const useAsync = deploymentEnvironment.MAX_WEBHOOK_ASYNC === 'yandex';
   const network = yc(['vpc', 'network', 'get', '--id', networkId]);
   if (network.id !== networkId || network.folder_id !== folderId) throw new Error('Нужная VPC-сеть не найдена в каталоге.');
   const secret = yc(['lockbox', 'secret', 'get', '--id', secretId]);
@@ -179,12 +192,12 @@ try {
   const args = [
     'serverless', 'container', 'revision', 'deploy', '--container-id', containerId,
     '--image', image, '--service-account-id', serviceAccountId,
-    '--async-service-account-id', serviceAccountId,
+    ...(useAsync ? ['--async-service-account-id', serviceAccountId] : []),
     '--network-id', networkId, '--memory', '1GB', '--cores', '1',
     '--execution-timeout', '180s', '--concurrency', '2', '--min-instances', '0',
     '--zone-instances-limit', '1', '--runtime', 'http',
     '--description', `Live planner; Lockbox ${secretVersionId}; ${tag}`,
-    '--environment', Object.entries({ ...publicEnvironment, ...retainedEnvironment })
+    '--environment', Object.entries(deploymentEnvironment)
       .map(([key, value]) => `${key}=${value}`).join(','),
   ];
   for (const key of secretKeys) {
@@ -199,12 +212,14 @@ try {
   const newRevision = yc(['serverless', 'container', 'revision', 'get', '--id', after.id]);
   const deployedImage = newRevision.image?.image_url ?? newRevision.image?.imageUrl;
   if (deployedImage !== image) throw new Error('Активная ревизия использует неожиданный образ.');
-  if (newRevision.async_invocation_config?.service_account_id !== serviceAccountId)
+  if (useAsync && newRevision.async_invocation_config?.service_account_id !== serviceAccountId)
     throw new Error('Асинхронный запуск webhook не настроен в новой ревизии.');
   const health = await getWithRetry('/api/health', 200);
   if (health.status !== 'ok') throw new Error('/api/health вернул неожиданный ответ.');
   await getWithRetry('/api/planning/bootstrap', 401, 'AUTH_REQUIRED');
   const publicConfig = await getWithRetry('/api/public-config', 200);
+  if (externalDemo && (!publicConfig.maps?.enabled || publicConfig.planning?.routingMode !== 'external'))
+    throw new Error('Встроенная карта или внешний режим подбора не включены.');
   console.log(`DEPLOY_OK\nRevision ID: ${after.id}\nURL: ${baseUrl}\nDB-backed planner: configured (unauthenticated bootstrap rejected)\nMap: ${publicConfig.maps?.enabled ? 'enabled' : 'disabled until separate browser key'}\nПредыдущая ревизия для ручного отката: ${previousId}`);
   deploymentStarted = false;
 } catch (error) {

@@ -4,7 +4,7 @@ import { planWarningCodes, searchScopeNotice, shortlistNotice, unavailablePlanNo
 import { PlanMap } from './PlanMap';
 import { Action, Icon, useExpired } from './PlannerUi';
 import { transitStageText } from '../shared/route-travel-text';
-import { resultValidUntil } from './result-freshness';
+import { resultValidUntil, placesStaleAt } from './result-freshness';
 import type { AlternativeTarget } from '../shared/route-alternatives';
 import type { EventPanelTarget } from './EventPanel';
 import { eventSourceUrl, eventWindowText } from './EventFacts';
@@ -35,6 +35,7 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
 }) {
   const plan = view.result!, draft = view.draft;
   const expired = useExpired(resultValidUntil(view));
+  const stalePlaces = useExpired(placesStaleAt(plan));
   const [selectedDay, setSelectedDay] = useState(plan.days[0]?.day_id ?? ''), [mode, setMode] = useState<'plan' | 'map'>('plan');
   const [selectedVisit, setSelectedVisit] = useState(0);
   const day = plan.days.find(value => value.day_id === selectedDay) ?? plan.days[0];
@@ -52,8 +53,22 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
   const title = plan.status === 'AVAILABLE' ? 'План помещается в ваше время' : plan.status === 'LIMITED' ? missingWishes ? 'Получился частичный план' : 'План с оговорками' : plan.status === 'ERROR' ? 'Расчёт не завершён' : plan.status === 'NEEDS_INPUT' ? 'Нужно уточнить условия' : 'Подходящий план пока не найден';
   const status = day?.status === 'AVAILABLE' ? 'Готово' : day?.status === 'LIMITED' ? 'Частично' : 'Нет плана';
   const stamp = (value: string) => { const at = new Date(value); return Number.isFinite(at.getTime()) ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: draft.locality.timezone }).format(at) : 'не указано'; };
-  if (expired) return <section className="result-section"><div className="result-notice"><Icon name="refresh" /><div><h2>Пора обновить маршрут</h2><p>Срок проверки мест и дороги истёк. Ваши условия сохранены.</p></div></div>
+  if (expired && plan.status !== 'PLACES_FOUND') return <section className="result-section"><div className="result-notice"><Icon name="refresh" /><div><h2>Пора обновить маршрут</h2><p>Срок проверки мест и дороги истёк. Ваши условия сохранены.</p></div></div>
     <div className="result-actions"><Action stretched disabled={busy} onClick={retry}>Проверить заново</Action><Action variant="secondary" stretched disabled={busy} onClick={edit}>Изменить условия</Action></div></section>;
+  if (plan.status === 'PLACES_FOUND') return <section className="result-section" aria-label="Результат подбора мест">
+    {stalePlaces && <div className="notice" role="status"><p>Места найдены больше 30 минут назад. Перед выходом обновите подборку.</p></div>}
+    <div className="route-receipt"><div className="result-notice" role="status"><Icon name="pin" /><div>
+      <h2>Места для вашего дня</h2><p>Посмотрите все остановки на карте или откройте маршрут в 2ГИС.</p>
+    </div></div></div>
+    {view.capabilities.data_mode === 'test' && <p className="data-label">Учебный пример · синтетические места</p>}
+    {plan.search_scope && <p className="scope-note">{searchScopeNotice(plan)}</p>}
+    <CandidatePlaces view={view} mapsAvailable={mapsAvailable} />
+    {!!plan.event_gaps?.length && <ul className="form-issues">{plan.event_gaps.map(gap =>
+      <li key={`${gap.day_id}:${gap.activity_id}:${gap.code}`}>{eventGapText(gap.code)}</li>)}</ul>}
+    <div className="result-actions"><Action stretched disabled={busy} onClick={edit}>Изменить условия</Action>
+      <Action variant="secondary" stretched disabled={busy} onClick={retry}>Обновить места</Action></div>
+    <p className="field-hint">Подборка сохранена в «Моих маршрутах».</p>
+  </section>;
   return <section className="result-section" aria-label="Результат расчёта">
     <div className={`route-receipt route-receipt--${plan.status.toLowerCase()}`}>
       <div className={`result-notice result-notice--${plan.status.toLowerCase()}`} role="status"><Icon name={plan.status === 'AVAILABLE' ? 'check' : 'alert'} />
@@ -63,7 +78,7 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
     </div>
     {view.capabilities.data_mode === 'test' && <p className="data-label">Учебный пример · места и время в пути синтетические</p>}
     {plan.search_scope && <p className="scope-note">{searchScopeNotice(plan)}</p>}
-    <CandidatePlaces view={view} />
+    <CandidatePlaces view={view} mapsAvailable={mapsAvailable} />
     {plan.search_scope && plan.status !== 'AVAILABLE' && plan.status !== 'ERROR' && <Action variant="ghost" disabled={busy} onClick={editSearch}>Изменить область поиска</Action>}
     {plan.days.length > 1 && <nav className="day-tabs" aria-label="Дни маршрута">{plan.days.map(value => <button key={value.day_id} type="button" aria-pressed={day?.day_id === value.day_id}
       onClick={() => { setSelectedDay(value.day_id); setSelectedVisit(0); }}><strong>{date(value.date)}</strong><span>{value.status === 'AVAILABLE' ? 'Готово' : value.status === 'LIMITED' ? 'Частично' : 'Нет плана'}</span></button>)}</nav>}

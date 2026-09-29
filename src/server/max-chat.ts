@@ -3,7 +3,7 @@ import { request as httpsRequest } from 'node:https';
 import { getCACertificates } from 'node:tls';
 import type { FastifyInstance } from 'fastify';
 import type { PlanningView } from '../shared/planning-form.js';
-import { candidatePreviewNotice, candidateSourceLink } from '../shared/candidate-preview.js';
+import { candidatePreviewNotice, compactPlacesNotice, candidateSourceLink, selectionGapNotice } from '../shared/candidate-preview.js';
 import { clarificationReview } from '../shared/clarification-review.js';
 import { DEFAULT_SEARCH_RADIUS_METERS } from '../shared/search-radius.js';
 import { isExactGreeting } from './intent-start.js';
@@ -17,6 +17,7 @@ import { partialSearchNotice, planFailureNotice, planWarningCodes, searchScopeNo
 import { russianTrustedRootCa } from './max-ca.js';
 import { mobilityText } from '../shared/route-travel-text.js';
 import { validMaxWorkerSecret } from './max-async.js';
+import { dgisDirectionsLink } from '../shared/dgis-links.js';
 import { placeSourceLink, planDataEvidence, splitMaxText, travelSegmentText, eventVisitText, eventGapText } from './max-plan-text.js';
 
 type Button = { type: 'callback' | 'open_app' | 'request_geo_location'; text: string;
@@ -39,9 +40,11 @@ export interface MaxChatDependencies {
     getSaved?(owner: string, id: string): Promise<SavedConditionsView>;
     restore?(owner: string, id: string, input: unknown): Promise<PlanningView>;
   };
-  transport: { send(userId: number, message: Message): Promise<void>; answer(callbackId: string): Promise<void> };
+  transport: { send(userId: number, message: Message): Promise<string | void>;
+    delete?(messageId: string): Promise<void>; answer(callbackId: string): Promise<void> };
   botUsername: string;
   mapEnabled: boolean;
+  routingMode?: 'external' | 'verified';
   onIntentDiagnostic?: (code: string, diagnostic: InitialIntentError['diagnostic']) => void;
   onCallbackDiagnostic?: (code: string) => void;
   onStepDiagnostic?: (code: string) => void;
@@ -166,7 +169,7 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
   const segments = result.days.flatMap(day => day.travel_segments ?? []);
   const timezone = view.draft.locality.timezone;
   const unknownFare = ['TRANSIT_PRICE_UNKNOWN', 'TRANSPORT_COST_UNKNOWN'].some(code => warnings.has(code));
-  const lead = result.status === 'AVAILABLE' ? 'Готово — вот план:' : result.status === 'LIMITED'
+  const lead = result.status === 'PLACES_FOUND' ? 'Подобрал варианты мест. Путь и время дороги можно посмотреть в 2ГИС по ссылкам ниже.' : result.status === 'AVAILABLE' ? 'Готово — вот план:' : result.status === 'LIMITED'
     ? tentative ? 'Предварительный план: доступность места на это время не подтверждена.' : 'Удалось составить часть плана:' : result.status === 'ERROR'
       ? planFailureNotice(result) : routeCheckFailed
         ? 'Места могли найтись, но сейчас не удалось проверить путь до них.'
@@ -174,7 +177,14 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
           : 'Пока нет проверенного плана для этих условий.';
   const messages: Message[] = [{ text: lead }];
   if (result.candidate_preview) {
-    const lines = ['Найденные места', candidatePreviewNotice];
+    const lines = ['Найденные места', result.selection_policy ? compactPlacesNotice : candidatePreviewNotice];
+    const observed = result.candidate_preview.groups.flatMap(group => group.places.map(place => Date.parse(place.source.fetched_at)));
+    if (result.status === 'PLACES_FOUND' && Date.now() >= Math.min(...observed) + 1_800_000)
+      lines.push('Данные могли измениться: подборке больше 30 минут. Перед выходом обновите места.');
+    const missing = view.draft.days.flatMap(day => day.activities.filter(activity =>
+      !result.candidate_preview!.groups.some(group => group.day_id === day.day_id && group.activity_id === activity.id))
+      .map(activity => `${view.draft.days.length > 1 ? `${day.date} · ` : ''}${activity.label}: ${selectionGapNotice(result.selection_gaps?.find(gap => gap.day_id === day.day_id && gap.activity_id === activity.id)?.reason)}`));
+    lines.push(...missing);
     for (const group of result.candidate_preview.groups) {
       const day = view.draft.days.find(value => value.day_id === group.day_id);
       const activity = day?.activities.find(value => value.id === group.activity_id);
@@ -182,7 +192,10 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
       lines.push(`\n${view.draft.days.length > 1 ? `${day.date} · ` : ''}${activity.label}: ${group.places.length} вариантов`);
       for (const place of group.places.slice(0, 3)) {
         lines.push(`• ${place.name}${place.location_label ? ` — ${place.location_label}` : ''}`);
+        if (place.estimated_visit_minutes !== undefined) lines.push(`На посещение — примерно ${place.estimated_visit_minutes} мин.`);
         const link = candidateSourceLink(place.source); if (link) lines.push(link);
+        const directions = dgisDirectionsLink(place.point, view.draft.shared.mobility?.[0], view.draft.points.origin);
+        if (directions) lines.push(`Перейти в 2ГИС: ${directions}`);
       }
       if (group.places.length > 3) lines.push(`Ещё ${group.places.length - 3} — в мини-приложении.`);
     }
@@ -273,6 +286,7 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
 }
 
 export class MaxChatController {
+  private readonly sent = new Map<number, { active: string[]; transient: string[] }>();
   constructor(private readonly deps: MaxChatDependencies) {}
 
   private async pending(owner: string) {
@@ -299,7 +313,38 @@ export class MaxChatController {
       state.chat ??= { seen: {} }; state.chat.seen[key] = { at: Date.now(), status: 'done' }; await save();
     });
   }
-  private async send(userId: number, message: Message) { await this.deps.transport.send(userId, message); }
+  private async send(userId: number, message: Message, transient = false) {
+    const id = await this.deps.transport.send(userId, message);
+    if (typeof id === 'string' && id.length <= 200 && id.length > 0) {
+      const batch = this.sent.get(userId);
+      batch?.[transient ? 'transient' : 'active'].push(id);
+    }
+  }
+  private async settleMessages(owner: string, userId: number) {
+    const batch = this.sent.get(userId);
+    if (!batch) return;
+    const queued = await this.deps.database.withNavigation(owner, async (state, save) => {
+      const previous = state.activeMessageIds ?? [];
+      if (batch.active.length) state.activeMessageIds = batch.active;
+      state.cleanupMessageIds = [...new Set([
+        ...(state.cleanupMessageIds ?? []), ...previous.filter(id => batch.active.length > 0 && id !== state.greetingMessageId),
+        ...batch.transient,
+      ])].filter(id => id !== state.greetingMessageId);
+      await save();
+      return (state.cleanupMessageIds ?? []).slice(0, 20);
+    });
+    if (!this.deps.transport.delete) return;
+    const deleted: string[] = [];
+    for (const id of queued) {
+      if (deleted.length || queued.indexOf(id) > 0) await new Promise(resolve => setTimeout(resolve, 550));
+      try { await this.deps.transport.delete(id); deleted.push(id); }
+      catch (error) { this.deps.onStepDiagnostic?.(error instanceof Error ? error.message : 'MAX_DELETE_FAILED'); }
+    }
+    if (deleted.length) await this.deps.database.withNavigation(owner, async (state, save) => {
+      state.cleanupMessageIds = (state.cleanupMessageIds ?? []).filter(id => !deleted.includes(id));
+      await save();
+    });
+  }
   private async navigation(owner: string) {
     return this.deps.database.withNavigation(owner, async state => structuredClone(state));
   }
@@ -308,12 +353,11 @@ export class MaxChatController {
       const result = change(state); await save(); return result;
     });
   }
-  private async welcome(owner: string, userId: number, force = false) {
+  private async welcome(owner: string, userId: number) {
     return this.deps.database.withNavigation(owner, async (state, save) => {
-      if (state.welcomed && !force) return false;
-      const active = state.mode === 'planning' ? state.routes.find(route => route.id === state.activeRouteId) : null;
-      await this.send(userId, { text: welcomeText + (active ? `\n\nСейчас открыт маршрут: ${active.title}` : ''),
-        buttons: navigationButtons(state) });
+      if (state.welcomed) return false;
+      const id = await this.deps.transport.send(userId, { text: welcomeText });
+      if (typeof id === 'string' && id.length <= 200 && id.length > 0) state.greetingMessageId = id;
       state.welcomed = true;
       await save();
       return true;
@@ -442,13 +486,24 @@ export class MaxChatController {
           this.deps.onCallbackDiagnostic?.(error instanceof Error ? error.message : 'UNKNOWN');
         }
       }
-      if (update.kind === 'started' || update.text === '/start') await this.welcome(owner, update.userId, true);
+      this.sent.set(update.userId, { active: [], transient: [] });
+      if (update.kind === 'started' || update.text === '/start') {
+        await this.welcome(owner, update.userId);
+        const state = await this.navigation(owner);
+        await this.send(update.userId, { text: state.mode === 'planning' ? 'Продолжим текущий маршрут?' : 'Что хотите сделать?',
+          buttons: navigationButtons(state) });
+      }
       else if (update.kind === 'callback') await this.handleCallback(owner, update);
       else {
         const firstWelcome = await this.welcome(owner, update.userId);
-        if (!firstWelcome || !isExactGreeting(update.text ?? '')) await this.handleMessage(owner, update);
+        if (firstWelcome && isExactGreeting(update.text ?? '')) {
+          const state = await this.navigation(owner);
+          await this.send(update.userId, { text: 'Что хотите сделать?', buttons: navigationButtons(state) });
+        } else await this.handleMessage(owner, update);
       }
+      await this.settleMessages(owner, update.userId);
       await this.finish(owner, update.eventId);
+      this.sent.delete(update.userId);
       return 'handled' as const;
     } catch (error) {
       if (error instanceof InitialIntentError || error instanceof PlanningSessionError) {
@@ -481,9 +536,12 @@ export class MaxChatController {
           buttons: retry?.kind === 'intent_retry'
             ? [[callback('🔄 Повторить разбор', `intent-retry:${retry.nonce}`)], ...navigationButtons(state)]
             : navigationButtons(state) });
+        await this.settleMessages(owner, update.userId);
         await this.finish(owner, update.eventId);
+        this.sent.delete(update.userId);
         return 'handled' as const;
       }
+      this.sent.delete(update.userId);
       throw error;
     }
   }
@@ -720,8 +778,8 @@ export class MaxChatController {
         callback('18–20', `window:${view.id}:${view.version}:18:00:20:00`)]);
       await this.setPending(owner, undefined);
     } else if (!issue) {
-      question = '\n\nЕсли всё верно, составлю маршрут и проверю время в пути.';
-      buttons.push([callback('Составить план', `plan:${view.id}:${view.version}`)]);
+      question = this.deps.routingMode === 'external' ? '\n\nПодберу варианты мест. Дорогу и время в пути посмотрите в 2ГИС; выполнимость общего плана здесь не проверяется.' : '\n\nЕсли всё верно, составлю маршрут и проверю время в пути.';
+      buttons.push([callback(this.deps.routingMode === 'external' ? 'Подобрать места' : 'Составить план', `plan:${view.id}:${view.version}`)]);
       buttons.push([appButton(this.deps.botUsername, 'Изменить детали')]);
       await this.setPending(owner, undefined);
     } else {
@@ -859,7 +917,7 @@ export class MaxChatController {
       const confirmed = view.phase === 'DRAFT'
         ? await this.deps.planning.confirm(owner, id, { base_version: view.version, event_id: update.eventId + '-confirm' })
         : view;
-      await this.send(update.userId, { text: 'Подбираю места и проверяю дорогу. Это может занять до двух минут; результат пришлю сюда.' });
+      await this.send(update.userId, { text: this.deps.routingMode === 'external' ? 'Подбираю места. Результат и ссылки на 2ГИС пришлю сюда.' : 'Подбираю места и проверяю дорогу. Это может занять до двух минут; результат пришлю сюда.' }, true);
       const planned = await this.deps.planning.calculate(owner, id, { base_version: confirmed.version, event_id: update.eventId + '-calculate',
         ...(action === 'replan' && confirmed.result ? { refresh: true } : {}) });
       await this.changeNavigation(owner, state => {
@@ -908,7 +966,7 @@ export function registerMaxChatRoute(app: FastifyInstance, deps: MaxChatDependen
     onIntentDiagnostic: (code, diagnostic) => app.log.warn({ code, diagnostic }, 'MAX intent validation failed'),
     onCallbackDiagnostic: code => app.log.warn({ code: /^MAX_SEND_[A-Z0-9_]+$/u.test(code) ? code : 'OTHER' },
       'MAX callback acknowledgement failed'),
-    onStepDiagnostic: code => app.log.warn({ code: /^[A-Z_]{3,70}$/.test(code) ? code : 'OTHER' }, 'MAX planning step failed') });
+    onStepDiagnostic: code => app.log.warn({ code: /^[A-Z0-9_]{3,70}$/.test(code) ? code : 'OTHER' }, 'MAX planning step failed') });
   const processUpdate = async (raw: unknown) => {
     const update = parseUpdate(raw);
     return update ? deps.database.withChatUpdate(`max:${update.userId}`, () => controller.handle(raw)) : 'ignored';
@@ -959,15 +1017,13 @@ export function registerMaxChatRoute(app: FastifyInstance, deps: MaxChatDependen
 
 export class MaxApiTransport {
   constructor(private readonly token: string) {}
-  private async post(path: string, body: unknown) {
-    const json = JSON.stringify(body);
-    await new Promise<void>((resolve, reject) => {
-      // MAX uses the Russian Trusted CA. Scope this additional trust anchor to MAX
-      // instead of disabling TLS verification or changing trust for other providers.
+  private async request(method: 'POST' | 'DELETE', path: string, body?: unknown): Promise<unknown> {
+    const json = body === undefined ? '' : JSON.stringify(body);
+    return new Promise<unknown>((resolve, reject) => {
       const request = httpsRequest(`https://platform-api2.max.ru${path}`, {
-        method: 'POST', ca: [...getCACertificates('default'), russianTrustedRootCa], timeout: 15_000,
-        headers: { Authorization: this.token, 'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(json) },
+        method, ca: [...getCACertificates('default'), russianTrustedRootCa], timeout: 15_000,
+        headers: { Authorization: this.token,
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(json) }) },
       }, response => {
         let received = 0; let responseBody = '';
         response.setEncoding('utf8');
@@ -979,11 +1035,12 @@ export class MaxApiTransport {
         response.on('error', reject);
         response.on('end', () => {
           const status = response.statusCode ?? 0;
-          if (status < 200 || status >= 300) return reject(new Error(`MAX_SEND_HTTP_${status}`));
-          let payload: { success?: boolean } | null = null;
-          try { payload = JSON.parse(responseBody); } catch { /* MAX may return an empty body. */ }
-          if (payload?.success === false) return reject(new Error('MAX_SEND_PROVIDER_REJECTED'));
-          resolve();
+          if (status < 200 || status >= 300) return reject(new Error(`MAX_${method === 'DELETE' ? 'DELETE' : 'SEND'}_HTTP_${status}`));
+          let payload: unknown = null;
+          try { payload = JSON.parse(responseBody); } catch { /* Empty responses are allowed. */ }
+          if (payload && typeof payload === 'object' && 'success' in payload && payload.success === false)
+            return reject(new Error(method === 'DELETE' ? 'MAX_DELETE_PROVIDER_REJECTED' : 'MAX_SEND_PROVIDER_REJECTED'));
+          resolve(payload);
         });
       });
       request.on('timeout', () => request.destroy(new Error('MAX_SEND_TIMEOUT')));
@@ -998,7 +1055,12 @@ export class MaxApiTransport {
   async send(userId: number, message: Message) {
     const body = { text: message.text,
       ...(message.buttons?.length ? { attachments: [{ type: 'inline_keyboard', payload: { buttons: message.buttons } }] } : {}) };
-    await this.post(`/messages?user_id=${userId}`, body);
+    const result = await this.request('POST', `/messages?user_id=${userId}`, body);
+    const id = (result as { message?: { body?: { mid?: unknown } } } | null)?.message?.body?.mid;
+    return typeof id === 'string' ? id : undefined;
   }
-  async answer(callbackId: string) { await this.post(`/answers?callback_id=${encodeURIComponent(callbackId)}`, {}); }
+  async delete(messageId: string) {
+    await this.request('DELETE', `/messages?message_id=${encodeURIComponent(messageId)}`);
+  }
+  async answer(callbackId: string) { await this.request('POST', `/answers?callback_id=${encodeURIComponent(callbackId)}`, {}); }
 }

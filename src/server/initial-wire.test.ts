@@ -15,7 +15,7 @@ function fixture(count = 1) {
       activities: d.activity_edits.map((a, index) => ({ label: a.label, evidence: a.evidence,
         selection: a.selection, requirements: a.requirements,
         categories: { state: 'matched', include_any: d.category_matches[index]!.include_any.map(id => names.get(id)!), exclude: [] as string[] } })),
-      order: [{ before: 1, after: 2, evidence: 'музей, потом в кафе' }] })), unresolved: [] };
+      order: [{ before: 1, after: 2, evidence: 'музей, потом в кафе' }] })), unresolved: [] as { field: string; day_indices: number[]; text: string; reason: string }[] };
   return { ...f, wire };
 }
 function run(f: ReturnType<typeof fixture>, response = f.wire, inspect?: (body: any) => void) {
@@ -34,6 +34,22 @@ function run(f: ReturnType<typeof fixture>, response = f.wire, inspect?: (body: 
     } });
   return parseInitialIntent({ ...f.context, userText: f.text, inputId: 'wire-test' }, request => provider.generate(request));
 }
+it('retains the literal-quote repair instruction through the real adapter without weakening the guard', async () => {
+  const f = fixture(); f.text += ' в Учебном городе';
+  f.wire.unresolved = [{ field: 'locality', day_indices: [1], text: 'Учебный город', reason: 'ambiguous' }];
+  let attempts = 0;
+  await expect(run(f, f.wire, body => {
+    if (++attempts === 2) expect(body.messages[0].content).toContain('Проверь особенно unresolved.text');
+  })).rejects.toMatchObject({ code: 'INTENT_INVALID_RESPONSE', diagnostic: { errors: ['UNSUPPORTED_EVIDENCE'] } });
+  expect(attempts).toBe(2);
+  attempts = 0;
+  const repaired = await run(f, f.wire, () => {
+    if (++attempts === 2) f.wire.unresolved[0]!.text = 'Учебном городе';
+  });
+  expect(repaired.status).toBe('draft');
+  if (repaired.status === 'draft') expect(repaired.draft.clarifications?.[0]?.text).toBe('Учебном городе');
+  expect(attempts).toBe(2);
+});
 it('assigns IDs on the server and resolves exact names from the complete regional catalog', async () => {
   const f = fixture();
   const result = await run(f, f.wire, body => {

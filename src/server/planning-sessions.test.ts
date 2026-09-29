@@ -17,6 +17,23 @@ function setup() {
 const event = (version = 0, id = 'event-0001') => ({ base_version: version, event_id: id });
 
 describe('server-owned form revisions', () => {
+  it('refreshes agreed duration defaults for an old live draft while preserving explicit minutes', async () => {
+    const f = setup(); let submitted: Record<string, unknown> | undefined;
+    const context = { ...f.context, data_mode: 'live' as const,
+      catalog: { ...f.context.catalog, category_names: { '100': 'Музеи', '200': 'Рестораны' } },
+      visit_policy: { ...f.context.visit_policy, version: 'visit-duration-estimates.v5', by_category: { '100': 90, '200': 90 } } };
+    const sessions = new PlanningSessions({ now: demoNow, plan: async job => { submitted = job;
+      return { status: 'UNAVAILABLE', days: [], warnings: [] }; } });
+    const seed = structuredClone(f.fixture.input.intent);
+    Object.assign(seed.days[0]!.activities[0]!, { duration_minutes: 80 });
+    const view = sessions.create('owner', seed, context);
+    const confirmed = sessions.confirm('owner', view.id, event());
+    await sessions.calculate('owner', view.id, event(confirmed.version, 'new-duration-policy'));
+    expect(submitted?.visit_policy).toMatchObject({ version: 'visit-duration-estimates.v7', by_category: { '100': 60, '200': 60 } });
+    const intent = submitted?.intent as { days: { activities: { duration_minutes?: number }[] }[] };
+    expect(intent.days[0]!.activities[0]!.duration_minutes).toBe(80);
+    expect(sessions.get('owner', view.id).draft).toEqual(confirmed.draft);
+  });
   it('edits child ages explicitly, preserves them on legacy total edits and rejects contradictory groups atomically', () => {
     const { sessions, view } = setup();
     const selected = sessions.edit('owner', view.id, { ...event(), changes: [{ op: 'party', total: 3, child_ages: [6, 12] }] });
@@ -223,8 +240,8 @@ describe('server-owned form revisions', () => {
     const view = s.create('owner', seed, context);
     const confirmed = s.confirm('owner', view.id, event());
     await s.calculate('owner', view.id, event(confirmed.version, 'event-0002'));
-    expect(submitted?.visit_policy).toMatchObject({ by_activity: { culture: 25 },
-      max_stops_by_activity: { culture: 7 } });
+    expect(submitted?.visit_policy).toMatchObject({ by_activity: { culture: 5 },
+      max_stops_by_activity: { culture: 36 } });
     const intent = submitted?.intent as typeof seed;
     expect(intent.days[0]!.activities[0]!.categories.include_any).toEqual(['100']);
   }, 30_000);
@@ -273,8 +290,8 @@ describe('server-owned form revisions', () => {
     const view = sessions.create('owner', seed, context);
     const confirmed = sessions.confirm('owner', view.id, event());
     await sessions.calculate('owner', view.id, event(confirmed.version, 'event-0002'));
-    expect(submitted?.visit_policy).toMatchObject({ by_activity: { culture: 25 },
-      max_stops_by_activity: { culture: 7 } });
+    expect(submitted?.visit_policy).toMatchObject({ by_activity: { culture: 5 },
+      max_stops_by_activity: { culture: 36 } });
   });
 
   it.each([

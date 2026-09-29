@@ -58,7 +58,8 @@ export function planDataEvidence(plan: Plan, timezone: string): string[] {
     for (const segment of day.travel_segments ?? []) add('Данные переходов', segment.source);
   }
   const until = plan.valid_until && evidenceTime(plan.valid_until, timezone);
-  if (until) lines.add(`Срок результата в приложении: до ${until}; затем нужен новый расчёт.`);
+  if (plan.candidate_preview) lines.add('Подборка сохранена. Перед выходом обновите места, если данные могли измениться.');
+  else if (until) lines.add(`Срок результата в приложении: до ${until}; затем нужен новый расчёт.`);
   return [...lines];
 }
 export function travelSegmentText(segment: Segment | undefined, timezone: string): string[] {

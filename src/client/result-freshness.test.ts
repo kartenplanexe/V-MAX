@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlanningView } from '../shared/planning-form';
-import { resultValidUntil } from './result-freshness';
+import { resultValidUntil, placesStaleAt } from './result-freshness';
 
 function view(): Pick<PlanningView, 'expires_at' | 'result'> {
   return { expires_at: '2026-09-27T12:30:00.000Z', result: { status: 'AVAILABLE', warnings: [], days: [{ day_id: 'day', date: '2026-09-27', status: 'AVAILABLE', missing_activity_ids: [], visits: [{
@@ -9,6 +9,14 @@ function view(): Pick<PlanningView, 'expires_at' | 'result'> {
   }] }] } };
 }
 describe('client result freshness across legacy checkpoints', () => {
+  it('warns for saved places after thirty minutes without extending original source dates', () => {
+    const plan: PlanningView['result'] = { status: 'PLACES_FOUND', days: [], warnings: [], candidate_preview: { groups: [
+      { day_id: 'd', activity_id: 'a', places: [{ place_id: 'p', name: 'Place', location_label: null,
+        source: { provider: '2gis', url: null, data_mode: 'test', fetched_at: '2026-09-27T12:00:00Z', valid_until: '2026-09-27T12:05:00Z' } }] },
+    ] } };
+    expect(placesStaleAt(plan)).toBe('2026-09-27T12:30:00.000Z');
+    expect(plan.candidate_preview!.groups[0]!.places[0]!.source.valid_until).toBe('2026-09-27T12:05:00Z');
+  });
   it('does not renew a legacy result to the longer draft or source deadline', () => {
     expect(resultValidUntil(view())).toBe('2026-09-27T12:05:00.000Z');
   });

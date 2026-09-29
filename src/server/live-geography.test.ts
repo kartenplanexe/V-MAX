@@ -18,10 +18,17 @@ it('parses provider bounds, excludes businesses from walks and provides editable
     { id: '112720', name: 'Фонтаны' }, { id: '112905', name: 'Стрит-арт' },
     { id: '114018', name: 'Туристические маршруты' }]);
   expect(policy.by_category)
-    .toEqual({ '10': 90, '11': 60, '12': 60, '168': 60, '112668': 45, '112900': 30,
-      '112670': 20, '112720': 15, '112905': 20, '114018': 60 });
+    .toEqual({ '10': 60, '11': 60, '12': 60, '168': 5, '112668': 5, '112900': 5,
+      '112670': 5, '112720': 5, '112905': 5, '114018': 5 });
   expect(policy.walkable_category_ids).toEqual(['168', '112668', '112900', '112720', '112905', '114018']);
   expect(policy.park_category_ids).toEqual(['168']);
+});
+it('uses the agreed defaults for meals, museums and performances regardless of the previous category estimate', () => {
+  const names = ['Кафе', 'Рестораны', 'Столовые', 'Быстрое питание', 'Музеи',
+    'Кинотеатры', 'Театры', 'Театры оперы и балета', 'Филармонии', 'Концертные залы'];
+  const policy = visitPolicy(names.map((name, i) => ({ id: String(i), name })));
+  expect(policy.version).toBe('visit-duration-estimates.v7');
+  expect(Object.values(policy.by_category)).toEqual([60, 60, 60, 60, 60, 150, 150, 150, 150, 150]);
 });
 it('searches buildings only within the selected city and projects exact address choices', async () => {
   let requested: URL | undefined;

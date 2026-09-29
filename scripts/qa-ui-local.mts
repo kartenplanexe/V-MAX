@@ -22,7 +22,13 @@ import { CreateShareInputSchema, ImportShareInputSchema, ResolveShareInputSchema
 import { registerQaEvents, resolveQaEvents } from './qa-events.fixture.mjs';
 
 if (process.env.NODE_ENV === 'production') throw new Error('Synthetic UI harness must never run in production');
-const host = '127.0.0.1', port = 4175, origin = `http://${host}:${port}`, app = Fastify({ logger: false, bodyLimit: 32 * 1024 });
+const host = '127.0.0.1', port = process.argv.includes('--external-places-map') ? 4176 : 4175, origin = `http://${host}:${port}`, app = Fastify({ logger: false, bodyLimit: 32 * 1024 });
+// Explicit owner-approved map smoke: only the browser map uses a real key.
+// Places/LLM/auth remain synthetic. Never print the public demo key.
+const externalMap = process.argv.includes('--external-places-map');
+const mapKey = externalMap ? (await readFile(new URL('../.env.local', import.meta.url), 'utf8'))
+  .match(/^DGIS_MAPGL_API_KEY\s*=\s*["']?([^\r\n"']+)/m)?.[1]?.trim() : undefined;
+if (externalMap && !mapKey) throw new Error('Map demo key missing');
 const fixture = planningFixture();
 fixture.input.catalog.leaf_ids.push('300');
 Object.assign(fixture.input.visit_policy.by_category, { '300': 25 });
@@ -40,7 +46,7 @@ const sessions = new PlanningSessions({ now: qaNow, plan: job => planPlacesWithD
   if (routingDenied && new URL(String(url)).hostname === 'routing.api.2gis.com') return new Response('', { status: 429 });
   return fixture.defaultFetch(url, init);
 }), job, { retrieval: { radiusMeters: 5000, maxPages: 1 }, dataMode: 'test', now: qaNow, resolveEvents: resolveQaEvents,
-  routingStrategy: 'progressive', maxRoutePairs: 10 }) });
+  routingMode: externalMap ? 'external' : 'verified', routingStrategy: 'progressive', maxRoutePairs: 10 }) });
 const active = new Map<string, string>(), saved = new Map<string, Map<string, SavedConditionsView>>(), expired = new Set<string>();
 const authenticate: PlanningAuthenticator = request => {
   const value = request.headers['x-max-init-data'];
@@ -73,9 +79,11 @@ app.addHook('onRequest', async (request, reply) => {
   if (request.url.startsWith('/api/planning/') && !authenticate(request)) return reply.code(401).send({ error: 'AUTH_REQUIRED' });
 });
 app.addHook('onSend', async (_request, reply) => { reply.header('Cache-Control', 'no-store').header('Referrer-Policy', 'no-referrer').header('X-Content-Type-Options', 'nosniff')
-  .header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"); });
+  .header('Content-Security-Policy', externalMap
+    ? "default-src 'self'; script-src 'self' https://mapgl.2gis.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.2gis.com https://*.2gis.ru; connect-src 'self' https://*.2gis.com https://*.2gis.ru; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"); });
 app.setErrorHandler((error, _request, reply) => reply.code(error instanceof PlanningSessionError ? error.status : 400).send({ error: error instanceof PlanningSessionError ? error.code : 'QA_INPUT_INVALID' }));
-app.get('/api/public-config', async () => ({ maps: { enabled: false } }));
+app.get('/api/public-config', async () => ({ planning: { routingMode: externalMap ? 'external' : 'verified' }, maps: { enabled: externalMap, ...(mapKey ? { mapglKey: mapKey } : {}) } }));
 // Fault control exists only in this loopback-only synthetic runner, never in
 // the production app. Expiry still uses the real PlanningSessions clock/TTL.
 app.post('/qa/clock/expire-drafts', async (request, reply) => {
@@ -153,10 +161,10 @@ app.post('/api/planning/shares/import', async request => { const input = ImportS
 const root = fileURLToPath(new URL('../dist/client/', import.meta.url));
 app.post<{ Params: { id: string } }>('/api/planning/saved/:id/delete', async request => { const owner = authenticate(request)!, id = request.params.id; service.getSaved(owner, id); saved.get(owner)!.delete(id); if(active.get(owner)===id) active.delete(owner); return { deleted:true }; });
 const html = async () => (await readFile(new URL('../dist/client/index.html', import.meta.url), 'utf8')).replace('https://st.max.ru/js/max-web-app.js', '/qa/bridge.js')
-  .replace('<body>', '<body><aside style="padding:6px 14px;background:#332050;color:white;font:12px system-ui">Локальная QA · синтетические места и география · реальные формы и Python · без MAX/LLM/2ГИС</aside>');
+  .replace('<body>', `<body><aside style="padding:6px 14px;background:#332050;color:white;font:12px system-ui">Локальная QA · синтетические места · ${externalMap ? 'живая карта 2ГИС, без Routing/Places/LLM' : 'без MAX/LLM/2ГИС'}</aside>`);
 app.get('/qa/bridge.js', async (_request, reply) => reply.type('application/javascript').send("const scene = new URLSearchParams(location.search).get('qa') || 'initial'; const share=new URLSearchParams(location.search).get('share'); window.WebApp = {initData:'qa-synthetic:'+scene+(share?'&start_param=share_'+share:''),platform:'web'};"));
 await app.register(fastifyStatic, { root, index: false });
 app.get('/', async (_request, reply) => reply.type('text/html').send(await html()));
 app.get('/favicon.ico', async (_request, reply) => reply.code(204).send());
 await app.listen({ host, port });
-console.log(`Synthetic UI QA only: ${origin}/?qa=initial (also result, limited, three, saved, partial). No real credentials/providers.`);
+console.log(`Synthetic UI QA: ${origin}/?qa=initial (also result, limited, three, saved, partial). Live map: ${externalMap}. Places/LLM are synthetic.`);

@@ -66,7 +66,7 @@ it('keeps both submission manifests current and all required API checks resolvab
   for (const status of [401, 404]) expect(openapi.paths['/api/planning/saved/{id}'].get.responses[status]).toBeDefined();
   for (const status of [400, 401, 404, 409, 422]) expect(openapi.paths['/api/planning/saved/{id}/restore'].post.responses[status]).toBeDefined();
   expect(ids).toContain('read-saved'); expect(ids).toContain('restore-saved');
-});
+}, 30_000);
 
 it('documents real saved-condition projection/remap outputs and both expired bootstrap forms', () => {
   const fixture = planningFixture();

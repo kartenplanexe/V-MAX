@@ -5,11 +5,12 @@ export function selectPublicMapglKey(input: {
   routingApiKey: string;
   backupApiKey?: string;
   tertiaryApiKey?: string;
+  allowSharedDemoKey?: boolean;
 }) {
   if (!input.mapglApiKey) return '';
 
   const sharesServerScope = [input.placesApiKey, input.routingApiKey, input.backupApiKey, input.tertiaryApiKey]
     .some(key => key?.trim() === input.mapglApiKey.trim());
-  if (input.isProduction && sharesServerScope) return '';
+  if (input.isProduction && sharesServerScope && !input.allowSharedDemoKey) return '';
   return input.mapglApiKey;
 }

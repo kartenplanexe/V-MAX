@@ -30,7 +30,7 @@ import type { PlanningView } from '../shared/planning-form.js';
 export async function registerLiveRuntime(app: FastifyInstance) {
   const authenticate = maxPlanningAuthenticator(config.maxBotToken, config.initDataTtlSeconds);
   const missing = [!config.databaseUrl && 'DATABASE_URL', !config.maxBotToken && 'MAX_BOT_TOKEN',
-    !config.dgisPlacesApiKey && 'DGIS_PLACES_API_KEY', !config.dgisRoutingApiKey && 'DGIS_ROUTING_API_KEY'].filter(Boolean);
+    !config.dgisPlacesApiKey && 'DGIS_PLACES_API_KEY', config.planningRoutingMode === 'verified' && !config.dgisRoutingApiKey && 'DGIS_ROUTING_API_KEY'].filter(Boolean);
   if (missing.length) {
     app.log.warn({ missing }, 'Live planner configuration incomplete');
     app.get('/api/planning/bootstrap', async (_req, reply) => reply.code(503).send({ error: 'PLANNER_NOT_CONFIGURED' }));
@@ -72,6 +72,7 @@ export async function registerLiveRuntime(app: FastifyInstance) {
       // page_size=5 is verified by the live Places smoke test; five pages preserve a 25-item window.
       const result = await planPlacesWithDgis(client, job, { retrieval: { radiusMeters: 5000, pageSize: 5, maxPages: 5, maxRequests: 30 },
         maxRoutingHttpCalls: 30, maxRoutePairs: 10, routingStrategy: 'progressive',
+        routingMode: config.planningRoutingMode,
         consumeRoutingQuota: (count, remainingMs) => routingQuota.consume(count, remainingMs),
         dataMode: 'live', includeGeometry: true, resolveEvents });
       app.log.info(safePlanningDiagnostic(result), 'Planning outcome summary');
@@ -98,9 +99,10 @@ export async function registerLiveRuntime(app: FastifyInstance) {
   registerManualPlanning(app, new ManualPlanning({ database, context: token => geography.context(token) }), authenticate, activateCreated);
   registerSharingRoutes(app, new RouteSharing({ database, botUsername: config.maxBotUsername,
     context: token => geography.context(token) }), authenticate, activateCreated);
-  registerMaxChatRoute(app, { database, geography, planning,
+  registerMaxChatRoute(app, { database, geography, planning, routingMode: config.planningRoutingMode,
     transport: new MaxApiTransport(config.maxBotToken), botUsername: config.maxBotUsername,
     mapEnabled: Boolean(selectPublicMapglKey({ isProduction: config.isProduction,
+      allowSharedDemoKey: config.allowSharedDemoMapglKey,
       mapglApiKey: config.dgisMapglApiKey, placesApiKey: config.dgisPlacesApiKey,
       routingApiKey: config.dgisRoutingApiKey, backupApiKey: config.dgisBackupApiKey,
       tertiaryApiKey: config.dgisTertiaryApiKey })) }, config.maxBotToken,

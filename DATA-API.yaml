@@ -153,6 +153,21 @@
         "schema": {
           "type": "object",
           "properties": {
+            "planning": {
+              "type": "object",
+              "properties": {
+                "routingMode": {
+                  "enum": [
+                    "external",
+                    "verified"
+                  ]
+                }
+              },
+              "required": [
+                "routingMode"
+              ],
+              "additionalProperties": false
+            },
             "maps": {
               "type": "object",
               "properties": {
@@ -174,6 +189,7 @@
             }
           },
           "required": [
+            "planning",
             "maps"
           ],
           "additionalProperties": false

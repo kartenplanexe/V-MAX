@@ -4,6 +4,7 @@ import type { PublicConfig } from '../shared/public-config';
 import type { PlanningView } from '../shared/planning-form';
 
 type Day = NonNullable<PlanningView['result']>['days'][number];
+type MapDay = Pick<Day, 'travel_segments'> & { visits: Pick<Day['visits'][number], 'activity_id' | 'place_id' | 'point' | 'name' | 'location_label'>[] };
 type Point = PlanningView['draft']['points']['origin'];
 type MapGL = InstanceType<Awaited<ReturnType<typeof load>>['Map']>;
 type Marker = InstanceType<Awaited<ReturnType<typeof load>>['Marker']>;
@@ -12,9 +13,8 @@ function markerIcon(index: number, selected: boolean) {
   return { icon: `data:image/svg+xml,${encodeURIComponent(svg)}`, size: [40, 48], anchor: [20, 46] };
 }
 
-/** Display measured paths only. The accessible stop list also controls map selection. */
-export function PlanMap({ day, origin, destination, activeVisitIndex, onSelectVisit }: {
-  day: Day; origin?: Point; destination?: Point; activeVisitIndex?: number; onSelectVisit?: (index: number) => void;
+export function PlanMap({ day, origin, destination, activeVisitIndex, onSelectVisit, placesOnly = false }: {
+  day: MapDay; origin?: Point; destination?: Point; activeVisitIndex?: number; onSelectVisit?: (index: number) => void; placesOnly?: boolean;
 }) {
   const element = useRef<HTMLDivElement>(null), mapRef = useRef<MapGL | null>(null);
   const markers = useRef(new Map<number, Marker>()), select = useRef(onSelectVisit);
@@ -46,7 +46,7 @@ export function PlanMap({ day, origin, destination, activeVisitIndex, onSelectVi
           disableZoomOnScroll: true, controlsLayoutPadding: { top: 12, right: 12, bottom: 12, left: 12 },
           copyright: 'bottomRight' });
         resources.push(map); mapRef.current = map;
-        const lines = (day.travel_segments ?? []).filter(segment => segment.coordinates.length && Date.parse(segment.source.valid_until) > Date.now());
+        const lines = (placesOnly ? [] : day.travel_segments ?? []).filter(segment => segment.coordinates.length && Date.parse(segment.source.valid_until) > Date.now());
         const geometry = lines.flatMap(segment => segment.coordinates.flat());
         const lon = [...points.map(p => p.lon), ...geometry.map(p => p[0])], lat = [...points.map(p => p.lat), ...geometry.map(p => p[1])];
         map.fitBounds({ southWest: [Math.min(...lon) - .001, Math.min(...lat) - .001],
@@ -58,7 +58,7 @@ export function PlanMap({ day, origin, destination, activeVisitIndex, onSelectVi
           pathResources.push(path); resources.push(path);
         }
         const missing = lines.length < day.visits.length + (destination ? 1 : 0);
-        const readyMessage = lines.length
+        const readyMessage = placesOnly ? 'Места на карте. Нажмите на точку, чтобы найти её в списке.' : lines.length
           ? `Линии показывают рассчитанный путь.${missing ? ' Часть переходов доступна только в списке.' : ''} Время в пути ориентировочное.`
           : 'Показаны остановки. Линия пути недоступна — время и порядок есть в списке.';
         const firstExpiry = Math.min(...lines.map(segment => Date.parse(segment.source.valid_until)));
@@ -86,21 +86,21 @@ export function PlanMap({ day, origin, destination, activeVisitIndex, onSelectVi
       cancelled = true; controller.abort(); timers.forEach(clearTimeout); mapRef.current = null; markers.current.clear();
       resources.reverse().forEach(resource => resource.destroy());
     };
-  }, [day, origin, destination, retry]);
+  }, [day, origin, destination, retry, placesOnly]);
   useEffect(() => {
     for (const [index, marker] of markers.current) marker.setIcon(markerIcon(index, index === activeVisitIndex));
     const point = activeVisitIndex === undefined ? undefined : day.visits[activeVisitIndex]?.point;
     if (point) mapRef.current?.setCenter([point.lon, point.lat], { duration: 0 });
   }, [activeVisitIndex, day, loaded]);
-  return <section className="plan-map" aria-label="Маршрут на карте 2ГИС">
+  return <section className="plan-map" aria-label={placesOnly ? 'Места на карте 2ГИС' : 'Маршрут на карте 2ГИС'}>
     <div className="plan-map-canvas" ref={element} aria-label="Карта с номерами остановок" />
     <div className="map-status"><p className="field-hint" role="status">{status}</p>
       {failed && <button type="button" className="button-secondary" onClick={() => setRetry(value => value + 1)}>Повторить загрузку карты</button>}</div>
-    <ol className="map-places">{origin && <li key="origin">Старт: {origin.label ?? 'выбранная точка'}</li>}
+    {!placesOnly && <ol className="map-places">{origin && <li key="origin">Старт: {origin.label ?? 'выбранная точка'}</li>}
       {day.visits.map((visit, index) => <li key={`${visit.activity_id}:${visit.place_id}`}>
         <button type="button" aria-pressed={index === activeVisitIndex} onClick={() => onSelectVisit?.(index)}>
           <span className="map-stop-number">{index + 1}</span><span>{visit.name}{visit.location_label && <small>{visit.location_label}</small>}</span>
         </button></li>)}
-      {destination && <li key="destination">Финиш: {destination.label ?? 'выбранная точка'}</li>}</ol>
+      {destination && <li key="destination">Финиш: {destination.label ?? 'выбранная точка'}</li>}</ol>}
   </section>;
 }

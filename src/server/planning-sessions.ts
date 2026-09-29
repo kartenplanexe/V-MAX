@@ -8,6 +8,8 @@ import { replacementRoster, matchesReplacement, planFreshUntil, alternativeDelta
 import { SelectedEventTargetSchema, SelectedEventDisplaySchema, type SelectedEventTarget } from '../shared/event-selection.js';
 import { choicesFromCatalog, catalogActivity } from './activity-choices.js';
 import { orderWithoutActivity, validActivityOrder } from '../shared/activity-order.js';
+import { agreedVisitMinutes, VISIT_DURATION_POLICY, WALK_STOP_MINUTES } from './visit-duration-policy.js';
+import { WALK_DISCOVERY_POLICY, walkRubricScores } from './walk-discovery-policy.js';
 
 const EventEvidenceSchema = z.object({ date: z.string(), valid_until: z.string().datetime(),
   point: z.object({ lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180) }).strict(),
@@ -29,7 +31,7 @@ export type PlanningContext = {
   modes: readonly ('walking' | 'driving' | 'cycling' | 'public_transport')[];
   data_mode: 'test' | 'live';
 };
-type RecordState = { owner: string; context: PlanningContext; view: PlanningView; expires: number;
+type RecordState = { owner: string; context: PlanningContext; view: PlanningView; expires: number; retained?: boolean;
   events: Map<string, string>; failures: Map<string, PlanningSessionError>; resultExpires: number; inProgress: string | null;
   eventChecks?: Record<string, EventEvidence & { target_hash: string }>;
   alternative?: { event_id: string; preview: AlternativePreview } };
@@ -72,6 +74,7 @@ export class PlanningSessions {
         const r: RecordState = { ...structuredClone(saved), events: new Map(saved.events),
           failures: new Map(saved.failures.map(([key, e]) => [key, new PlanningSessionError(e.code, e.status)])) };
         r.view.draft = FormDraft.parse(r.view.draft);
+        if (r.view.result?.status === 'PLACES_FOUND') r.retained = true;
         const evidence = z.record(z.string(), EventEvidenceSchema.extend({ target_hash: z.string() })).safeParse(r.eventChecks ?? {});
         r.eventChecks = evidence.success ? evidence.data : {};
         delete r.view.event_previews; // Public displays are always derived from still-valid bound evidence.
@@ -98,7 +101,7 @@ export class PlanningSessions {
   #prune() {
     const now = this.#now().getTime();
     for (const [id, record] of this.#records) {
-      if (now >= record.expires) this.#records.delete(id);
+      if (!record.retained && now >= record.expires) this.#records.delete(id);
       else {
         if (record.alternative && now >= Date.parse(record.alternative.preview.expires_at)) delete record.alternative;
         for (const [key, check] of Object.entries(record.eventChecks ?? {}))
@@ -110,7 +113,11 @@ export class PlanningSessions {
     this.#prune();
     const record = this.#records.get(id);
     if (!record || record.owner !== owner) reject('DRAFT_NOT_FOUND', 404);
-    if (record.view.result && this.#now().getTime() >= record.resultExpires) {
+    if (record.retained && this.#now().getTime() >= record.expires) {
+      record.expires = this.#now().getTime() + 1_800_000;
+      record.view.expires_at = new Date(record.expires).toISOString();
+    }
+    if (record.view.result && record.view.result.status !== 'PLACES_FOUND' && this.#now().getTime() >= record.resultExpires) {
       record.view.result = null; record.view.confirmed_version = null; record.view.phase = 'DRAFT'; record.view.version++;
       delete record.alternative;
     }
@@ -438,6 +445,16 @@ export class PlanningSessions {
       // eligible outdoor rubrics have no individual duration estimate. This is a
       // product scheduling estimate, not a claimed 2GIS opening-hours fact.
       const planDraft = structuredClone(draft);
+      const visitPolicy = structuredClone(record.context.visit_policy);
+      if (record.context.data_mode === 'live' && record.context.catalog.category_names) {
+        // Refresh product defaults even for a retained draft created before v6.
+        // The previous saved result remains an unchanged snapshot.
+        for (const [id, name] of Object.entries(record.context.catalog.category_names)) {
+          const estimate = agreedVisitMinutes(name);
+          if (estimate !== undefined) visitPolicy.by_category[id] = estimate;
+        }
+        visitPolicy.version = VISIT_DURATION_POLICY;
+      }
       const leaves = new Set(record.context.catalog.leaf_ids);
       // Old saved drafts predate the dynamic walk policy. These 2GIS IDs are a
       // curated compatibility subset, not a cached Places response; only IDs
@@ -459,21 +476,26 @@ export class PlanningSessions {
           namedTypes: activity.selection.named_types });
         if (kind === 'place_visit') continue;
         const areaWalk = kind === 'area_walk';
+        activity.intent_kind = kind;
         const allowed = areaWalk ? new Set(parkIds) : walkSet;
         const safeIds = activity.categories.include_any.filter(id => allowed.has(id) && !activity.categories.exclude.includes(id));
+        const generalWalk = kind === 'route_walk' && activity.selection.category_policy === 'related_allowed' &&
+          activity.selection.named_types.length === 0;
         const categories = areaWalk ? parkIds.filter(id => !activity.categories.exclude.includes(id))
+          : generalWalk ? walkIds.filter(id => !activity.categories.exclude.includes(id))
           : safeIds.length ? safeIds : activity.selection.category_policy === 'named_types_only'
           ? [] : walkIds.filter(id => !activity.categories.exclude.includes(id));
         if (!categories.length) reject('WALK_CATEGORY_UNAVAILABLE', 422);
         activity.categories.include_any = categories;
         const routeWalk = kind === 'route_walk' &&
-          !!day.window && minutes(day.window.end) - minutes(day.window.start) >= 90;
-        by_activity[activity.id] = activity.duration_minutes ?? (routeWalk ? 25 : 60);
+          !!day.window && minutes(day.window.end) - minutes(day.window.start) >= 2 * WALK_STOP_MINUTES;
+        by_activity[activity.id] = activity.duration_minutes ?? WALK_STOP_MINUTES;
         if (routeWalk) {
           const window = minutes(day.window!.end) - minutes(day.window!.start);
           // This is only the mathematical upper bound from visit duration. The
           // solver still decides how many stops fit after real travel and buffers.
-          max_stops_by_activity[activity.id] = Math.floor(window / by_activity[activity.id]!);
+          const cap = Math.floor(window / by_activity[activity.id]!);
+          if (cap >= 2) max_stops_by_activity[activity.id] = Math.min(120, cap);
           // A soft target, not a fabricated itinerary duration: the solver may
           // return a shorter verified route and the UI must remain honest.
           walk_travel_target_minutes_by_day[day.day_id] = Math.min(50, Math.max(15, Math.round(window * 0.3)));
@@ -490,7 +512,9 @@ export class PlanningSessions {
         })),
         catalog: { version: record.context.catalog.version, region_id: record.context.catalog.region_id,
           leaf_ids: [...record.context.catalog.leaf_ids] }, visit_policy: {
-          ...structuredClone(record.context.visit_policy), by_activity, max_stops_by_activity,
+          ...visitPolicy, by_activity, max_stops_by_activity,
+          walk_discovery_policy: WALK_DISCOVERY_POLICY,
+          walk_rubric_scores: walkRubricScores(walkIds, record.context.catalog.category_names),
           walk_travel_target_minutes_by_day, activity_intent_policy: ACTIVITY_INTENT_POLICY,
           tentative_schedule_category_ids: walkIds } };
   }
@@ -590,6 +614,7 @@ export class PlanningSessions {
         result.valid_until ? Date.parse(result.valid_until) : Infinity)).toISOString();
       if (result.valid_until && Date.parse(result.valid_until) <= this.#now().getTime()) reject('PLAN_EXPIRED_OR_INVALID', 503);
       record.view.result = result;
+      if (result.status === 'PLACES_FOUND') record.retained = true;
       record.resultExpires = Math.min(this.#now().getTime() + 300_000, record.expires,
         record.view.result.valid_until ? Date.parse(record.view.result.valid_until) : Infinity);
       record.view.phase = 'RESULT'; return this.#view(record);

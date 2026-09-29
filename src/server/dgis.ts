@@ -121,6 +121,7 @@ export class DgisClient {
     page?: number;
     pageSize?: number;
     radiusMeters?: number;
+    sort?: 'relevance' | 'distance';
     requestBudget?: DgisRequestBudget;
   }) {
     if (!/^\d+$/u.test(input.regionId) || input.rubricIds.length < 1 || input.rubricIds.length > 100 ||
@@ -138,6 +139,7 @@ export class DgisClient {
     page?: number;
     pageSize?: number;
     radiusMeters?: number;
+    sort?: 'relevance' | 'distance';
     requestBudget?: DgisRequestBudget;
   }) {
     validateCoordinates(input.center);
@@ -175,7 +177,7 @@ export class DgisClient {
       page: String(page),
       point: `${input.center.lon},${input.center.lat}`,
       radius: String(radiusMeters),
-      sort: 'relevance',
+      sort: input.sort ?? 'relevance',
     }).toString();
     if (input.query !== undefined) url.searchParams.set('q', input.query.trim());
     if (input.rubricIds) {

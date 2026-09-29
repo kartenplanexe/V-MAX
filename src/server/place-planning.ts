@@ -56,18 +56,27 @@ export function safePlanningDiagnostic(value: unknown) {
       reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
   }
   const days = Array.isArray(result.days) ? result.days : [];
+  const preview = result.candidate_preview && typeof result.candidate_preview === 'object'
+    ? result.candidate_preview as Record<string, unknown> : {};
+  const previewGroups = Array.isArray(preview.groups) ? preview.groups : null;
   // Positional aggregates let us locate a dropped request stage without logging
   // user text, category IDs, activity IDs, place names, or coordinates.
   const activity_funnel = groups.slice(0, 50).map((group, index) => {
     const day = days.find(item => item?.day_id === group?.day_id);
     const count = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
     return { slot: index + 1, eligible: count(group?.eligible), shortlisted: count(group?.selected),
+      ...(typeof group?.minimum_visit_minutes === 'number' ? { minimum_visit_minutes: count(group.minimum_visit_minutes) } : {}),
+      ...(typeof group?.minimum_start_allowance_minutes === 'number' ? { minimum_start_allowance_minutes: count(group.minimum_start_allowance_minutes) } : {}),
+      ...(previewGroups ? { previewed: previewGroups.filter(item => item?.day_id === group?.day_id && item?.activity_id === group?.activity_id)
+        .reduce((sum, item) => sum + (Array.isArray(item?.places) ? item.places.length : 0), 0) } : {}),
       scheduled: Array.isArray(day?.visits) ? day.visits.filter((visit: { activity_id?: unknown }) =>
         visit?.activity_id === group?.activity_id).length : 0,
-      missing: Array.isArray(day?.missing_activity_ids) && day.missing_activity_ids.includes(group?.activity_id) };
+      missing: Array.isArray(day?.missing_activity_ids) && day.missing_activity_ids.includes(group?.activity_id) ||
+        Array.isArray(result.selection_gaps) && result.selection_gaps.some((item: { day_id?: unknown; activity_id?: unknown }) =>
+          item?.day_id === group?.day_id && item?.activity_id === group?.activity_id) };
   });
   return {
-    status: ['AVAILABLE', 'LIMITED', 'UNAVAILABLE', 'ERROR', 'NEEDS_INPUT'].includes(String(result.status))
+    status: ['AVAILABLE', 'LIMITED', 'UNAVAILABLE', 'ERROR', 'NEEDS_INPUT', 'PLACES_FOUND'].includes(String(result.status))
       ? result.status : 'UNKNOWN',
     pipeline_stage: allowedCode(routing.pipeline_stage, PIPELINE_STAGES) ?? 'UNKNOWN',
     budget_stop_code: allowedCode(routing.budget_stop_code, BUDGET_STOP_CODES),
@@ -166,6 +175,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
   maxRoutePairs?: number;
   maxRoutingHttpCalls?: number;
   routingStrategy?: 'progressive';
+  routingMode?: 'external' | 'verified';
   consumeRoutingQuota?: (objects: number, remainingMs: number) => Promise<void>;
   dataMode?: 'live' | 'test';
   includeGeometry?: boolean;
@@ -286,7 +296,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
       catalog: input.catalog, visit_policy: input.visit_policy, budget_policy: input.budget_policy,
       ...(input.replacement === undefined ? {} : { replacement: input.replacement }),
       routing_policy: { ...z.record(z.string(), z.unknown()).parse(input.routing_policy ?? {}),
-        ...(options.routingStrategy ? { strategy: options.routingStrategy } : {}),
+        ...(options.routingMode === 'external' ? { strategy: 'progressive', external_compact: true } : options.routingStrategy ? { strategy: options.routingStrategy } : {}),
         max_route_pair_calculations: maxPairs, max_routing_http_calls: maxHttp }, places: [], route_legs: [] };
     // The replacement roster needs fresh place facts. The initial structural
     // preflight deliberately contains no places, so check it after retrieval.
@@ -310,6 +320,9 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
     const fetchedAt = now();
     pipelineStage = 'PLACES';
     const retrieval = await retrievePlaceCandidates(client, input.intent, { ...options.retrieval,
+      ...(options.routingMode === 'external' ? { sort: 'distance' as const,
+        walkRubricScores: z.record(z.string(), z.number().int().min(0).max(2)).parse(
+          (input.visit_policy as Record<string, unknown> | undefined)?.walk_rubric_scores ?? {}) } : {}),
       radiusMeters: draft.shared.search_radius_meters ?? options.retrieval.radiusMeters, catalogVersion: catalog.version,
       shouldContinue: withinDeadline, requestBudget: { consume: consumeRetrieval } });
     searchScope = { radius_meters: retrieval.radius_meters, coverage: retrieval.coverage === 'PARTIAL' ? 'PARTIAL' : 'BOUNDED_RESULTS' };
@@ -339,6 +352,15 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
     const prepared = Prepared.parse(preparedReply);
     candidatePreviewJob = prepared.preview_job ?? prepared.job;
     diagnosticShortlist = prepared.shortlist;
+    // Deliberately stop before any road measurement or route solving. These are
+    // individually eligible alternatives, never a verified combined itinerary.
+    if (options.routingMode === 'external') {
+      const preview = projectCandidatePreview(candidatePreviewJob, now());
+      return { schema_version: 'place-selection.v1', status: preview.candidate_preview ? 'PLACES_FOUND' : 'UNAVAILABLE',
+        selection_policy: 'external-compact.v4',
+        ...(diagnosticShortlist ? { shortlist: diagnosticShortlist } : {}),
+        days: [], warnings: [], ...preview, ...scope(), routing: { ...metadata(), policy: 'external-routing-places.v1' } };
+    }
     hasTransit = prepared.pairs.some(pair => pair.mode === 'public_transport');
     shortlistTruncated = z.array(z.object({ truncated: z.boolean() })).parse(prepared.shortlist.groups).some(group => group.truncated);
     const queries = prepared.pairs.flatMap(pair => (pair.sample_utc ?? []).map(utc => ({ pair, utc })));

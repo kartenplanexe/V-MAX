@@ -3,10 +3,12 @@ import type { ActivityChoice } from '../shared/activity-choice.js';
 import { PlaceActivitySchema } from '../shared/planning-form.js';
 import type { PlanningContext } from './planning-sessions.js';
 import { classifyActivityIntent } from './activity-intent.js';
+import { agreedVisitMinutes } from './visit-duration-policy.js';
 
 export function choicesFromCatalog(context: PlanningContext, localityName: string) {
   const categories = context.catalog.leaf_ids.flatMap(id => {
-    const name = context.catalog.category_names?.[id], duration = context.visit_policy.by_category[id];
+    const name = context.catalog.category_names?.[id], duration = name && context.data_mode === 'live'
+      ? agreedVisitMinutes(name) ?? context.visit_policy.by_category[id] : context.visit_policy.by_category[id];
     return name && Number.isSafeInteger(duration) && duration! > 0
       ? [{ id, name, estimated_visit_minutes: duration! }] : [];
   }).sort((a, b) => a.name.localeCompare(b.name, 'ru'));

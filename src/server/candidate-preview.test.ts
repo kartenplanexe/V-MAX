@@ -40,6 +40,15 @@ it('drops invalid or future observations and removes untrusted provider links', 
   expect(projectCandidatePreview(job, demoNow())).toEqual({});
 });
 
+it('only adds valid coordinates to candidate map markers', () => {
+  const job = canonicalJob();
+  Object.assign(job.places[0]!, { point: { lat: 56.32, lon: 44 } });
+  Object.assign(job.places[1]!, { point: { lat: 190, lon: 44 } });
+  const preview = projectCandidatePreview(job, demoNow()).candidate_preview!;
+  expect(preview.groups[0]!.places[0]!.point).toEqual({ lat: 56.32, lon: 44 });
+  expect(preview.groups[1]!.places[0]!.point).toBeUndefined();
+});
+
 it('survives public result and checkpoint boundaries, then presents unverified choices in chat', async () => {
   const f = planningFixture(), raw = { status: 'ERROR', issues: ['ROUTING_PROVIDER_UNAVAILABLE'], warnings: [], days: [],
     ...projectCandidatePreview(canonicalJob(), demoNow()) };
@@ -55,7 +64,7 @@ it('survives public result and checkpoint boundaries, then presents unverified c
   const messages = formatChatPlanMessages(restored), text = messages.map(message => message.text).join('\n');
   expect(text).toContain('Место 1'); expect(text).toContain('Место 2');
   expect(text).toContain('https://2gis.ru/moscow/firm/1');
-  expect(text).toContain('ещё не проверены'); expect(text).toContain('учебные');
+  expect(text).toContain('Время дороги уточните в 2ГИС'); expect(text).toContain('учебные');
   expect(text).not.toMatch(/В пути \d|Ожидаемые расходы|План помещается/);
   expect(messages.every(message => message.text.length <= 4000)).toBe(true);
   expect(resultValidUntil(restored)).toBe('2026-09-24T09:35:00.000Z');

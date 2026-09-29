@@ -36,6 +36,8 @@ export const config = {
   yandexApiKey: process.env.YANDEX_API_KEY?.trim() || '',
   yandexFolderId: process.env.YANDEX_FOLDER_ID?.trim() || '',
   dgisMapglApiKey: process.env.DGIS_MAPGL_API_KEY?.trim() || '',
+  allowSharedDemoMapglKey: process.env.DGIS_MAPGL_ALLOW_SHARED_DEMO_KEY === 'true',
+  planningRoutingMode: process.env.PLANNING_ROUTING_MODE === 'verified' ? 'verified' as const : 'external' as const,
   dgisPlacesApiKey: process.env.DGIS_PLACES_API_KEY?.trim() || '',
   dgisRoutingApiKey: process.env.DGIS_ROUTING_API_KEY?.trim() || '',
   dgisBackupApiKey: process.env.DGIS_BACKUP_API_KEY?.trim() || '',

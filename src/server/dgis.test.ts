@@ -44,10 +44,25 @@ describe('DgisClient', () => {
     expect(requests[0]?.searchParams.get('rubric_id')).toBe('161,162');
     expect(requests[0]?.searchParams.get('region_id')).toBe('32');
     expect(requests[0]?.searchParams.get('page')).toBe('2');
+    expect(requests[0]?.searchParams.get('sort')).toBe('relevance');
     expect(requests[0]?.searchParams.has('q')).toBe(false);
     await expect(client.searchPlacesByCategories({ center: { lat: 55, lon: 37 },
       regionId: '32', rubricIds: ['bad'] })).rejects.toThrow('category');
     expect(requests).toHaveLength(1);
+  });
+
+  it('can request the closest rubric matches without changing the radius or adding Routing', async () => {
+    let requested: URL | undefined;
+    const client = new DgisClient({ placesApiKey: 'test', routingApiKey: 'test', fetchImpl: async url => {
+      requested = new URL(String(url));
+      return Response.json({ meta: { code: 200 }, result: { items: [], total: 0 } });
+    } });
+    await client.searchPlacesByCategories({ center: { lat: 55, lon: 37 }, regionId: '32',
+      rubricIds: ['161'], radiusMeters: 5000, sort: 'distance' });
+    expect(requested?.hostname).toBe('catalog.api.2gis.com');
+    expect(requested?.searchParams.get('sort')).toBe('distance');
+    expect(requested?.searchParams.get('point')).toBe('37,55');
+    expect(requested?.searchParams.get('radius')).toBe('5000');
   });
 
   it('sends a bounded Places request and returns normalized items', async () => {

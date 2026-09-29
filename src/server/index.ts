@@ -42,6 +42,7 @@ server.get<{ Reply: PublicConfig }>('/api/public-config', async (_request, reply
   reply.header('Cache-Control', 'no-store');
 
   const mapglKey = selectPublicMapglKey({
+    allowSharedDemoKey: config.allowSharedDemoMapglKey,
     isProduction: config.isProduction,
     mapglApiKey: config.dgisMapglApiKey,
     placesApiKey: config.dgisPlacesApiKey,
@@ -50,6 +51,7 @@ server.get<{ Reply: PublicConfig }>('/api/public-config', async (_request, reply
     tertiaryApiKey: config.dgisTertiaryApiKey,
   });
   return {
+    planning: { routingMode: config.planningRoutingMode },
     maps: {
       enabled: Boolean(mapglKey),
       ...(mapglKey ? { mapglKey } : {}),

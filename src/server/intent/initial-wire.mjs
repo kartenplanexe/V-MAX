@@ -57,7 +57,7 @@ export function initialWireAdapter(request) {
     time: ref('initialTime'), activities: array(ref('initialActivity')), order: array(ref('initialOrder')) });
   defs.initialUnresolved = object({ field: dailySchema.$defs.unresolved.properties.field,
     day_indices: { ...array({ type: 'integer', minimum: 1 }), uniqueItems: true },
-    text: ref('quote'), reason: dailySchema.$defs.unresolved.properties.reason });
+    text: { ...ref('quote'), description: 'Дословный непрерывный фрагмент user_text, вызвавший неопределённость. Не вопрос, не нормализованное название и не пересказ.' }, reason: dailySchema.$defs.unresolved.properties.reason });
   const schema = { $schema: dailySchema.$schema, ...object({
     schema_version: { const: 'initial-intent.v1' }, action: { enum: ['new_request', 'off_topic', 'unclear'] },
     date_anchor: dailySchema.properties.date_anchor, shared_updates: array(ref('sharedChange')),
@@ -70,6 +70,7 @@ export function initialWireAdapter(request) {
   const repairErrors = Array.isArray(request.initial_repair_errors)
     ? request.initial_repair_errors.filter(code => typeof code === 'string' && /^[A-Z_]{1,64}$/.test(code)) : [];
   const system = fs.readFileSync(new URL('./initial-intent-system-v1.md', import.meta.url), 'utf8') +
+    (repairErrors.includes('UNSUPPORTED_EVIDENCE') ? '\nUNSUPPORTED_EVIDENCE: все evidence, date_evidence, scope_evidence и unresolved.text должны быть дословными непрерывными фрагментами user_text. Не меняй окончания, не подставляй нормализованное название из locality_context и не пиши вопрос вместо цитаты. Проверь особенно unresolved.text. Если неопределённость реальна, сохрани её с точной цитатой, а не удаляй.' : '') +
     (repairErrors.length ? `\nПредыдущее предложение отклонено проверкой: ${repairErrors.join(', ')}. ` +
       'Заново проверь исходный текст, область каждого дня, буквальные цитаты и индексы порядка. before — занятие раньше, after — занятие позже. ' +
       'TIME_LITERAL_MISSING означает пропущенное цифровое время: проверь оба конца time.start/time.end; чужое или неоднозначное время сохрани в unresolved, не превращай занятость в свободное окно. Верни полный исправленный JSON.' : '');

@@ -19,7 +19,8 @@ export type OwnerState = { checkpoint?: PlanningCheckpoint; receipts: Record<str
 export type SavedRoute = { id: string; createdAt: string; title: string; requestText: string;
   localityName: string; draftId: string; status: 'draft' | 'planned' };
 export type BotNavigation = { welcomed: boolean; mode: 'idle' | 'awaiting_request' | 'planning';
-  activeRouteId?: string; deletePendingRouteId?: string; routes: SavedRoute[] };
+  activeRouteId?: string; deletePendingRouteId?: string; routes: SavedRoute[];
+  greetingMessageId?: string; activeMessageIds?: string[]; cleanupMessageIds?: string[] };
 const emptyNavigation = (): BotNavigation => ({ welcomed: false, mode: 'idle', routes: [] });
 
 /** One short-lived owner actor per DB connection. Session advisory locks, NOT open SQL transactions
@@ -49,7 +50,7 @@ export class PlanningDatabase {
       const lock = await client.query('SELECT pg_try_advisory_lock(hashtextextended($1, 782002)) AS acquired', [owner]);
       if (!lock.rows[0]?.acquired) throw new PlanningSessionError('OPERATION_IN_PROGRESS');
       locked = true;
-      const row = await client.query('SELECT state FROM planning_owners WHERE owner = $1 AND expires_at > $2', [owner, this.now()]);
+      const row = await client.query('SELECT state FROM planning_owners WHERE owner = $1 AND (retained OR expires_at > $2)', [owner, this.now()]);
       const state: OwnerState = row.rows[0]?.state ?? { receipts: {}, attempts: [] };
       const now = this.now().getTime();
       state.attempts = state.attempts.filter(t => now - t < 600_000);
@@ -59,9 +60,9 @@ export class PlanningDatabase {
       const save = async () => {
         const json = JSON.stringify(state);
         if (Buffer.byteLength(json) > 2 * 1024 * 1024) throw new PlanningSessionError('SESSION_CAPACITY', 429);
-        await client.query(`INSERT INTO planning_owners(owner,state,expires_at) VALUES ($1,$2,$3)
-          ON CONFLICT(owner) DO UPDATE SET state=excluded.state,expires_at=excluded.expires_at`,
-        [owner, json, new Date(this.now().getTime() + 1_800_000)]);
+        await client.query(`INSERT INTO planning_owners(owner,state,expires_at,retained) VALUES ($1,$2,$3,$4)
+          ON CONFLICT(owner) DO UPDATE SET state=excluded.state,expires_at=excluded.expires_at,retained=excluded.retained`,
+        [owner, json, new Date(this.now().getTime() + 1_800_000), state.checkpoint?.records.some(record => record.retained) ?? false]);
       };
       return await work(state, save, client);
     } finally {
@@ -80,7 +81,7 @@ export class PlanningDatabase {
   }
   async loadSaved(client: PoolClient, owner: string, id: string): Promise<SavedConditionsView | null> {
     const result = await client.query(`SELECT draft_id,revision,conditions,expires_at FROM saved_user_conditions
-      WHERE owner=$1 AND draft_id=$2 AND expires_at>$3`, [owner, id, this.now()]);
+      WHERE owner=$1 AND draft_id=$2 AND (retained OR expires_at>$3)`, [owner, id, this.now()]);
     const row = result.rows[0];
     return row ? SavedConditionsViewSchema.parse({ id: row.draft_id, revision: row.revision,
       conditions: row.conditions, expires_at: new Date(row.expires_at).toISOString() }) : null;
@@ -156,9 +157,9 @@ export class PlanningDatabase {
     await this.pool.query('DELETE FROM planning_share_imports WHERE expires_at <= $1', [this.now()]);
     await this.pool.query('UPDATE planning_event_previews SET data=NULL,data_expires_at=NULL WHERE data_expires_at <= $1', [this.now()]);
     await this.pool.query('DELETE FROM planning_event_previews WHERE expires_at <= $1', [this.now()]);
-    await this.pool.query('DELETE FROM planning_owners WHERE expires_at <= $1', [this.now()]);
+    await this.pool.query('DELETE FROM planning_owners WHERE NOT retained AND expires_at <= $1', [this.now()]);
     await this.pool.query("DELETE FROM planning_daily_usage WHERE day < CURRENT_DATE - 2");
     await this.pool.query('DELETE FROM bot_navigation WHERE expires_at <= now()');
-    await this.pool.query('DELETE FROM saved_user_conditions WHERE expires_at <= $1', [this.now()]);
+    await this.pool.query('DELETE FROM saved_user_conditions WHERE NOT retained AND expires_at <= $1', [this.now()]);
   }
 }

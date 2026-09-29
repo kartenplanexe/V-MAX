@@ -31,8 +31,9 @@ function harness() {
     recordUsage: async () => {}, withChatUpdate: async (_owner: string, work: () => Promise<unknown>) => work() } as unknown as PlanningDatabase;
   const messages: { text: string; buttons?: unknown }[] = [];
   let view = draftView();
-  const transport = { send: async (_userId: number, message: { text: string; buttons?: unknown }) => { messages.push(message); },
-    answer: vi.fn(async () => {}) };
+  const transport = { send: async (_userId: number, message: { text: string; buttons?: unknown }) => {
+    messages.push(message); return `bot-${messages.length}`;
+  }, delete: vi.fn(async (_messageId: string) => {}), answer: vi.fn(async () => {}) };
   const planning = {
     start: vi.fn(async () => ({ status: 'draft' as const, view })),
     get: async () => view,
@@ -275,10 +276,43 @@ describe('MAX chat', () => {
   it('welcomes on the native Start event before any chat text and exposes navigation', async () => {
     const h = harness(); const chat = new MaxChatController(h.deps);
     await chat.handle({ update_type: 'bot_started', user: { user_id: 123 }, timestamp: 123456 });
-    expect(h.messages).toHaveLength(1);
+    expect(h.messages).toHaveLength(2);
     expect(h.messages[0]?.text).toMatch(/^Привет!/u);
-    expect(h.messages[0]?.buttons).toEqual([[expect.objectContaining({ payload: 'nav:new' })]]);
+    expect(h.messages[0]?.buttons).toBeUndefined();
+    expect(h.messages[1]?.buttons).toEqual([[expect.objectContaining({ payload: 'nav:new' })]]);
     expect(h.planning.start).not.toHaveBeenCalled();
+  });
+
+  it('keeps one greeting and replaces obsolete bot menus after each step', async () => {
+    const h = harness(); const chat = new MaxChatController(h.deps);
+    await chat.handle({ update_type: 'bot_started', user: { user_id: 123 }, timestamp: 123456 });
+    expect(h.navigation.greetingMessageId).toBe('bot-1');
+    expect(h.navigation.activeMessageIds).toEqual(['bot-2']);
+    await chat.handle(press('create-1', 'nav:new'));
+    expect(h.transport.delete).toHaveBeenCalledWith('bot-2');
+    expect(h.transport.delete).not.toHaveBeenCalledWith('bot-1');
+    expect(h.navigation.activeMessageIds).toEqual(['bot-3']);
+    await chat.handle(press('list-1-cleanup', 'nav:list:0'));
+    expect(h.transport.delete).toHaveBeenCalledWith('bot-3');
+    expect(h.navigation.activeMessageIds).toEqual(['bot-4']);
+    await chat.handle(press('list-1-cleanup', 'nav:list:0'));
+    expect(h.messages).toHaveLength(4);
+    await chat.handle({ update_type: 'bot_started', user: { user_id: 123 }, timestamp: 123457 });
+    expect(h.messages.filter(item => item.text.startsWith('Привет!'))).toHaveLength(1);
+    expect(h.transport.delete).not.toHaveBeenCalledWith('bot-1');
+  });
+
+  it('retries deletion later without blocking the next prompt', async () => {
+    const h = harness(); const chat = new MaxChatController(h.deps);
+    await chat.handle({ update_type: 'bot_started', user: { user_id: 123 }, timestamp: 123456 });
+    h.transport.delete.mockRejectedValueOnce(new Error('MAX_DELETE_HTTP_429'));
+    expect(await chat.handle(press('create-after-delete-failure', 'nav:new'))).toBe('handled');
+    expect(h.navigation.cleanupMessageIds).toEqual(['bot-2']);
+    expect(h.navigation.activeMessageIds).toEqual(['bot-3']);
+    await chat.handle(press('list-after-delete-failure', 'nav:list:0'));
+    expect(h.navigation.cleanupMessageIds).toEqual([]);
+    expect(h.transport.delete).toHaveBeenCalledWith('bot-2');
+    expect(h.transport.delete).toHaveBeenCalledWith('bot-3');
   });
 
   it('shows only context-appropriate navigation at each stage', () => {
@@ -419,8 +453,9 @@ describe('MAX chat', () => {
   it('does not send two prompts for the first greeting', async () => {
     const h = harness(); const chat = new MaxChatController(h.deps);
     expect(await chat.handle(message('hello-first', 'Привет'))).toBe('handled');
-    expect(h.messages).toHaveLength(1);
+    expect(h.messages).toHaveLength(2);
     expect(h.messages[0]?.text).toMatch(/^Привет!/u);
+    expect(h.messages[1]?.buttons).toEqual([[expect.objectContaining({ payload: 'nav:new' })]]);
     expect(h.planning.start).not.toHaveBeenCalled();
   });
   it('keeps the core flow in messages and uses the same owner as the mini-app', async () => {

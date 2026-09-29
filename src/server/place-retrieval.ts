@@ -10,7 +10,7 @@ const RetrievalIntent = z.object({
   locality: z.object({ id: z.string().min(1), region_id: Id }),
   points: z.object({ origin: z.object({ lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180), locality_id: z.string() }) }),
   days: z.array(z.object({ day_id: z.string().min(1), activities: z.array(z.union([z.object({
-    id: z.string().min(1), target: z.never().optional(), categories: z.object({ state: z.literal('matched'),
+    id: z.string().min(1), target: z.never().optional(), intent_kind: z.enum(['route_walk', 'area_walk', 'place_visit']).optional(), categories: z.object({ state: z.literal('matched'),
       region_id: Id, catalog_version: z.string().min(1),
       include_any: z.array(Id).min(1), exclude: z.array(Id),
     }),
@@ -31,6 +31,8 @@ export async function retrievePlaceCandidates(
   client: DgisClient,
   confirmedIntent: unknown,
   options: { catalogVersion: string; radiusMeters: number; pageSize?: number; maxPages?: number; maxRequests?: number;
+    sort?: 'relevance' | 'distance';
+    walkRubricScores?: Record<string, number>;
     shouldContinue?: () => boolean; requestBudget?: { consume(): void } },
 ) {
   const started = performance.now();
@@ -49,9 +51,13 @@ export async function retrievePlaceCandidates(
     if (c.catalog_version !== options.catalogVersion || c.region_id !== intent.locality.region_id ||
         c.include_any.some(id => c.exclude.includes(id))) throw new DgisProviderError('Activity catalog mismatch.');
     const unique = [...new Set(c.include_any)].sort();
-    // Chunk the full requested set, never silently discard or reinterpret IDs.
-    for (let offset = 0; offset < unique.length; offset += 100) {
-      const rubricIds = unique.slice(offset, offset + 100), key = rubricIds.join(',');
+    // Preserve confirmed IDs, but prevent dense incidental POIs from displacing
+    // the first page of parks/landmarks. The physical request cap still applies.
+    const partitions = activity.intent_kind === 'route_walk' && options.walkRubricScores
+      ? [2, 1, 0].map(score => unique.filter(id => (options.walkRubricScores![id] ?? 0) === score)).filter(ids => ids.length)
+      : [unique];
+    for (const partition of partitions) for (let offset = 0; offset < partition.length; offset += 100) {
+      const rubricIds = partition.slice(offset, offset + 100), key = rubricIds.join(',');
       const group = groups.get(key) ?? { rubricIds, targets: [] };
       group.targets.push({ day_id: day.day_id, activity_id: activity.id });
       groups.set(key, group);
@@ -84,6 +90,7 @@ export async function retrievePlaceCandidates(
       try {
         const response = await client.searchPlacesByCategories({ center: intent.points.origin,
           regionId: intent.locality.region_id, rubricIds: group.rubricIds, page, pageSize, radiusMeters,
+          sort: options.sort,
           requestBudget: { consume() {
             const reason = stopReason();
             if (reason) throw new DgisRequestBudgetError(reason);
