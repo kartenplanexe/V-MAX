@@ -1,7 +1,7 @@
 import { changesFor } from '../shared/planning-edits';
 import { useEffect, useState } from 'react';
 import type { Change, PlanningView } from '../shared/planning-form';
-import { DEFAULT_SEARCH_RADIUS_METERS } from '../shared/search-radius';
+import { defaultSearchRadiusMeters } from '../shared/search-radius';
 import type { PublicConfig } from '../shared/public-config';
 import './planner-form.css';
 import { PointPicker } from './PointPicker';
@@ -398,8 +398,8 @@ export function PlannerForm() {
         <h2>{(draft.days.length === 1 ? draft.days[0]!.activities.map(activity => activityTitle(draft.days[0]!.day_id, activity)).join(' → ') : [...new Set(draft.days.flatMap(day => day.activities.map(activity => activityTitle(day.day_id, activity))))].join(' · ')) || 'Выберите, чем заняться'}</h2>
         <div className="constraint-chips"><button type="button" onClick={() => openConditions('time')}><Icon name="calendar" />{draft.days.length === 1 ? displayDate(draft.days[0]!.date) : `${draft.days.length} дня`}</button>
           <button type="button" onClick={() => openConditions('time')}><Icon name="clock" />{new Set(draft.days.map(day => `${day.window?.start}:${day.window?.end}`)).size > 1 ? 'Время по дням' : draft.days[0]?.window ? `${draft.days[0].window.start}–${draft.days[0].window.end}` : 'Выбрать время'}</button>
-          <button type="button" onClick={() => openConditions('people')}><Icon name="walk" />{modesLabel(draft.shared.mobility?.[0])}</button>
-          {Number.isFinite(draft.shared.search_radius_meters) && <button type="button" onClick={() => openConditions('points')}><Icon name="pin" />Радиус {new Intl.NumberFormat('ru-RU').format(draft.shared.search_radius_meters! / 1000)} км</button>}
+          <button type="button" onClick={() => openConditions('people')}><Icon name="walk" />{modesLabel(draft.shared.mobility?.length === 1 ? draft.shared.mobility[0] : undefined)}</button>
+          <button type="button" onClick={() => openConditions('points')}><Icon name="pin" />Радиус {new Intl.NumberFormat('ru-RU').format((draft.shared.search_radius_meters ?? defaultSearchRadiusMeters(draft.shared.mobility)) / 1000)} км</button>
           {draft.shared.budget?.kind === 'limit' && <button type="button" onClick={() => openConditions('budget')}><Icon name="wallet" />{new Intl.NumberFormat('ru-RU').format(draft.shared.budget.amount_rub)} ₽{draft.shared.budget.enforcement === 'estimated' ? ' ≈' : ''}</button>}</div>
         <div className="summary-actions"><Action variant="ghost" className="edit-conditions" onClick={() => openConditions()} disabled={!!busy} iconBefore={<Icon name="filters" />}>Изменить условия</Action>
         <Action variant="ghost" className="edit-conditions" onClick={() => browseEvents()} disabled={!!busy || dirty} iconBefore={<Icon name="calendar" />}>Добавить событие</Action></div>
@@ -433,7 +433,7 @@ export function PlannerForm() {
             <Action stretched disabled={!!busy} onClick={() => openConditions()}>Уточнить условия</Action></> :
           <><span className="step-symbol"><Icon name="route" /></span><h2 id="next-step">{externalRouting ? 'Всё готово к подбору' : 'Всё готово к расчёту'}</h2><p>{externalRouting ? 'Подберём варианты мест и покажем их на карте. Путь и время дороги посмотрите в 2ГИС. Выполнимость общего плана здесь не проверяется.' : 'Подберём места и проверим, что посещения и дорога помещаются в ваше время.'}</p>
             {draft.points.origin && <div className="start-summary"><Icon name="pin" /><span><small>Начало маршрута</small><strong>{draft.points.origin.label ?? 'Выбранная точка'}</strong></span></div>}
-            <p className="field-hint">Область подбора — {new Intl.NumberFormat('ru-RU').format((draft.shared.search_radius_meters ?? DEFAULT_SEARCH_RADIUS_METERS) / 1000)} км от старта. Радиус можно изменить в условиях.</p>
+            <p className="field-hint">Область подбора — {new Intl.NumberFormat('ru-RU').format((draft.shared.search_radius_meters ?? defaultSearchRadiusMeters(draft.shared.mobility)) / 1000)} км от старта. Радиус можно изменить в условиях.</p>
             <Action stretched disabled={!!busy || !ready || view.phase === 'PLANNING'} onClick={() => void act('Подбираем места…', () => calculate())}>{externalRouting ? 'Подобрать места' : 'Составить план'}</Action></>}
         {view.phase === 'PLANNING' && <Action variant="secondary" onClick={() => void act('Проверяем статус…', async () => { accept(await request<PlanningView>(`/api/planning/drafts/${view.id}`, session!.token)); })}>Проверить статус расчёта</Action>}
       </section>}</div>

@@ -70,7 +70,7 @@ export async function registerLiveRuntime(app: FastifyInstance) {
     plan: async job => {
       // The current 2GIS key rejects page_size=20 (meta.code=400, paramIsOutsideSet).
       // page_size=5 is verified by the live Places smoke test; five pages preserve a 25-item window.
-      const result = await planPlacesWithDgis(client, job, { retrieval: { radiusMeters: 5000, pageSize: 5, maxPages: 5, maxRequests: 30 },
+      const result = await planPlacesWithDgis(client, job, { retrieval: { pageSize: 5, maxPages: 5, maxRequests: 30 },
         maxRoutingHttpCalls: 30, maxRoutePairs: 10, routingStrategy: 'progressive',
         routingMode: config.planningRoutingMode,
         consumeRoutingQuota: (count, remainingMs) => routingQuota.consume(count, remainingMs),

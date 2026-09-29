@@ -29,3 +29,16 @@ it('retains an unmatched broad request and never substitutes an unrelated availa
   expect(result.proposal.days[0]!.category_matches[0]).toMatchObject({ state: 'no_match', include_any: [], exclude: [] });
   expect(result.pending).not.toContainEqual({ day_id: 'new:1', activity_id: 'new:1' });
 });
+
+it('maps a request to visit nature to outdoor places without unrelated categories', () => {
+  const f = food(), activity = f.response.days[0]!.activity_edits[0]!;
+  activity.label = 'природа'; activity.evidence = 'на природу';
+  activity.selection.evidence = 'на природу';
+  f.context.catalog.rows = [['168', 'Парки', []], ['112668', 'Природные достопримечательности', []],
+    ['200', 'Кафе', []]];
+  const result = resolveGenericCategories(f.response, f.context.catalog);
+  expect(result.pending).toEqual([{ day_id: 'new:1', activity_id: 'new:2' }]);
+  expect(result.proposal.days[0]!.category_matches[0]).toMatchObject({
+    state: 'matched', include_any: ['168', '112668'], exclude: [],
+  });
+});

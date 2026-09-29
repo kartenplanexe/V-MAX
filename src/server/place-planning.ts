@@ -7,6 +7,7 @@ import type { RouteLine } from './route-geometry.js';
 import type { TransitEvidence } from './dgis-public-transport.js';
 import { FormDraft, isEventActivity } from '../shared/planning-form.js';
 import { EventPlanningCandidateSchema, type EventPlanningCandidate } from '../shared/event-selection.js';
+import { defaultSearchRadiusMeters } from '../shared/search-radius.js';
 
 const EventGap = z.object({ day_id: z.string(), activity_id: z.string(), code: z.string().regex(/^[A-Z_]{2,80}$/u) });
 export type EventPlanResolution = { candidates: EventPlanningCandidate[]; issues: z.infer<typeof EventGap>[] };
@@ -171,7 +172,7 @@ function batches(queries: Query[], maxBatch = 50) {
  * The same-request shortlist is explicit; no claim of an optimum over a city.
  */
 export async function planPlacesWithDgis(client: DgisClient, input: Record<string, unknown>, options: {
-  retrieval: { radiusMeters: number; pageSize?: number; maxPages?: number; maxRequests?: number };
+  retrieval: { radiusMeters?: number; pageSize?: number; maxPages?: number; maxRequests?: number };
   maxRoutePairs?: number;
   maxRoutingHttpCalls?: number;
   routingStrategy?: 'progressive';
@@ -323,7 +324,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
       ...(options.routingMode === 'external' ? { sort: 'distance' as const,
         walkRubricScores: z.record(z.string(), z.number().int().min(0).max(2)).parse(
           (input.visit_policy as Record<string, unknown> | undefined)?.walk_rubric_scores ?? {}) } : {}),
-      radiusMeters: draft.shared.search_radius_meters ?? options.retrieval.radiusMeters, catalogVersion: catalog.version,
+      radiusMeters: draft.shared.search_radius_meters ?? options.retrieval.radiusMeters ?? defaultSearchRadiusMeters(draft.shared.mobility), catalogVersion: catalog.version,
       shouldContinue: withinDeadline, requestBudget: { consume: consumeRetrieval } });
     searchScope = { radius_meters: retrieval.radius_meters, coverage: retrieval.coverage === 'PARTIAL' ? 'PARTIAL' : 'BOUNDED_RESULTS' };
     counters.places_http_calls = retrieval.requests;

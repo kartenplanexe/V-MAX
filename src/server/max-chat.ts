@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import type { PlanningView } from '../shared/planning-form.js';
 import { candidatePreviewNotice, compactPlacesNotice, candidateSourceLink, selectionGapNotice } from '../shared/candidate-preview.js';
 import { clarificationReview } from '../shared/clarification-review.js';
-import { DEFAULT_SEARCH_RADIUS_METERS } from '../shared/search-radius.js';
+import { defaultSearchRadiusMeters } from '../shared/search-radius.js';
 import { isExactGreeting } from './intent-start.js';
 import { InitialIntentError } from './intent-start.js';
 import { PlanningSessionError } from './planning-sessions.js';
@@ -140,7 +140,7 @@ function summary(view: PlanningView) {
     parts.push(`📅 ${date}${day.window ? ` · ${day.window.start}–${day.window.end}` : ' · время уточним'}`);
     if (day.activities.length) parts.push(`✨ ${day.activities.map(a => a.label).join(' → ')}`);
   }
-  const mobility = view.draft.shared.mobility?.[0];
+  const mobility = view.draft.shared.mobility?.length === 1 ? view.draft.shared.mobility[0] : undefined;
   if (view.draft.shared.party?.total) parts.push(`Участников: ${view.draft.shared.party.total}`);
   const childAges = view.draft.shared.party?.child_ages;
   if (childAges) parts.push(childAges.length ? `Возраст детей: ${childAges.join(', ')} лет` : 'Группа без детей');
@@ -153,7 +153,7 @@ function summary(view: PlanningView) {
       : `💳 До ${budget.amount_rub} ₽ ${scope} — строгий лимит`);
   }
   if (view.draft.points.origin) parts.push(`↗️ Старт: ${view.draft.points.origin.label ?? 'выбранная точка'}`);
-  parts.push(`Радиус от старта: ${new Intl.NumberFormat('ru-RU').format((view.draft.shared.search_radius_meters ?? DEFAULT_SEARCH_RADIUS_METERS) / 1000)} км. Можно изменить в условиях мини-приложения.`);
+  parts.push(`Радиус от старта: ${new Intl.NumberFormat('ru-RU').format((view.draft.shared.search_radius_meters ?? defaultSearchRadiusMeters(view.draft.shared.mobility)) / 1000)} км. Можно изменить в условиях мини-приложения.`);
   if (Object.values(view.provenance).includes('suggested')) parts.push('Время без точных часов — наше предложение, его можно изменить.');
   return parts.join('\n').slice(0, 3900);
 }

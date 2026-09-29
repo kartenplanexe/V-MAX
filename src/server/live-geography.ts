@@ -61,11 +61,11 @@ const visitMinutes: Record<string, number> = {
 // Positive eligibility for a general outdoor walk. An LLM category proposal can
 // broaden retrieval, but cannot turn a hotel, restaurant or shop into a walk stop.
 const walkableNames = new Set([
-  'парки', 'парки культуры и отдыха', 'скверы', 'набережные', 'смотровые площадки',
+  'парки', 'парки культуры и отдыха', 'лесопарки', 'скверы', 'набережные', 'смотровые площадки',
   'заповедники', 'природные достопримечательности', 'памятники и скульптуры',
   'памятные доски', 'стрит-арт', 'фонтаны', 'водопады', 'руины',
   'сады / цветники', 'мост', 'родники', 'вершины гор', 'точки интереса',
-  'авиапамятники', 'скалы', 'туристические маршруты', 'ботанический сад', 'пляжи',
+  'авиапамятники', 'скалы', 'туристические маршруты', 'ботанические сады', 'ботанический сад', 'пляжи',
 ]);
 export function visitPolicy(items: { id: string; name: string }[]): PlanningContext['visit_policy'] {
   const by_category: Record<string, number> = {};

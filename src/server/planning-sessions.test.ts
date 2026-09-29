@@ -17,6 +17,23 @@ function setup() {
 const event = (version = 0, id = 'event-0001') => ({ base_version: version, event_id: id });
 
 describe('server-owned form revisions', () => {
+  it('can suggest an outdoor nature stop without published opening hours', async () => {
+    const f = planningFixture();
+    f.input.intent.shared.mobility = ['driving'];
+    f.input.intent.days[0]!.activities[0]!.label = 'природа';
+    for (const item of f.items.filter(item => item.rubrics[0]?.id === '100')) Object.assign(item, { schedule: undefined });
+    const context = { catalog: { ...f.input.catalog,
+      category_names: { '100': 'Природные достопримечательности', '200': 'Кафе' } },
+      visit_policy: { ...f.input.visit_policy, walkable_category_ids: ['100'],
+        by_category: { '100': 5, '200': 60 } }, modes: ['walking', 'driving'] as const, data_mode: 'test' as const };
+    const sessions = new PlanningSessions({ now: demoNow, plan: job => planPlacesWithDgis(f.client(), job,
+      { retrieval: { maxPages: 1 }, routingMode: 'external', dataMode: 'test', now: demoNow }) });
+    const view = sessions.create('nature-owner', f.input.intent, context);
+    const confirmed = sessions.confirm('nature-owner', view.id, event(view.version, 'nature-confirm'));
+    const result = await sessions.calculate('nature-owner', view.id, event(confirmed.version, 'nature-plan'));
+    expect(result.result?.status).toBe('PLACES_FOUND');
+    expect(result.result?.search_scope?.radius_meters).toBe(50_000);
+  }, 30_000);
   it('refreshes agreed duration defaults for an old live draft while preserving explicit minutes', async () => {
     const f = setup(); let submitted: Record<string, unknown> | undefined;
     const context = { ...f.context, data_mode: 'live' as const,

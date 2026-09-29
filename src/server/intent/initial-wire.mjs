@@ -42,6 +42,8 @@ export function initialWireAdapter(request) {
   if (input.mode !== 'parse' || input.draft !== null) return null;
   const defs = structuredClone(dailySchema.$defs);
   defs.sharedChange.oneOf = defs.sharedChange.oneOf.filter(branch => branch.properties.op.const !== 'clear');
+  const mobilityChange = defs.sharedChange.oneOf.find(branch => branch.properties.field.const === 'mobility');
+  mobilityChange.properties.value.description = 'Способ из user_text. Для одного «поехать/съездить» верни оба варианта ["public_transport","driving"]; для «на машине» — ["driving"]. Не пропускай явно названный транспорт.';
   const timeField = (value, description) => ({ description, anyOf: [{ type: 'null' }, object({ value, evidence: ref('quote') })] });
   defs.initialTime = object({
     start: timeField(ref('clock'), 'Начало доступного времени. null только если начало не задано.'),
@@ -63,6 +65,7 @@ export function initialWireAdapter(request) {
     date_anchor: dailySchema.properties.date_anchor, shared_updates: array(ref('sharedChange')),
     days: array(ref('initialDay')), unresolved: array(ref('initialUnresolved')),
   }), $defs: defs };
+  schema.properties.shared_updates.description = 'Обязательные явно сообщённые общие условия. При «поехать» или названном способе добавь mobility с дословной evidence; не оставляй массив пустым.';
   pruneDefinitions(schema);
   const ajv = new Ajv({ strict: true, allErrors: true }); addFormats(ajv);
   const validate = ajv.compile(schema);

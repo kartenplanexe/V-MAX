@@ -358,6 +358,10 @@ export class PlanningSessions {
         case 'date': getDay(change.day_id).date = change.date; provenance[`days.${change.day_id}.date`] = 'user_form'; break;
         case 'mobility':
           if (!record.context.modes.includes(change.mode as 'walking')) reject('UNSUPPORTED_TRANSPORT', 422);
+          if (provenance['shared.search_radius_meters'] === 'default_taxi') {
+            delete draft.shared.search_radius_meters;
+            delete provenance['shared.search_radius_meters'];
+          }
           draft.shared.mobility = [change.mode]; provenance['shared.mobility'] = 'user_form'; break;
         case 'budget': draft.shared.budget = change.value; provenance['shared.budget'] = 'user_form'; break;
         case 'search_radius': draft.shared.search_radius_meters = change.meters; provenance['shared.search_radius_meters'] = 'user_form'; break;
@@ -474,7 +478,12 @@ export class PlanningSessions {
         if (isEventActivity(activity)) continue;
         const kind = activity.intent_kind ?? classifyActivityIntent({ label: activity.label,
           namedTypes: activity.selection.named_types });
-        if (kind === 'place_visit') continue;
+        if (kind === 'place_visit') {
+          if (/(?<!\p{L})природ[а-яё]*(?!\p{L})/iu.test(activity.label) &&
+              activity.categories.include_any.some(id => walkSet.has(id)))
+            by_activity[activity.id] = activity.duration_minutes ?? 60;
+          continue;
+        }
         const areaWalk = kind === 'area_walk';
         activity.intent_kind = kind;
         const allowed = areaWalk ? new Set(parkIds) : walkSet;

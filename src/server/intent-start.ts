@@ -2,12 +2,13 @@ import { z } from 'zod';
 import { FormDraft, type PlanningView } from '../shared/planning-form.js';
 import { buildDailyRepairRequest, buildDailyRequest } from './intent/daily-contract.mjs';
 import { projectNewDailyIntent } from './intent/daily-time.mjs';
-import { classifyActivityIntent, hasWalkingRequest } from './activity-intent.js';
+import { classifyActivityIntent } from './activity-intent.js';
 import { buildInitialCategoryRequest } from './intent/initial-wire.mjs';
 import { resolveGenericCategories } from './intent/generic-categories.mjs';
 import { inspectTimeLiteralCoverage } from './intent/time-literal-coverage.mjs';
 import { reviewBudgetAssertion } from './budget-assertion.js';
 import { relativeDateDays, dateAfter, overlapsBusyTime } from './intent-scalar-evidence.js';
+
 
 export type CatalogRow = [string, string, string[], { type?: string; caption?: string; declared_parent_ids?: string[] }?];
 export interface InitialContext {
@@ -177,13 +178,13 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
       scalarQuestions.push({ field: 'time', day_ids: [proposed.day_id], text: 'Укажите свободное время: распознанный интервал пересекается с занятостью.', reason: 'conflict' });
     }
   }
-  // A verified walking activity implies walking between places unless the user
-  // specified another mode. The decision is based on typed activities, not on
-  // one exact spelling of the whole user request.
-  if (!shared.mobility && (hasWalkingRequest(text) || days.some(day => day.activities.some(a => a.intent_kind !== 'place_visit'))) &&
-      !/машин|автомобил|такси|автобус|метро|трамва|велосипед|велике|общественн\w*\s+транспорт/iu.test(text)) {
-    shared.mobility = ['walking'];
-    provenance['shared.mobility'] = 'inferred_walk';
+  if (Array.isArray(shared.mobility) && shared.mobility.includes('taxi')) {
+    const taxiOnly = shared.mobility.length === 1;
+    shared.mobility = [...new Set(shared.mobility.map(mode => mode === 'taxi' ? 'driving' : mode))];
+    if (taxiOnly && shared.search_radius_meters === undefined) {
+      shared.search_radius_meters = 30_000;
+      provenance['shared.search_radius_meters'] = 'default_taxi';
+    }
   }
   const budgetUpdate = proposal.shared_updates.find(update => update.field === 'budget');
   const budgetReview = reviewBudgetAssertion({ userText: text, evidence: budgetUpdate?.evidence,

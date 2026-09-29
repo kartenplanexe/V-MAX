@@ -1,6 +1,6 @@
 import { useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import type { PlanningView } from '../shared/planning-form';
-import { DEFAULT_SEARCH_RADIUS_METERS, MIN_SEARCH_RADIUS_METERS, MAX_SEARCH_RADIUS_METERS } from '../shared/search-radius';
+import { defaultSearchRadiusMeters, MIN_SEARCH_RADIUS_METERS, MAX_SEARCH_RADIUS_METERS } from '../shared/search-radius';
 import { AddressPicker, type AddressChoice } from './AddressPicker';
 import { PointPicker } from './PointPicker';
 import { Action, Icon } from './PlannerUi';
@@ -46,7 +46,7 @@ export function ConditionsPanel({ draft, view, busy, dirty, mapsAvailable, patch
   const count = draft.days.reduce((sum, day) => sum + day.activities.length, 0);
   const eventCount = draft.days.reduce((sum, day) => sum + day.activities.filter(a => a.intent_kind === 'event_visit').length, 0);
   const budget = draft.shared.budget;
-  const radius = draft.shared.search_radius_meters ?? DEFAULT_SEARCH_RADIUS_METERS;
+  const radius = draft.shared.search_radius_meters ?? defaultSearchRadiusMeters(draft.shared.mobility);
   function move(dayIndex: number, index: number, direction: number) {
     patch(value => { const day = value.days[dayIndex]!, target = index + direction;
       if (target < 0 || target >= day.activities.length) return;
@@ -101,8 +101,11 @@ export function ConditionsPanel({ draft, view, busy, dirty, mapsAvailable, patch
             <p className="field-hint">Дата или время предложены по вашему запросу. Проверьте их перед расчётом.</p>}
         </div>)}
       </ConditionSection>
-      <ConditionSection title="Передвижение и участники" icon="walk" {...section('people')} summary={`${modes[draft.shared.mobility?.[0] ?? ''] ?? 'Выберите способ'}${draft.shared.party?.total ? ` · участников: ${draft.shared.party.total}` : ''}`}>
-        <div className="field-row"><label>Передвижение<select value={draft.shared.mobility?.[0] ?? ''} onChange={event => patch(value => { value.shared.mobility = [event.target.value]; })}>
+      <ConditionSection title="Передвижение и участники" icon="walk" {...section('people')} summary={`${draft.shared.mobility?.length === 1 ? modes[draft.shared.mobility[0]!] ?? 'Выберите способ' : 'Выберите способ'}${draft.shared.party?.total ? ` · участников: ${draft.shared.party.total}` : ''}`}>
+        <div className="field-row"><label>Передвижение<select value={draft.shared.mobility?.length === 1 ? draft.shared.mobility[0] : ''} onChange={event => patch(value => {
+          value.shared.mobility = [event.target.value];
+          if (view.provenance['shared.search_radius_meters'] === 'default_taxi') delete value.shared.search_radius_meters;
+        })}>
           <option value="" disabled>Выберите способ</option>{view.capabilities.modes.map(mode => <option key={mode} value={mode}>{modes[mode] ?? mode}</option>)}</select></label>
           <label>Участников<input type="number" min={Math.max(1, draft.shared.party?.child_ages?.length ?? 0)} max="100" required={!!draft.shared.party?.child_ages?.length} placeholder="Не указано" value={draft.shared.party?.total ?? ''} onChange={event => patch(value => {
             if (event.target.value) value.shared.party = { ...value.shared.party, total: Number(event.target.value) }; else if (value.shared.party) delete value.shared.party.total;

@@ -141,7 +141,7 @@ it('builds a draft for the exact simple walking request after a wrong model date
   f.response.days[0]!.category_matches = [{ activity_id: 'new:1', state: 'matched',
     include_any: ['168'], exclude: [], evidence: 'погулять' }];
   f.response.days[0]!.order_changes = [];
-  f.response.shared_updates = [];
+  f.response.shared_updates = [{ op: 'set', field: 'mobility', value: ['walking'], evidence: 'погулять' }];
   const result = await parseInitialIntent({ ...f.context, userText, inputId: 'literal-walk' }, async () => f.response);
   expect(result.status).toBe('draft');
   if (result.status !== 'draft') return;
@@ -193,7 +193,7 @@ it('accepts an explicitly repeated trusted city without discarding the regional 
   expect(result.status).toBe('draft');
 });
 
-it('infers walking for an outing but never overrides an explicit transport mode', async () => {
+it('does not invent a transport mode when the model omits it', async () => {
   const f = intentFixture();
   f.response.shared_updates = [];
   // The authored provider response must preserve the independently requested walk.
@@ -203,11 +203,28 @@ it('infers walking for an outing but never overrides an explicit transport mode'
   f.response.days[0]!.category_matches.push({ activity_id: 'new:3', state: 'matched', include_any: ['168'], exclude: [], evidence: 'погулять' });
   const walk = await parseInitialIntent({ ...f.context, userText: 'Завтра с 16 до 19 хочу в музей, потом в кафе. Хочу погулять.', inputId: 'walk' }, async () => f.response);
   expect(walk.status).toBe('draft');
-  if (walk.status === 'draft') {
-    expect(walk.draft.shared.mobility).toEqual(['walking']);
-    expect(walk.provenance['shared.mobility']).toBe('inferred_walk');
-  }
+  if (walk.status === 'draft') expect(walk.draft.shared.mobility).toBeUndefined();
   const car = await parseInitialIntent({ ...f.context, userText: 'Завтра с 16 до 19 хочу в музей, потом в кафе. Хочу погулять, поеду на машине.', inputId: 'car' }, async () => f.response);
   expect(car.status).toBe('draft');
   if (car.status === 'draft') expect(car.draft.shared.mobility).toBeUndefined();
+});
+
+it.each([
+  ['Хочу поехать.', ['public_transport', 'driving'], ['public_transport', 'driving'], undefined],
+  ['Поеду на машине.', ['driving'], ['driving'], undefined],
+  ['Поеду на автобусе.', ['public_transport'], ['public_transport'], undefined],
+  ['Возьму такси.', ['taxi'], ['driving'], 30_000],
+  ['Поеду на велосипеде.', ['cycling'], ['cycling'], undefined],
+  ['Пойду пешком.', ['walking'], ['walking'], undefined],
+])('preserves a grounded model transport proposal for %s', async (request, proposal, modes, radius) => {
+  const f = intentFixture();
+  f.response.shared_updates = [{ op: 'set', field: 'mobility', value: proposal, evidence: request.slice(0, -1) }];
+  const text = f.text.replace('Пешком.', request);
+  const result = await parseInitialIntent({ ...f.context, userText: text, inputId: 'travel-mode' }, async () => f.response);
+  expect(result.status).toBe('draft');
+  if (result.status === 'draft') {
+    expect(result.draft.shared.mobility).toEqual(modes);
+    expect(result.provenance['shared.mobility']).toBe('user');
+    expect(result.draft.shared.search_radius_meters).toBe(radius);
+  }
 });

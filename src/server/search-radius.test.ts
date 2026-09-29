@@ -4,8 +4,27 @@ import { changesFor } from '../shared/planning-edits.js';
 import { PlanningSessions } from './planning-sessions.js';
 import { planningFixture, demoNow } from './place-planning.fixture.js';
 import { planPlacesWithDgis } from './place-planning.js';
+import { defaultSearchRadiusMeters } from '../shared/search-radius.js';
 
 const options = { retrieval: { radiusMeters: 5000, maxPages: 1 }, dataMode: 'test' as const, now: demoNow };
+it.each([
+  [undefined, 5_000], [['walking'], 5_000], [['cycling'], 10_000],
+  [['public_transport'], 30_000], [['public_transport', 'driving'], 30_000], [['driving'], 50_000],
+])('chooses the default radius for %j', (modes, radius) => {
+  expect(defaultSearchRadiusMeters(modes)).toBe(radius);
+});
+it.each([['public_transport', 30_000], ['driving', 50_000], ['cycling', 10_000]])
+('sends the default %s radius to Places when the user did not set one', async (mode, radius) => {
+  const f = planningFixture();
+  f.input.intent.shared.mobility = [mode as string];
+  const result = await planPlacesWithDgis(f.client(), f.input, {
+    retrieval: { maxPages: 1 }, routingMode: 'external', dataMode: 'test', now: demoNow,
+  });
+  expect(result.search_scope?.radius_meters).toBe(radius);
+  const places = f.requests.filter(request => request.url.hostname === 'catalog.api.2gis.com');
+  expect(places.length).toBeGreaterThan(0);
+  expect(places.every(request => request.url.searchParams.get('radius') === String(radius))).toBe(true);
+}, 30_000);
 it('applies an explicit radius to provider requests and independently excludes out-of-radius candidates', async () => {
   const f = planningFixture(); Object.assign(f.input.intent.shared, { search_radius_meters: 100 });
   const result = await planPlacesWithDgis(f.client(), f.input, options);
