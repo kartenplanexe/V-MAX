@@ -65,7 +65,7 @@ it.skipIf(!existsSync(defaultPlannerPython()))('the confirmed walk policy reserv
     const planned = await sessions.calculate('synthetic', view.id, { base_version: confirmed.version, event_id: 'calculate-walk-meal' });
     const result = planned.result!;
     expect(result.status).toBe('PLACES_FOUND');
-    expect(result.selection_policy).toBe('external-compact.v4');
+    expect(result.selection_policy).toBe('external-compact.v5');
     expect(result.selection_gaps).toEqual([]);
     expect(result.candidate_preview?.groups.map(group => group.activity_id)).toEqual(['culture', 'food']);
     const walks = result.candidate_preview!.groups[0]!.places;

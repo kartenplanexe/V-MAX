@@ -2,6 +2,7 @@ import type { EventAvailabilityChoice, SelectedEventDisplay } from '../shared/ev
 import type { EventCard } from '../shared/event-catalog';
 import type { PlanningView } from '../shared/planning-form';
 import { Action, useExpired } from './PlannerUi';
+import { kudagoSourceUrl } from '../shared/kudago-url';
 
 type Source = EventCard['source'];
 export function eventFactDeadline(value: { source: Source; venue_source?: Source }): string {
@@ -10,8 +11,7 @@ export function eventFactDeadline(value: { source: Source; venue_source?: Source
   return new Date(times.every(Number.isFinite) ? Math.min(...times) : 0).toISOString();
 }
 export function eventSourceUrl(value: string | null | undefined): string | undefined {
-  try { const url = new URL(value ?? ''); return url.protocol === 'https:' && url.hostname === 'kudago.com' && !url.username && !url.password && !url.port ? url.href : undefined; }
-  catch { return undefined; }
+  return kudagoSourceUrl(value);
 }
 export function eventWindowText(window: { start_utc: number; end_utc: number }, timezone: string) {
   const format = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: timezone });
@@ -26,7 +26,8 @@ export function selectedEventDisplay(view: PlanningView, dayId: string, activity
 }
 export function EventPriceAge({ price, age }: Pick<EventCard, 'price' | 'age'>) {
   return <div className="event-price-age"><p>{price.kind === 'free' && price.strict_eligible ? 'Вход бесплатный по данным источника' : price.kind === 'conflict' ? 'Сведения о цене противоречивы' : price.display || 'Цена не указана'}</p>
-    {price.kind !== 'free' && <p className="field-hint">Подтверждённая верхняя стоимость неизвестна. Наличие билетов и запись не проверены.</p>}
+    {price.kind === 'bounded' ? <p className="field-hint">Для бюджета — до {new Intl.NumberFormat('ru-RU').format(price.admission_upper_minor! / 100)} ₽ на человека. Билеты уточните у организатора.</p>
+      : price.kind !== 'free' && <p className="field-hint">Верхняя цена не указана. С ограничением бюджета такое событие может не войти в план.</p>}
     <p>{age.state === 'known' && age.minimum != null ? `Возрастное ограничение: ${age.minimum}+` : 'Возрастное ограничение неизвестно'}</p></div>;
 }
 export function EventSource({ source, timezone }: { source: Source; timezone: string }) {

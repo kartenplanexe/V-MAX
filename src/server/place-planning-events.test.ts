@@ -32,6 +32,19 @@ function fixture() {
   return { f, candidate, resolveEvents, job: { ...f.input, intent } };
 }
 
+it('retains the paid event time, price and city-subdomain link in the external all-stops result without Routing API', async () => {
+  const { f, candidate, job, resolveEvents } = fixture();
+  candidate.source.url = 'https://nn.kudago.com/event/synthetic-test-only/';
+  candidate.price = { expected_minor: 60000, upper_minor: 60000, basis: 'per_person', estimate_kind: 'advertised_admission' };
+  Object.assign(job.intent.shared, { party: { total: 1 } });
+  const plan = PublicPlan.parse(await planPlacesWithDgis(f.client(), job, { retrieval: { radiusMeters: 5000 },
+    now: demoNow, dataMode: 'test', resolveEvents, routingMode: 'external' }));
+  expect(plan.status).toBe('PLACES_FOUND');
+  expect(plan.candidate_preview?.groups[0]?.places[0]).toMatchObject({ place_id: candidate.id,
+    event_visit: { starts_at: 990, ends_at: 1050, schedule_kind: 'fixed', admission_upper_minor: 60000 }, source: { url: candidate.source.url } });
+  expect(f.routingBatches()).toBe(0);
+}, 30_000);
+
 it('keeps a fixed event and food in one verified route without querying fake event rubrics', async () => {
   const { f, candidate, job, resolveEvents } = fixture();
   const raw = await planPlacesWithDgis(f.client(), job, { retrieval: { radiusMeters: 5000, maxRequests: 30 },

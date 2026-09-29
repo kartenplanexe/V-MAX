@@ -22,6 +22,19 @@ const draftView = (): PlanningView => ({
         requirements: [], categories: { state: 'matched', include_any: ['1'], exclude: [], region_id: '32', catalog_version: 'v1' } }], order: [] }] },
 });
 
+it('shows the selected event time and group ticket estimate in external-mode bot results', () => {
+  const view = draftView();
+  view.result = PublicPlan.parse({ status: 'PLACES_FOUND', days: [], selection_policy: 'external-compact.v5',
+    candidate_preview: { groups: [{ day_id: 'd1', activity_id: 'a1', places: [{ place_id: 'event-1', name: 'Учебная выставка', location_label: null,
+      event_visit: { starts_at: 960, ends_at: 1020, schedule_kind: 'visit_window', admission_upper_minor: 120000 },
+      source: { provider: 'kudago', data_mode: 'test', url: 'https://nn.kudago.com/event/test/', fetched_at: '2026-09-25T09:00:00Z', valid_until: '2026-09-25T09:05:00Z' } }] }] } });
+  const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
+  expect(text).toContain('16:00–17:00 · планируемое посещение');
+  expect(text).toContain('для вашей группы — до 1200 ₽');
+  expect(text).toContain('https://nn.kudago.com/event/test/');
+  expect(text).not.toContain('Вход бесплатный');
+});
+
 function harness() {
   const state: OwnerState = { receipts: {}, attempts: [] };
   const navigation: BotNavigation = { welcomed: false, mode: 'idle', routes: [] };

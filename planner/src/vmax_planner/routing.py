@@ -9,10 +9,10 @@ from .replacement import slot_index
 ROUTING_POLICY = "dated-routing.v3"
 
 # A compact suggestion, NOT measured travel or a verified itinerary.
-EXTERNAL_COMPACT_POLICY = {"version": "external-compact.v4", "max_stops": 6,
+EXTERNAL_COMPACT_POLICY = {"version": "external-compact.v5", "max_stops": 6,
                            "detour_factor": 1.5, "meters_per_minute": 60, "transition_buffer": 5,
                            "beam_width": 96, "alternatives_per_order": 12,
-                           "same_activity_min_meters": 400}
+                           "same_activity_min_meters": 400, "event_order_limit": 8}
 
 
 def compact_external_pool(p, ranked_groups, walk_scores=None):
@@ -21,6 +21,7 @@ def compact_external_pool(p, ranked_groups, walk_scores=None):
     if not isinstance(walk_scores, dict): raise ValueError('invalid walk type policy')
     for score in walk_scores.values(): integer(score, 'walk type score', 0, 2)
     activities = {a['id']: a for d in p['days'] for a in d['activities']}
+    event_ids = {aid for aid, activity in activities.items() if activity.get('intent_kind') == 'event_visit'}
     profiles = {}
     for _, aid, rows in ranked_groups:
         activity = activities[aid]
@@ -53,10 +54,10 @@ def compact_external_pool(p, ranked_groups, walk_scores=None):
                 best[key] = state
         buckets = {}
         for state in best.values():
-            buckets.setdefault((len(state[4]), scenic_count(state[0]), len(state[0])), []).append(state)
+            buckets.setdefault((len(state[4] & event_ids), len(state[4]), scenic_count(state[0]), len(state[0])), []).append(state)
         for values in buckets.values():
             values.sort(key=lambda s: (-s[5], -type_score(s[0]), s[1], s[3], tuple(o.place_id for o in s[0])))
-        keys = sorted(buckets, key=lambda k: (-k[0], -k[1], k[2]))
+        keys = sorted(buckets, key=lambda k: (-k[0], -k[1], -k[2], k[3]))
         selected = []
         for index in range(policy['beam_width']):
             for key in keys:
@@ -76,58 +77,81 @@ def compact_external_pool(p, ranked_groups, walk_scores=None):
             if activity is None: break
             ordered.append(activity); done.add(activity['id']); pending.remove(activity)
         groups = {aid: rows for did, aid, rows in ranked_groups if did == day['day_id']}
-        # path, end minute, last place, charged cost, covered activities, preference
-        states = [((), begin, '@origin', 0, frozenset(), 0)]
-        for activity in ordered:
-            aid = activity['id']
-            choices = groups.get(aid, [])
-            choice_cache = {}
-            def candidates(point, same_activity):
-                key = (point, same_activity)
-                if key not in choice_cache:
-                    # Filter all pairs before truncation: otherwise a dense first
-                    # page crowds out eligible alternatives farther along the walk.
-                    spaced = [o for o in choices if all(distance(pid, o.place_id) >=
-                        policy['same_activity_min_meters'] for pid in same_activity)]
-                    rankings = [sorted(spaced, key=lambda o: (distance(point, o.place_id), -o.preference, -o.quality, o.place_id)),
-                                sorted(spaced, key=lambda o: (o.duration, distance(point, o.place_id), o.place_id)),
-                                sorted(spaced, key=lambda o: (o.charged, distance(point, o.place_id), o.place_id)),
-                                sorted(spaced, key=lambda o: (o.windows[-1][1], distance(point, o.place_id), o.place_id)),
-                                sorted(spaced, key=lambda o: (-o.preference, -profile(o), distance(point, o.place_id), o.place_id))]
-                    unique = {}
-                    for ranking in rankings:
-                        for option in ranking[:policy['alternatives_per_order']]: unique[option.place_id] = option
-                    choice_cache[key] = list(unique.values())
-                return choice_cache[key]
-            generated = list(states)
-            frontier = [s for s in states if not any(after == aid and before not in s[4]
-                for before, after in p['precedence'][day['day_id']])]
-            for _ in range(min(p['multi_stop'].get(aid, 1), policy['max_stops'])):
-                following = []
-                for path, cursor, point, spent, covered, preference in frontier:
-                    if len(path) >= policy['max_stops']: continue
-                    used = {o.place_id for o in path}
-                    same_activity = frozenset(o.place_id for o in path if o.activity_id == aid)
-                    for option in candidates(point, same_activity):
-                        if option.place_id in used: continue
-                        charged = spent + option.charged
-                        cost = charged + (trip_spent if p['period'] == 'whole_trip' else 0)
-                        if p['budget_limit'] is not None and cost > p['budget_limit']: continue
-                        arrival = cursor + allowance(point, option.place_id) + p['buffer']
-                        start = next((max(arrival, lo) for lo, hi in option.windows if max(arrival, lo) <= hi), None)
-                        finish_allowance = allowance(option.place_id, '@destination') if p['destination'] else 0
-                        if start is None or start + option.duration + finish_allowance > end: continue
-                        following.append((path + (option,), start + option.duration, option.place_id,
-                                          charged, covered | {aid}, preference + option.preference))
-                frontier = prune(following)
-                generated.extend(frontier)
-                if not frontier: break
-            states = prune(generated)
-        selected = min(states, key=lambda s: (-len(s[4]), -s[5], -scenic_count(s[0]), -len(s[0]),
+        def plan_order(activity_order):
+            # path, end minute, last place, charged cost, covered activities, preference
+            states = [((), begin, '@origin', 0, frozenset(), 0)]
+            for activity in activity_order:
+                aid = activity['id']
+                choices = groups.get(aid, [])
+                choice_cache = {}
+                def candidates(point, same_activity):
+                    key = (point, same_activity)
+                    if key not in choice_cache:
+                        # Filter all pairs before truncation: otherwise a dense first
+                        # page crowds out eligible alternatives farther along the walk.
+                        spaced = [o for o in choices if all(distance(pid, o.place_id) >=
+                            policy['same_activity_min_meters'] for pid in same_activity)]
+                        rankings = [sorted(spaced, key=lambda o: (distance(point, o.place_id), -o.preference, -o.quality, o.place_id)),
+                                    sorted(spaced, key=lambda o: (o.duration, distance(point, o.place_id), o.place_id)),
+                                    sorted(spaced, key=lambda o: (o.charged, distance(point, o.place_id), o.place_id)),
+                                    sorted(spaced, key=lambda o: (o.windows[-1][1], distance(point, o.place_id), o.place_id)),
+                                    sorted(spaced, key=lambda o: (-o.preference, -profile(o), distance(point, o.place_id), o.place_id))]
+                        unique = {}
+                        for ranking in rankings:
+                            for option in ranking[:policy['alternatives_per_order']]: unique[option.place_id] = option
+                        choice_cache[key] = list(unique.values())
+                    return choice_cache[key]
+                generated = list(states)
+                frontier = [s for s in states if not any(after == aid and before not in s[4]
+                    for before, after in p['precedence'][day['day_id']])]
+                for _ in range(min(p['multi_stop'].get(aid, 1), policy['max_stops'])):
+                    following = []
+                    for path, cursor, point, spent, covered, preference in frontier:
+                        if len(path) >= policy['max_stops']: continue
+                        used = {o.place_id for o in path}
+                        same_activity = frozenset(o.place_id for o in path if o.activity_id == aid)
+                        for option in candidates(point, same_activity):
+                            if option.place_id in used: continue
+                            charged = spent + option.charged
+                            cost = charged + (trip_spent if p['period'] == 'whole_trip' else 0)
+                            if p['budget_limit'] is not None and cost > p['budget_limit']: continue
+                            arrival = cursor + allowance(point, option.place_id) + p['buffer']
+                            start = next((max(arrival, lo) for lo, hi in option.windows if max(arrival, lo) <= hi), None)
+                            finish_allowance = allowance(option.place_id, '@destination') if p['destination'] else 0
+                            if start is None or start + option.duration + finish_allowance > end: continue
+                            following.append((path + (option,), start + option.duration, option.place_id,
+                                              charged, covered | {aid}, preference + option.preference))
+                    frontier = prune(following)
+                    generated.extend(frontier)
+                    if not frontier: break
+                states = prune(generated)
+            return states
+        orders = [ordered]
+        for event in [a for a in ordered if a['id'] in event_ids]:
+            alternatives = []
+            for ordering in orders:
+                others = [a for a in ordering if a['id'] != event['id']]
+                for index in range(len(others) + 1):
+                    candidate = others[:index] + [event] + others[index:]
+                    positions = {a['id']: i for i, a in enumerate(candidate)}
+                    if all(positions[before] < positions[after] for before, after in day.get('order', [])) and candidate not in alternatives:
+                        alternatives.append(candidate)
+            orders = ([ordered] + [value for value in alternatives if value != ordered])[:policy['event_order_limit']]
+        states = [state for ordering in orders for state in plan_order(ordering)]
+        selected = min(states, key=lambda s: (-len(s[4] & event_ids), -len(s[4]), -s[5], -scenic_count(s[0]), -len(s[0]),
             -type_score(s[0]), s[1], s[3], tuple(o.place_id for o in s[0])))
+        cursor, point = begin, '@origin'
         for option in selected[0]:
-            pool.append({'day_id': day['day_id'], 'activity_id': option.activity_id,
-                         'place_id': option.place_id, 'estimated_visit_minutes': option.duration})
+            arrival = cursor + allowance(point, option.place_id) + p['buffer']
+            start = next(max(arrival, lo) for lo, hi in option.windows if max(arrival, lo) <= hi)
+            place = p['places'][option.place_id]
+            row = {'day_id': day['day_id'], 'activity_id': option.activity_id,
+                   'place_id': option.place_id, 'estimated_visit_minutes': option.duration}
+            if place.get('kind') == 'event':
+                row['event_visit'] = {'starts_at': start, 'ends_at': start + option.duration,
+                    'schedule_kind': place['schedule']['kind'], 'admission_upper_minor': option.upper}
+            pool.append(row)
+            cursor, point = start + option.duration, option.place_id
         trip_spent += selected[3]
     return pool
 

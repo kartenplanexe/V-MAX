@@ -58,7 +58,8 @@ def _source(source):
     if source['provider'] != 'kudago' or source['data_mode'] not in ('live', 'test'):
         raise ValueError('invalid event source')
     url = urlsplit(_text(source['url'], 2048))
-    if url.scheme != 'https' or url.hostname != 'kudago.com' or url.username or url.password or url.port or url.fragment:
+    if url.scheme != 'https' or not (url.hostname == 'kudago.com' or (url.hostname or '').endswith('.kudago.com')) or \
+            url.username or url.password or url.port or url.fragment or url.query:
         raise ValueError('invalid event source URL')
     times = [datetime.fromisoformat(_text(source[k]).replace('Z', '+00:00')) for k in ('fetched_at', 'valid_until')]
     if any(value.tzinfo is None for value in times) or times[1] <= times[0]:
@@ -104,9 +105,12 @@ def validate_event_candidate(value):
     if value['age']['minimum_age'] is not None: _int(value['age']['minimum_age'], 0, 18)
     _keys(value['price'], ('expected_minor', 'upper_minor', 'basis', 'estimate_kind'))
     price = value['price']
+    paid = price['estimate_kind'] == 'advertised_admission' and price['basis'] == 'per_person' and \
+        type(price['upper_minor']) is int and 0 < price['upper_minor'] <= 100_000_000 and \
+        type(price['expected_minor']) is int and price['expected_minor'] == price['upper_minor']
     if not (price == {'expected_minor': 0, 'upper_minor': 0, 'basis': 'whole_party', 'estimate_kind': 'verified_admission'} or
-            price == {'expected_minor': None, 'upper_minor': None, 'basis': 'unknown', 'estimate_kind': 'unknown'}):
-        raise ValueError('event price is neither verified free nor unknown')
+            price == {'expected_minor': None, 'upper_minor': None, 'basis': 'unknown', 'estimate_kind': 'unknown'} or paid):
+        raise ValueError('event price does not match admission evidence')
     # bool is not an authoritative zero price, despite Python equality rules.
     if any(type(price[k]) is bool for k in ('expected_minor', 'upper_minor')): raise ValueError('invalid event price')
     if not isinstance(value['normalization_warnings'], list) or len(value['normalization_warnings']) > 30 or \

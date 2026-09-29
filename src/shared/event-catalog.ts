@@ -1,12 +1,10 @@
 import { z } from 'zod';
+import { kudagoSourceUrl } from './kudago-url.js';
 
 const Epoch = z.number().int().min(0).max(253402300799);
 const Id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const Point = z.object({ lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180) }).strict();
-export const EventSourceUrlSchema = z.url().max(2048).refine(value => {
-  const url = new URL(value);
-  return url.protocol === 'https:' && url.hostname === 'kudago.com' && !url.username && !url.password && !url.port && !url.hash;
-});
+export const EventSourceUrlSchema = z.url().max(2048).refine(value => !!kudagoSourceUrl(value));
 export const EventFactSourceSchema = z.object({ provider: z.literal('kudago'), url: EventSourceUrlSchema,
   fetched_at: z.iso.datetime(), valid_until: z.iso.datetime(), data_mode: z.enum(['live', 'test']) }).strict()
   .refine(value => Date.parse(value.valid_until) > Date.parse(value.fetched_at));
@@ -21,8 +19,8 @@ export const EventCardSchema = z.object({ id: z.string().regex(/^kudago:event:[1
   venue: z.object({ provider_venue_id: Id, name: z.string().max(500).nullable(), address: z.string().max(1000).nullable(),
     point: Point.nullable(), is_closed: z.boolean().nullable() }).strict().nullable(),
   categories: z.array(z.string().max(100)).max(100),
-  price: z.object({ display: z.string().max(1000).nullable(), kind: z.enum(['free', 'text', 'unknown', 'conflict']),
-    admission_upper_minor: z.literal(0).nullable(), basis: z.literal('admission'), strict_eligible: z.boolean() }).strict(),
+  price: z.object({ display: z.string().max(1000).nullable(), kind: z.enum(['free', 'bounded', 'text', 'unknown', 'conflict']),
+    admission_upper_minor: z.number().int().min(0).max(100_000_000).nullable(), basis: z.literal('admission'), strict_eligible: z.boolean() }).strict(),
   age: z.object({ state: z.enum(['known', 'unknown']), minimum: z.number().int().min(0).max(18).nullable() }).strict(),
   schedule: z.object({ entries: z.array(DateEntry).max(366) }).strict(),
   media: z.array(EventMediaSchema).max(10), issues: z.array(z.string().max(80)).max(30),

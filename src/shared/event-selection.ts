@@ -41,16 +41,18 @@ export const EventPlanningCandidateSchema = z.object({ kind: z.literal('event'),
   point: Point, source: EventFactSourceSchema, venue_source: EventFactSourceSchema.optional(), schedule: ScheduleSchema,
   duration: DurationSchema,
   age: z.object({ minimum_age: z.number().int().min(0).max(18).nullable() }).strict(),
-  price: z.object({ expected_minor: z.literal(0).nullable(), upper_minor: z.literal(0).nullable(),
-    basis: z.enum(['whole_party', 'unknown']), estimate_kind: z.enum(['verified_admission', 'unknown']) }).strict(),
+  price: z.object({ expected_minor: z.number().int().min(0).max(100_000_000).nullable(), upper_minor: z.number().int().min(0).max(100_000_000).nullable(),
+    basis: z.enum(['whole_party', 'per_person', 'unknown']), estimate_kind: z.enum(['verified_admission', 'advertised_admission', 'unknown']) }).strict(),
   normalization_warnings: z.array(z.string().max(80)).max(30),
 }).strict().superRefine((value, context) => {
   if ((value.schedule.kind === 'fixed') !== (value.duration.basis === 'provider_session'))
     context.addIssue({ code: 'custom', path: ['duration'], message: 'Duration basis must match the schedule.' });
   const free = value.price.estimate_kind === 'verified_admission';
+  const paid = value.price.estimate_kind === 'advertised_admission';
   if (free && (value.price.expected_minor !== 0 || value.price.upper_minor !== 0 || value.price.basis !== 'whole_party') ||
-      !free && (value.price.expected_minor !== null || value.price.upper_minor !== null || value.price.basis !== 'unknown'))
-    context.addIssue({ code: 'custom', path: ['price'], message: 'Unknown admission cannot be represented as free.' });
+      paid && (value.price.upper_minor === null || value.price.upper_minor <= 0 || value.price.expected_minor !== value.price.upper_minor || value.price.basis !== 'per_person') ||
+      !free && !paid && (value.price.expected_minor !== null || value.price.upper_minor !== null || value.price.basis !== 'unknown'))
+    context.addIssue({ code: 'custom', path: ['price'], message: 'Admission price must match its evidence and party basis.' });
 });
 export type EventPlanningCandidate = z.infer<typeof EventPlanningCandidateSchema>;
 

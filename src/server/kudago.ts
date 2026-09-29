@@ -2,10 +2,10 @@ import { z } from 'zod';
 import { EventSearchScopeSchema, EventSearchResultSchema, type EventCard, type EventSearchScope, type EventSearchResult, type EventVenue } from '../shared/event-catalog.js';
 import { normalizeKudagoEvent, normalizeKudagoVenue } from './event-normalization.js';
 
-// Verified provider codes, not a fuzzy city-name fallback. Extend this mapping
-// when another provider locality is checked; do not substitute a nearby city.
 export const KUDAGO_LOCALITIES: Readonly<Record<string, { name: string; timezone: string }>> = Object.freeze({
   nnv: { name: 'Нижний Новгород', timezone: 'Europe/Moscow' }, kzn: { name: 'Казань', timezone: 'Europe/Moscow' },
+  msk: { name: 'Москва', timezone: 'Europe/Moscow' }, spb: { name: 'Санкт-Петербург', timezone: 'Europe/Moscow' },
+  ekb: { name: 'Екатеринбург', timezone: 'Asia/Yekaterinburg' },
 });
 export type EventRequestBudget = { consume(): void };
 export class EventRequestBudgetError extends Error {

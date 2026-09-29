@@ -105,14 +105,16 @@ export function buildEventPlanningCandidate(choice: EventAvailabilityChoice, bin
 }) {
   const selected = resolveEventSelection(choice, binding.visitDurationMinutes, binding.now), free = choice.price.kind === 'free' &&
     choice.price.strict_eligible && choice.price.admission_upper_minor === 0;
+  const paid = choice.price.kind === 'bounded' && choice.price.strict_eligible && choice.price.admission_upper_minor !== null && choice.price.admission_upper_minor > 0;
+  const upper = free ? 0 : paid ? choice.price.admission_upper_minor : null;
   const id = createHash('sha256').update(JSON.stringify([choice.event_ref.event_id, choice.event_ref.occurrence_key, binding.dayId, binding.activityId])).digest('hex');
   return EventPlanningCandidateSchema.parse({ kind: 'event', id: `event:kudago:${id}`, name: choice.title, location_label: choice.location_label,
     locality_id: binding.localityId, region_id: binding.regionId, date: choice.date, event_ref: choice.event_ref,
     activity_id: binding.activityId, day_id: binding.dayId, point: choice.point, source: choice.source,
     ...(choice.venue_source ? { venue_source: choice.venue_source } : {}), schedule: choice.schedule, duration: selected.display.duration,
     age: { minimum_age: choice.age.state === 'known' ? choice.age.minimum : null },
-    price: { expected_minor: free ? 0 : null, upper_minor: free ? 0 : null, basis: free ? 'whole_party' : 'unknown',
-      estimate_kind: free ? 'verified_admission' : 'unknown' }, normalization_warnings: choice.warnings });
+    price: { expected_minor: upper, upper_minor: upper, basis: free ? 'whole_party' : paid ? 'per_person' : 'unknown',
+      estimate_kind: free ? 'verified_admission' : paid ? 'advertised_admission' : 'unknown' }, normalization_warnings: choice.warnings });
 }
 
 export type SelectedEventContext = Omit<EventAvailabilityScope, 'now'> & { activityId: string; dayId: string; localityId: string; regionId: string };

@@ -6,6 +6,7 @@ import { dgisDayDirectionsLink, dgisDirectionsLink } from '../shared/dgis-links'
 import { DgisLink } from './DgisLink';
 
 const dayLabel = (date: string) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
+const visitTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
 export function CandidatePlaces({ view, mapsAvailable = false }: { view: PlanningView; mapsAvailable?: boolean }) {
   const preview = view.result?.candidate_preview;
@@ -56,7 +57,9 @@ export function CandidatePlaces({ view, mapsAvailable = false }: { view: Plannin
             <span className="candidate-step-number" aria-hidden="true">{mapIndex >= 0 ? mapIndex + 1 : '•'}</span>
             <article className="stop-card candidate-card">
             <div className="stop-content"><h5>{place.name}</h5>{place.location_label && <p className="stop-address">{place.location_label}</p>}
-              {place.estimated_visit_minutes !== undefined && <p className="field-hint">На посещение — примерно {place.estimated_visit_minutes} мин.</p>}</div>
+              {place.event_visit ? <><p><strong>{visitTime(place.event_visit.starts_at)}–{visitTime(place.event_visit.ends_at)}</strong> · {place.event_visit.schedule_kind === 'fixed' ? 'Сеанс' : 'Планируемое посещение'}</p>
+                <p className="field-hint">{place.event_visit.admission_upper_minor === null ? 'Стоимость билетов уточните у организатора.' : place.event_visit.admission_upper_minor === 0 ? 'Вход бесплатный' : `На билеты для вашей группы — до ${new Intl.NumberFormat('ru-RU').format(place.event_visit.admission_upper_minor / 100)} ₽ по данным афиши.`}</p></>
+                : place.estimated_visit_minutes !== undefined && <p className="field-hint">На посещение — примерно {place.estimated_visit_minutes} мин.</p>}</div>
             {mapsAvailable && mapIndex >= 0 && <button type="button" className="button-secondary" onClick={() => { setSelected(mapIndex); setMode('map'); }}>Показать на карте</button>}
             <footer className="stop-footer"><div className="stop-source"><span>{place.source.data_mode === 'test' ? 'Учебные данные' : place.source.data_mode === 'prepared' ? 'Подготовленные данные' : place.source.provider === '2gis' ? '2ГИС' : 'KudaGo'}</span><small>Получено {stamp}</small></div>
               {directions && <DgisLink href={directions}>Перейти в 2ГИС ↗</DgisLink>}

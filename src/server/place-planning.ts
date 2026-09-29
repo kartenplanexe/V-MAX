@@ -353,12 +353,14 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
     const prepared = Prepared.parse(preparedReply);
     candidatePreviewJob = prepared.preview_job ?? prepared.job;
     diagnosticShortlist = prepared.shortlist;
-    // Deliberately stop before any road measurement or route solving. These are
-    // individually eligible alternatives, never a verified combined itinerary.
     if (options.routingMode === 'external') {
       const preview = projectCandidatePreview(candidatePreviewJob, now());
+      for (const event of events) {
+        if (!preview.candidate_preview?.groups.some(group => group.day_id === event.day_id && group.activity_id === event.activity_id))
+          eventIssues.push({ day_id: event.day_id, activity_id: event.activity_id, code: 'EVENT_NOT_SCHEDULED' });
+      }
       return { schema_version: 'place-selection.v1', status: preview.candidate_preview ? 'PLACES_FOUND' : 'UNAVAILABLE',
-        selection_policy: 'external-compact.v4',
+        selection_policy: 'external-compact.v5',
         ...(diagnosticShortlist ? { shortlist: diagnosticShortlist } : {}),
         days: [], warnings: [], ...preview, ...scope(), routing: { ...metadata(), policy: 'external-routing-places.v1' } };
     }

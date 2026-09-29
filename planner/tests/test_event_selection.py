@@ -83,6 +83,47 @@ def test_event_only_is_available_without_any_poi_or_category_leaf(job):
     assert result['total_budget_upper_minor'] == 0
 
 
+def test_paid_city_subdomain_event_charges_each_person_and_respects_budget(job):
+    _, event = selected_event(job, only=True)
+    event['source']['url'] = 'https://nn.kudago.com/event/test-session/'
+    event['price'] = {'expected_minor': 60000, 'upper_minor': 60000, 'basis': 'per_person', 'estimate_kind': 'advertised_admission'}
+    job['intent']['shared']['party'] = {'total': 2}
+    _, result = solve_prepared(job)
+    assert result['total_budget_upper_minor'] == 120000
+    job['intent']['shared']['budget']['amount_rub'] = 1000
+    assert select_places(job)['status'] == 'UNAVAILABLE'
+
+
+def test_external_event_can_move_before_free_order_food_without_changing_its_session(job):
+    activity, event = selected_event(job)
+    day = job['intent']['days'][0]
+    day['activities'].reverse()
+    day['order'] = []
+    event['schedule']['windows_utc'] = [{'start_utc': epoch('2026-09-25T09:30:00Z'), 'end_utc': epoch('2026-09-25T10:30:00Z')}]
+    job['routing_policy'] = {'strategy': 'progressive', 'external_compact': True}
+    pool = prepare_routes(job)['preview_job']['candidate_pool']
+    assert [r['activity_id'] for r in pool] == ['culture', 'food']
+    assert pool[0]['event_visit'] == {'starts_at': 750, 'ends_at': 810, 'schedule_kind': 'fixed', 'admission_upper_minor': 0}
+    day['order'] = [['food', 'culture']]
+    conflict = prepare_routes(job)['preview_job']
+    assert all(r['place_id'] != event['id'] for r in conflict['candidate_pool'])
+    assert {'day_id': 'd1', 'activity_id': activity['id'], 'reason': 'COMBINATION_NOT_FOUND'} in conflict['selection_gaps']
+
+
+def test_external_does_not_drop_selected_event_for_two_optional_places(job):
+    _, event = selected_event(job)
+    day = job['intent']['days'][0]
+    day['order'] = []
+    extra = deepcopy(day['activities'][1]); extra['id'] = 'second-food'
+    day['activities'].append(extra)
+    job['places'].append({**deepcopy(job['places'][2]), 'id': 'other-cafe'})
+    job['intent']['shared']['budget']['amount_rub'] = 900
+    event['price'] = {'expected_minor': 90000, 'upper_minor': 90000, 'basis': 'per_person', 'estimate_kind': 'advertised_admission'}
+    job['routing_policy'] = {'strategy': 'progressive', 'external_compact': True}
+    pool = prepare_routes(job)['preview_job']['candidate_pool']
+    assert [r['place_id'] for r in pool] == [event['id']]
+
+
 def test_fixed_session_rounds_outward_and_cannot_shift_or_shorten(job):
     _, event = selected_event(job, only=True)
     event['schedule']['windows_utc'][0]['start_utc'] += 30

@@ -445,7 +445,7 @@ export function PlannerForm() {
         {view.phase === 'PLANNING' && <Action variant="secondary" onClick={() => void act('Проверяем статус…', async () => { accept(await request<PlanningView>(`/api/planning/drafts/${view.id}`, session!.token)); })}>Проверить статус расчёта</Action>}
       </section>}</div>
       {eventPanel && <Sheet title="События для вашего дня" canClose={!eventPending} onClose={() => setEventPanel(null)}><EventPanel key={`${view.id}:${view.version}`} view={view} target={eventPanel.target} pending={setEventPending}
-        search={dayId => request<EventSearchPreview>(`/api/planning/drafts/${view.id}/events/search`, session!.token, 'POST', { base_version: view.version, event_id: crypto.randomUUID(), day_id: dayId })}
+        search={(dayId, categories) => request<EventSearchPreview>(`/api/planning/drafts/${view.id}/events/search`, session!.token, 'POST', { base_version: view.version, event_id: crypto.randomUUID(), day_id: dayId, ...(categories ? { categories } : {}) })}
         availability={value => request<EventAvailabilityPreview>(`/api/planning/drafts/${view.id}/events/availability`, session!.token, 'POST', { base_version: view.version, event_id: crypto.randomUUID(), ...value })}
         select={async value => { accept(await request<PlanningView>(`/api/planning/drafts/${view.id}/events/select`, session!.token, 'POST', { base_version: view.version, event_id: crypto.randomUUID(), ...value })); setEventPanel(null); setNotice('Событие добавлено к условиям. Проверьте порядок и подтвердите расчёт.'); }}
         refresh={async () => { accept(await request<PlanningView>(`/api/planning/drafts/${view.id}`, session!.token)); setEventPanel(null); }} /></Sheet>}

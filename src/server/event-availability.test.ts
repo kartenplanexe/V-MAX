@@ -13,6 +13,12 @@ function rawEvent(visit = false) { return { id: 123, title: 'Synthetic event', l
   dates: [{ start, end: visit ? start + 30 * 86400 : start + 3600, is_startless: false, is_endless: false, is_continuous: false,
     use_place_schedule: visit, schedules: [] }], place: rawVenue, price: 'бесплатно', is_free: true, age_restriction: '6+' }; }
 const venue = () => normalizeKudagoVenue(rawVenue, context);
+it('carries the advertised upper admission price into the planner per person', () => {
+  const card = normalizeKudagoEvent({ ...rawEvent(true), price: 'от 400 до 600 рублей', is_free: false }, context);
+  const selected = resolveEventAvailability(card, venue(), scope).choices[0]!;
+  const candidate = buildEventPlanningCandidate(selected, { activityId: 'a', dayId: 'd', localityId: 'city', regionId: 'region', visitDurationMinutes: 60, now });
+  expect(candidate.price).toEqual({ expected_minor: 60000, upper_minor: 60000, basis: 'per_person', estimate_kind: 'advertised_admission' });
+});
 function choice(visit = false) {
   const result = resolveEventAvailability(normalizeKudagoEvent(rawEvent(visit), context), venue(), scope);
   expect(result.status).toBe('READY'); return result.choices[0]!;

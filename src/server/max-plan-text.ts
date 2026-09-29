@@ -1,5 +1,6 @@
 import type { PlanningView } from '../shared/planning-form.js';
 import { mobilityText, transitStageText } from '../shared/route-travel-text.js';
+import { kudagoEventUrl } from '../shared/kudago-url.js';
 export { eventGapText } from '../shared/event-plan-text.js';
 
 type Plan = NonNullable<PlanningView['result']>;
@@ -19,12 +20,12 @@ export function eventVisitText(visit: Visit, timezone: string): string[] {
     } else lines.push('Выбран фиксированный сеанс; официальное время в данных не указано.');
   } else lines.push(`Посещение ≈${visit.ends_at - visit.starts_at} мин — длительность, выбранная вами.`);
   lines.push(event.minimum_age === null ? 'Возрастное ограничение неизвестно.' : `Возраст: ${event.minimum_age}+.`);
-  lines.push(visit.price_expected_minor === 0 ? 'Вход бесплатный по данным источника.' : 'Стоимость входа неизвестна.');
+  lines.push(visit.price_expected_minor === 0 ? 'Вход бесплатный по данным источника.' : visit.price_expected_minor != null
+    ? `На билеты для вашей группы: до ${visit.price_expected_minor / 100} ₽ по данным афиши.` : 'Стоимость входа неизвестна.');
   if (visit.source?.provider === 'kudago' && visit.source.url) {
     try {
       const url = new URL(visit.source.url);
-      if (url.protocol === 'https:' && url.hostname === 'kudago.com' && !url.username && !url.password && !url.port && !url.search && !url.hash &&
-          /^\/[a-z0-9-]+\/event\/[a-z0-9_-]+\/$/u.test(url.pathname)) lines.push(`Событие на KudaGo: ${url.href}`);
+      if (kudagoEventUrl(url.href)) lines.push(`Событие на KudaGo: ${url.href}`);
     } catch { /* Invalid source URLs are not public links. */ }
   }
   return lines;

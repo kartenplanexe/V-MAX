@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeKudagoEvent, normalizeKudagoVenue, parseVenueTimetable, resolveEventVisitWindows } from './event-normalization.js';
+import { admissionPriceUpper, normalizeKudagoEvent, normalizeKudagoVenue, parseVenueTimetable, resolveEventVisitWindows } from './event-normalization.js';
+import { kudagoEventUrl } from '../shared/kudago-url.js';
 
 const fetchedAt = '2026-09-27T09:00:00Z', validUntil = '2026-09-27T09:05:00Z';
 const now = { fetchedAt, validUntil, dataMode: 'test' as const };
@@ -15,6 +16,30 @@ function venue(timetable = 'пн–пт 10:00–18:00, сб, вс 11:00–17:00'
 }
 
 describe('source-neutral event facts', () => {
+  it('accepts the city-subdomain and expanded exhibition shape returned by the live nnv API', () => {
+    const card = normalizeKudagoEvent(event({ site_url: 'https://nn.kudago.com/event/vyistavka-gromadnyij-smyisl-i-znachenie/',
+      categories: ['exhibition'], price: 'от 400 до 600 рублей', dates: [date({ start: 1779915600, end: 1793480400, use_place_schedule: true })] }), now);
+    expect(card.price).toMatchObject({ kind: 'bounded', admission_upper_minor: 60000, strict_eligible: true });
+    expect(card.schedule.entries[0]?.state).toBe('VENUE_HOURS_REQUIRED');
+    expect(kudagoEventUrl(card.source.url)).toBe(card.source.url);
+    const result = resolveEventVisitWindows(card, venue(), { fromDate: '2026-09-28', toDate: '2026-09-28', timezone: 'Europe/Moscow' });
+    expect(result.windows).toHaveLength(1);
+    expect(result.windows[0]?.kind).toBe('visit_window');
+  });
+  it.each(['https://evilkudago.com/event/a/', 'https://nn.kudago.com.evil.test/event/a/',
+    'https://kudago.com@evil.test/event/a/', 'https://user@nn.kudago.com/event/a/',
+    'http://nn.kudago.com/event/a/', 'https://nn.kudago.com/event/a/?redirect=evil'])('rejects unsafe event URLs: %s', url => {
+    expect(() => normalizeKudagoEvent(event({ site_url: url }), now)).toThrow();
+    expect(kudagoEventUrl(url)).toBeUndefined();
+  });
+  it.each([
+    ['450 рублей', 45000], ['от 0 до 300 рублей', 30000], ['400–600 ₽', 60000], ['1 500 руб.', 150000],
+    ['1\u00a0500,50 руб.', 150050], ['от 1 200 до 2 500 рублей', 250000],
+    ['от 500 ₽', null], ['до 500 ₽', null], ['500 ₽ за группу', null], ['500', null], ['600–400 ₽', null],
+    ['бесплатно, экскурсия 500 ₽', null], ['400–600 ₽, выходные 1000 ₽', null],
+  ])('uses only a complete finite admission price: %s', (value, upper) => {
+    expect(admissionPriceUpper(value)).toBe(upper);
+  });
   it('uses a separate event namespace, exact finite session, safe plain display, and no guessed admission price', () => {
     const card = normalizeKudagoEvent(event(), now);
     expect(card.id).toBe('kudago:event:123');

@@ -98,7 +98,7 @@ export const CalculateInput = FormEvent.extend({ refresh: z.literal(true).option
 export const FormEdit = FormEvent.extend({ changes: z.array(FormChange).min(1).max(160) }).strict();
 export const PublicPlan = z.object({ status: z.enum(['AVAILABLE', 'LIMITED', 'UNAVAILABLE', 'ERROR', 'NEEDS_INPUT', 'PLACES_FOUND']),
   candidate_preview: CandidatePreview.optional(),
-  selection_policy: z.enum(['external-compact.v1', 'external-compact.v2', 'external-compact.v3', 'external-compact.v4']).optional(),
+  selection_policy: z.enum(['external-compact.v1', 'external-compact.v2', 'external-compact.v3', 'external-compact.v4', 'external-compact.v5']).optional(),
   selection_gaps: SelectionGaps.optional(),
   origin: Point.optional(),
   valid_until: z.string().datetime().optional(),

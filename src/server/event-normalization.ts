@@ -52,6 +52,18 @@ function dateEntry(raw: unknown, eventId: number, venueId: number | null): Event
   return { id, occurrence_key, state: 'FIXED', start_utc: start, end_utc: end, reasons: [] };
 }
 
+export function admissionPriceUpper(display: string | null): number | null {
+  if (!display) return null;
+  const amount = '(\\d{1,3}(?:[ \\u00a0]\\d{3})+|\\d+)(?:[.,](\\d{1,2}))?';
+  const currency = '(?:₽|руб\\.?|рублей|рубля|рубль)';
+  const range = new RegExp(`^(?:от\\s+)?${amount}\\s*(?:до|[–—-])\\s*${amount}\\s*${currency}$`, 'iu').exec(display);
+  const exact = new RegExp(`^${amount}\\s*${currency}$`, 'iu').exec(display);
+  const minor = (whole: string, fraction?: string) => Number(whole.replace(/\s/gu, '')) * 100 + Number((fraction ?? '').padEnd(2, '0'));
+  const upper = range ? minor(range[3]!, range[4]) : exact ? minor(exact[1]!, exact[2]) : null;
+  if (upper === null || !Number.isSafeInteger(upper) || upper <= 0 || upper > 100_000_000 || range && minor(range[1]!, range[2]) > upper) return null;
+  return upper;
+}
+
 export function normalizeKudagoEvent(raw: unknown, context: EventNormalizationContext): EventCard {
   const input = EventInput.parse(raw), factSource = source(input.site_url, context), issues: string[] = [];
   const parsedVenue = VenueFacts.safeParse(input.place), v = parsedVenue.success ? parsedVenue.data : null;
@@ -62,9 +74,10 @@ export function normalizeKudagoEvent(raw: unknown, context: EventNormalizationCo
   if (venue?.is_closed === null) issues.push('VENUE_STATUS_UNKNOWN');
   const display = plain(input.price), freeText = !display || /^(?:бесплатно|вход свободный|0(?:[.,]00)?(?:\s*(?:₽|руб\.?))?)$/iu.test(display);
   const free = input.is_free === true && freeText, conflict = input.is_free === true && !freeText;
-  const price = { display, kind: free ? 'free' as const : conflict ? 'conflict' as const : display ? 'text' as const : 'unknown' as const,
-    admission_upper_minor: free ? 0 as const : null, basis: 'admission' as const, strict_eligible: free };
-  if (!free) issues.push(conflict ? 'PRICE_CONFLICT' : 'PRICE_UNVERIFIED');
+  const upper = conflict || free ? null : admissionPriceUpper(display);
+  const price = { display, kind: free ? 'free' as const : conflict ? 'conflict' as const : upper !== null ? 'bounded' as const : display ? 'text' as const : 'unknown' as const,
+    admission_upper_minor: free ? 0 : upper, basis: 'admission' as const, strict_eligible: free || upper !== null };
+  if (!free && upper === null) issues.push(conflict ? 'PRICE_CONFLICT' : 'PRICE_UNVERIFIED');
   const ageMatch = /^(0|6|12|16|18)\+$/u.exec(plain(input.age_restriction) ?? '');
   const age = ageMatch ? { state: 'known' as const, minimum: Number(ageMatch[1]) } : { state: 'unknown' as const, minimum: null };
   if (!ageMatch) issues.push('AGE_UNKNOWN');

@@ -15,7 +15,7 @@ import { planPlacesWithDgis, safePlanningDiagnostic } from './place-planning.js'
 import { createResolvePlanEvents } from './selected-event-retrieval.js';
 
 const run = it.skipIf(!process.env.TEST_DATABASE_URL);
-async function fixture(withFood = false) {
+async function fixture(withFood = false, paid = false) {
   let time = Date.parse('2026-09-27T09:00:00Z'), calls = 0, providerFails = false;
   const owner = `synthetic-event-${randomUUID()}`;
   // This suite advances its clock and purges records. Keep its lifecycle
@@ -26,12 +26,12 @@ async function fixture(withFood = false) {
   const scoped = new URL(process.env.TEST_DATABASE_URL!); scoped.searchParams.set('options', `-c search_path=${schema}`);
   const database = PlanningDatabase.connect(scoped.href, undefined, { now: () => new Date(time) });
   await database.migrate(); await database.migrate();
-  const venue = { id: 44, title: 'Synthetic venue title', site_url: 'https://kudago.com/nnv/place/synthetic/',
+  const venue = { id: 44, title: 'Synthetic venue title', site_url: 'https://nn.kudago.com/place/synthetic/',
     coords: { lat: 56.32, lon: 44 }, is_closed: false, timetable: 'ежедневно 10:00–20:00' };
-  const event = { id: 123, title: 'Synthetic provider title', location: 'nnv', site_url: 'https://kudago.com/nnv/event/synthetic/',
+  const event = { id: 123, title: 'Synthetic provider title', location: 'nnv', site_url: 'https://nn.kudago.com/event/synthetic/',
     dates: [{ start: Date.parse('2026-09-28T10:00:00Z') / 1000, end: Date.parse('2026-09-28T11:00:00Z') / 1000,
       is_startless: false, is_endless: false, is_continuous: false, use_place_schedule: false, schedules: [] }],
-    place: venue, age_restriction: '0+', is_free: true, price: 'бесплатно' };
+    place: venue, age_restriction: '0+', is_free: !paid, price: paid ? 'от 400 до 600 рублей' : 'бесплатно' };
   const client = new KudagoClient({ now: () => time, fetcher: async raw => {
     calls++; if (providerFails) return new Response('', { status: 503 });
     const url = new URL(String(raw));
@@ -42,7 +42,7 @@ async function fixture(withFood = false) {
   const view = await database.withOwner(owner, async (state, save, sql) => {
     const sessions = new PlanningSessions({ now: () => new Date(time), plan: async () => { throw new Error('No LLM/planner allowed'); } });
     const view = sessions.create(owner, { locality: { id: 'nn', name: 'Нижний Новгород', region_id: '32', timezone: 'Europe/Moscow' },
-      shared: { mobility: ['walking'], budget: { kind: 'unlimited' } },
+      shared: { mobility: ['walking'], party: { total: 2 }, budget: { kind: 'unlimited' } },
       points: { origin: { lat: 56.319, lon: 44, locality_id: 'nn', source: 'user_map', label: 'Own point' } },
       days: [{ day_id: 'd', date: '2026-09-28', window: { start: '10:00', end: '19:00' }, activities: withFood ? [{
         id: 'food', label: 'кафе', selection: { category_policy: 'related_allowed', named_types: ['кафе'] }, requirements: [],
@@ -95,7 +95,7 @@ run('search/availability/select has no LLM, stable replay, own snapshot whitelis
 });
 
 run('HTTP event selection survives SQL reload and composes a fixed session with food through the real Python planner', async () => {
-  const f = await fixture(true), app = Fastify(), places = planningFixture();
+  const f = await fixture(true, true), app = Fastify(), places = planningFixture();
   for (const item of places.items) {
     item.point.lat += 0.57; item.point.lon += 6.38;
     Object.assign(item.schedule, { Mon: structuredClone(item.schedule.Fri) });
@@ -128,6 +128,7 @@ run('HTTP event selection survives SQL reload and composes a fixed session with 
     const visits = result.result.days[0].visits;
     expect(visits.some((visit: { activity_id: string }) => visit.activity_id === 'food')).toBe(true);
     expect(visits.find((visit: { event?: unknown }) => visit.event)).toMatchObject({ starts_at: 780, ends_at: 840,
+      price_expected_minor: 120000,
       event: { event_id: '123', schedule_kind: 'fixed', duration_basis: 'provider_session' } });
     expect(f.calls()).toBe(5); // Search + selection facts + fresh event and venue before planning.
     expect(places.requests.some(request => request.url.searchParams.get('rubric_id') === '200')).toBe(true);

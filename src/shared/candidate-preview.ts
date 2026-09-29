@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { CandidatePlace } from './candidate-preview-schema.js';
+import { kudagoEventUrl } from './kudago-url.js';
 export const candidatePreviewNotice = 'Это варианты мест, а не готовый маршрут. Время дороги уточните в 2ГИС.';
 export const compactPlacesNotice = 'Перед выходом проверьте время в пути, часы работы и цены в 2ГИС.';
 export function selectionGapNotice(reason?: 'NO_ELIGIBLE_PLACES' | 'COMBINATION_NOT_FOUND') {
@@ -14,7 +15,7 @@ export function candidateSourceLink(source: z.infer<typeof CandidatePlace>['sour
     const url = new URL(source.url);
     if (url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash) return null;
     if (source.provider === '2gis' && url.hostname === '2gis.ru' && /^\/[a-z0-9_-]{1,80}\/(?:firm|geo)\/[0-9]{1,30}$/u.test(url.pathname)) return url.href;
-    if (source.provider === 'kudago' && url.hostname === 'kudago.com' && /^\/[a-z0-9-]+\/event\/[a-z0-9_-]+\/$/u.test(url.pathname)) return url.href;
+    if (source.provider === 'kudago') return kudagoEventUrl(source.url) ?? null;
   } catch { /* Ignore malformed provider URLs. */ }
   return null;
 }

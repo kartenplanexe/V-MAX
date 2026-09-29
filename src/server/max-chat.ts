@@ -192,7 +192,13 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
       lines.push(`\n${view.draft.days.length > 1 ? `${day.date} · ` : ''}${activity.label} · ${group.places.length}`);
       for (const place of group.places.slice(0, 3)) {
         lines.push(`• ${place.name}${place.location_label ? ` — ${place.location_label}` : ''}`);
-        if (place.estimated_visit_minutes !== undefined) lines.push(`На посещение — примерно ${place.estimated_visit_minutes} мин.`);
+        if (place.event_visit) {
+          const event = place.event_visit;
+          const time = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+          lines.push(`${time(event.starts_at)}–${time(event.ends_at)} · ${event.schedule_kind === 'fixed' ? 'сеанс' : 'планируемое посещение'}`);
+          lines.push(event.admission_upper_minor === null ? 'Стоимость билетов уточните у организатора.' : event.admission_upper_minor === 0
+            ? 'Вход бесплатный.' : `На билеты для вашей группы — до ${event.admission_upper_minor / 100} ₽ по данным афиши.`);
+        } else if (place.estimated_visit_minutes !== undefined) lines.push(`На посещение — примерно ${place.estimated_visit_minutes} мин.`);
         const link = candidateSourceLink(place.source); if (link) lines.push(link);
         const directions = dgisDirectionsLink(place.point, view.draft.shared.mobility?.[0], view.draft.points.origin);
         if (directions) lines.push(`Перейти в 2ГИС: ${directions}`);

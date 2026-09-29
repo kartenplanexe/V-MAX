@@ -26,12 +26,13 @@ export function projectCandidatePreview(job: Record<string, unknown> | undefined
   const groups = new Map<string, z.infer<typeof CandidatePreview>['groups'][number]>();
   for (const item of job.candidate_pool) {
     const parsed = z.object({ day_id: z.string(), activity_id: z.string(), place_id: z.string(),
-      estimated_visit_minutes: CandidatePlace.shape.estimated_visit_minutes }).safeParse(item);
+      estimated_visit_minutes: CandidatePlace.shape.estimated_visit_minutes, event_visit: CandidatePlace.shape.event_visit }).safeParse(item);
     if (!parsed.success) continue;
     const ref = parsed.data, place = places.get(ref.place_id); if (!place) continue;
     const key = JSON.stringify([ref.day_id, ref.activity_id]);
     const group = groups.get(key) ?? { day_id: ref.day_id, activity_id: ref.activity_id, places: [] };
     if (!group.places.some(value => value.place_id === place.place_id)) group.places.push({ ...place,
+      ...(ref.event_visit ? { event_visit: ref.event_visit } : {}),
       ...(ref.estimated_visit_minutes !== undefined ? { estimated_visit_minutes: ref.estimated_visit_minutes } : {}) });
     groups.set(key, group);
   }
