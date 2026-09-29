@@ -38,7 +38,7 @@ it('keeps both submission manifests current and all required API checks resolvab
   expect(readFileSync(new URL('DATA-API.yaml', root), 'utf8')).toBe(serializeContract(buildDataApi()));
   expect(openapi.openapi).toBe('3.1.0');
   expect(manifest.base_url).toMatch(/^https:\/\//u);
-  expect(manifest.revision).toMatchObject({ status: 'pending_freeze', commit: null });
+  expect(manifest.revision).toMatchObject({ status: 'source_archive', commit: null });
   const ids = new Set();
   for (const check of manifest.checks) {
     expect(ids.has(check.id)).toBe(false); ids.add(check.id);

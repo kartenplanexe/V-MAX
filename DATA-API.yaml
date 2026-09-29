@@ -8,9 +8,9 @@
   "test_data_file": "test-data/api-scenarios.json",
   "schema_reference_document": "openapi.yaml",
   "revision": {
-    "status": "pending_freeze",
+    "status": "source_archive",
     "commit": null,
-    "note": "Working tree changes are in progress. Record the tested submitted commit or archive checksum before submission; do not invent a SHA."
+    "note": "The submitted source is the accompanying Git archive. Its SHA-256 checksum and local commit are printed on the first slide of the presentation."
   },
   "execution": {
     "automatic_runner": false,

@@ -236,7 +236,7 @@ export function buildDataApi() {
     base_url: 'https://bbapc7qgk242slpm2df5.containers.yandexcloud.net',
     base_url_override_environment: 'V_MAX_TEST_BASE_URL', openapi_file: 'openapi.yaml', test_data_file: 'test-data/api-scenarios.json',
     schema_reference_document: 'openapi.yaml',
-    revision: { status: 'pending_freeze', commit: null, note: 'Working tree changes are in progress. Record the tested submitted commit or archive checksum before submission; do not invent a SHA.' },
+    revision: { status: 'source_archive', commit: null, note: 'The submitted source is the accompanying Git archive. Its SHA-256 checksum and local commit are printed on the first slide of the presentation.' },
     execution: { automatic_runner: false, instructions: 'Execute checks in order with the test MAX user, or import OpenAPI into a compatible HTTP client. Placeholder substitution and JSON Pointer extraction below describe the procedure; this file does not pretend to be an organizer-provided runner.',
       substitution: 'A placeholder occupying an entire JSON value preserves the source type: versions, latitude and longitude must be numbers, not strings. Schema references resolve against openapi.yaml components.',
       offline_contract_command: 'node --import tsx scripts/api-contract.mts',
