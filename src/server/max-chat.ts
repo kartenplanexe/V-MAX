@@ -51,7 +51,7 @@ export interface MaxChatDependencies {
 }
 
 const eventKey = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 32);
-const welcomeText = 'Привет! Я помогу составить план досуга прямо в чате. Опишите желание своими словами — например: «Завтра после 16 хочу погулять в Казани и поесть». Или выберите действие ниже.';
+const welcomeText = 'Привет! Я помогу составить план досуга прямо в чате. Опишите желание своими словами — например: «Завтра после 16 хочу погулять в Казани и поесть». Или выберите действие ниже.\n\nТекст обработает Alice AI. Не присылайте телефон, документы и другие личные сведения. Подробнее — /privacy и «О сервисе и данных» в мини-приложении.';
 const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 const appButton = (botUsername: string, text = 'Подробнее и карта'): Button => ({ type: 'open_app', text, web_app: botUsername });
 const callback = (text: string, payload: string): Button => ({ type: 'callback', text, payload });
@@ -189,7 +189,7 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
       const day = view.draft.days.find(value => value.day_id === group.day_id);
       const activity = day?.activities.find(value => value.id === group.activity_id);
       if (!day || !activity) continue;
-      lines.push(`\n${view.draft.days.length > 1 ? `${day.date} · ` : ''}${activity.label}: ${group.places.length} вариантов`);
+      lines.push(`\n${view.draft.days.length > 1 ? `${day.date} · ` : ''}${activity.label} · ${group.places.length}`);
       for (const place of group.places.slice(0, 3)) {
         lines.push(`• ${place.name}${place.location_label ? ` — ${place.location_label}` : ''}`);
         if (place.estimated_visit_minutes !== undefined) lines.push(`На посещение — примерно ${place.estimated_visit_minutes} мин.`);
@@ -286,7 +286,7 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
 }
 
 export class MaxChatController {
-  private readonly sent = new Map<number, { active: string[]; transient: string[] }>();
+  private readonly sent = new Map<number, { active: string[]; transient: string[]; result?: string[]; resultDraftId?: string }>();
   constructor(private readonly deps: MaxChatDependencies) {}
 
   private async pending(owner: string) {
@@ -325,11 +325,17 @@ export class MaxChatController {
     if (!batch) return;
     const queued = await this.deps.database.withNavigation(owner, async (state, save) => {
       const previous = state.activeMessageIds ?? [];
+      const previousResult = state.resultMessageIds ?? [];
+      const replaceResult = Boolean(batch.result?.length);
+      const removedResult = Boolean(state.resultDraftId && !state.routes.some(route => route.draftId === state.resultDraftId));
+      if (replaceResult) { state.resultMessageIds = batch.result; state.resultDraftId = batch.resultDraftId; }
+      else if (removedResult) { delete state.resultMessageIds; delete state.resultDraftId; }
       if (batch.active.length) state.activeMessageIds = batch.active;
       state.cleanupMessageIds = [...new Set([
         ...(state.cleanupMessageIds ?? []), ...previous.filter(id => batch.active.length > 0 && id !== state.greetingMessageId),
         ...batch.transient,
-      ])].filter(id => id !== state.greetingMessageId);
+        ...(replaceResult || removedResult ? previousResult : []),
+      ])].filter(id => id !== state.greetingMessageId && !state.resultMessageIds?.includes(id));
       await save();
       return (state.cleanupMessageIds ?? []).slice(0, 20);
     });
@@ -347,6 +353,12 @@ export class MaxChatController {
   }
   private async navigation(owner: string) {
     return this.deps.database.withNavigation(owner, async state => structuredClone(state));
+  }
+  private async prompt(owner: string, userId: number, text: string, choices: Button[][] = []) {
+    const state = await this.navigation(owner);
+    const route = state.routes.find(item => item.id === state.activeRouteId);
+    await this.send(userId, { text: `${route ? `Маршрут: ${route.title}\n\n` : ''}${text}`,
+      buttons: [...choices, ...navigationButtons(state)] });
   }
   private async changeNavigation<T>(owner: string, change: (state: BotNavigation) => T) {
     return this.deps.database.withNavigation(owner, async (state, save) => {
@@ -406,7 +418,7 @@ export class MaxChatController {
       ...(current < maxPage ? [callback('Дальше →', `nav:list:${current + 1}`)] : []),
     ]);
     buttons.push(...navigationButtons(state, 'list'));
-    await this.send(userId, { text: `Мои маршруты (${routes.length}):\n${lines.join('\n')}\n\nВыберите маршрут, чтобы продолжить. Записи хранятся до 30 дней; любую можно удалить. Места при повторном расчёте проверяются заново.`, buttons });
+    await this.send(userId, { text: `Мои маршруты (${routes.length}):\n${lines.join('\n')}\n\nВыберите маршрут, чтобы продолжить. Готовые подборки доступны до удаления; незавершённые условия — до 30 дней. При обновлении места проверяются заново.`, buttons });
   }
 
   private async openRoute(owner: string, userId: number, routeId: string) {
@@ -467,6 +479,13 @@ export class MaxChatController {
     for (let i = 0; i < messages.length; i++) {
       if (i) await new Promise(resolve => setTimeout(resolve, 550));
       await this.send(userId, messages[i]!);
+    }
+    if (view.result && ['AVAILABLE', 'LIMITED', 'PLACES_FOUND'].includes(view.result.status)) {
+      const batch = this.sent.get(userId);
+      if (batch) {
+        batch.result = batch.active.slice(-(messages.length), -1);
+        batch.resultDraftId = view.id;
+      }
     }
   }
 
@@ -548,6 +567,10 @@ export class MaxChatController {
 
   private async handleMessage(owner: string, update: Incoming) {
     const text = update.text?.trim();
+    if (text === '/privacy') {
+      await this.prompt(owner, update.userId, 'Для плана сохраняются ваш идентификатор MAX, пожелания и выбранные условия. Текст разбирает Alice AI; поиск и карта используют 2ГИС, афиша — KudaGo. Геолокация необязательна. Готовые подборки доступны до удаления через «Мои маршруты».\n\nПодробности — в разделе «О сервисе и данных» внизу мини-приложения. Реквизиты оператора и контакт для обращений пока не заполнены.', [[appButton(this.deps.botUsername, 'Открыть мини-приложение')]]);
+      return;
+    }
     if (text === '/new') { await this.startNew(owner, update.userId); return; }
     if (text === '/routes') { await this.listRoutes(owner, update.userId); return; }
     if (text === '/exit') { await this.exitPlanning(owner, update.userId); return; }
@@ -575,17 +598,15 @@ export class MaxChatController {
       await this.chooseAddress(owner, update.userId, pending.draftId, text); return;
     }
     if (pending?.kind === 'origin' && text) {
-      const state = await this.navigation(owner);
-      await this.send(update.userId, { text: 'Сейчас выбираем стартовую точку открытого маршрута. Нажмите «Моё местоположение» или «Ввести адрес» под сводкой; новый маршрут можно начать отдельно.',
-        buttons: navigationButtons(state, 'draft') });
+      await this.showDraft(update.userId, await this.deps.planning.get(owner, pending.draftId));
       return;
     }
     if (pending?.kind === 'destination') {
-      await this.send(update.userId, { text: 'Отправьте геолокацию кнопкой под предыдущим сообщением или выберите точку в мини-приложении. Для нового плана напишите /new.' });
+      await this.showDraft(update.userId, await this.deps.planning.get(owner, pending.draftId));
       return;
     }
     if (!text) {
-      await this.send(update.userId, { text: 'Напишите пожелание о досуге или отправьте геолокацию после запроса точки старта.' });
+      await this.prompt(owner, update.userId, 'Напишите пожелание о досуге или отправьте геолокацию после запроса точки старта.');
       return;
     }
     if (pending?.kind === 'city') {
@@ -595,7 +616,7 @@ export class MaxChatController {
     if (pending?.kind === 'party') {
       const total = Number(text);
       if (!Number.isSafeInteger(total) || total < 1 || total > 100) {
-        await this.send(update.userId, { text: 'Сколько будет человек? Пришлите одно число от 1 до 100.' }); return;
+        await this.prompt(owner, update.userId, 'Сколько будет человек? Пришлите одно число от 1 до 100.'); return;
       }
       const view = await this.deps.planning.get(owner, pending.draftId);
       const patched = await this.deps.planning.edit(owner, pending.draftId, { base_version: view.version,
@@ -621,7 +642,7 @@ export class MaxChatController {
       return;
     }
     await this.setPending(owner, { kind: 'city', requestText: text, requestId: update.eventId, nonce: randomUUID().slice(0, 8) });
-    await this.send(update.userId, { text: 'В каком городе или населённом пункте составить план? Напишите название — остальное пожелание уже запомнил.' });
+    await this.prompt(owner, update.userId, 'В каком городе или населённом пункте составить план? Напишите название — остальное пожелание уже запомнил.');
   }
 
   private async chooseCity(owner: string, userId: number, requestText: string, requestId: string, cityText: string, routeId?: string) {
@@ -631,33 +652,31 @@ export class MaxChatController {
     });
     if (!choices.length) {
       await this.setPending(owner, { kind: 'city', requestText, requestId, routeId, nonce: randomUUID().slice(0, 8) });
-      await this.send(userId, { text: 'Не нашёл этот населённый пункт в доступных данных. Уточните название и регион.' });
+      await this.prompt(owner, userId, 'Не нашёл этот населённый пункт в доступных данных. Уточните название и регион.');
       return;
     }
     if (choices.length === 1) { await this.beginPlan(owner, userId, requestText, requestId, choices[0]!.token, routeId, cityText); return; }
     const nonce = randomUUID().slice(0, 8);
     await this.setPending(owner, { kind: 'city', requestText, requestId, routeId, nonce, localityQuery: cityText,
       choices: choices.map(c => ({ name: c.name, token: c.token })) });
-    await this.send(userId, { text: 'Нашёл несколько населённых пунктов. Выберите нужный:',
-      buttons: keyboard(choices.map((c, i) => [callback(c.name, `city:${nonce}:${i}`)])) });
+    await this.prompt(owner, userId, 'Нашёл несколько населённых пунктов. Выберите нужный:', choices.map((c, i) => [callback(c.name, `city:${nonce}:${i}`)]));
   }
 
   private async chooseAddress(owner: string, userId: number, draftId: string, query: string) {
     const q = query.trim();
     if (q.length < 4 || q.length > 120) {
-      await this.send(userId, { text: 'Напишите адрес с улицей и номером дома — от 4 до 120 символов.' }); return;
+      await this.prompt(owner, userId, 'Напишите адрес с улицей и номером дома — от 4 до 120 символов.'); return;
     }
     const view = await this.deps.planning.get(owner, draftId);
     const choices = await this.addressChoices(owner, q, view.draft.locality.id);
     if (!choices.length) {
       await this.setPending(owner, { kind: 'origin_address', draftId });
-      await this.send(userId, { text: 'Не нашёл точный адрес в выбранном городе. Напишите улицу и номер дома иначе или отправьте местоположение.' });
+      await this.prompt(owner, userId, 'Не нашёл точный адрес в выбранном городе. Напишите улицу и номер дома иначе или отправьте местоположение.');
       return;
     }
     const nonce = randomUUID().slice(0, 8);
     await this.setPending(owner, { kind: 'origin_address', draftId, query: q, nonce });
-    await this.send(userId, { text: 'Где начинаем? Выберите найденный адрес:',
-      buttons: keyboard(choices.map(choice => [callback(choice.label.slice(0, 80), `origin-address-choice:${nonce}:${choice.id}`)])) });
+    await this.prompt(owner, userId, 'Где начинаем? Выберите найденный адрес:', choices.map(choice => [callback(choice.label.slice(0, 80), `origin-address-choice:${nonce}:${choice.id}`)]));
   }
 
   private async addressChoices(owner: string, query: string, cityId: string) {
@@ -904,7 +923,7 @@ export class MaxChatController {
     }
     if (action === 'origin-address') {
       await this.setPending(owner, { kind: 'origin_address', draftId: id });
-      await this.send(update.userId, { text: `Напишите адрес в городе ${view.draft.locality.name}: улицу и номер дома. Я покажу подходящие варианты.` });
+      await this.prompt(owner, update.userId, `Напишите адрес в городе ${view.draft.locality.name}: улицу и номер дома. Я покажу подходящие варианты.`);
       return;
     }
     if (action === 'clarify') {

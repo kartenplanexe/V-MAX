@@ -5,6 +5,8 @@ import { PlanMap } from './PlanMap';
 import { dgisDayDirectionsLink, dgisDirectionsLink } from '../shared/dgis-links';
 import { DgisLink } from './DgisLink';
 
+const dayLabel = (date: string) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
+
 export function CandidatePlaces({ view, mapsAvailable = false }: { view: PlanningView; mapsAvailable?: boolean }) {
   const preview = view.result?.candidate_preview;
   const [selectedDay, setSelectedDay] = useState(preview?.groups[0]?.day_id ?? ''), [selected, setSelected] = useState<number>();
@@ -20,12 +22,13 @@ export function CandidatePlaces({ view, mapsAvailable = false }: { view: Plannin
     .map(activity => ({ label: `${view.draft.days.length > 1 ? `${day.date} · ` : ''}${activity.label}`,
       reason: view.result?.selection_gaps?.find(gap => gap.day_id === day.day_id && gap.activity_id === activity.id)?.reason })));
   const dayGroups = preview.groups.filter(group => group.day_id === dayId);
+  const selectedPlace = selected === undefined ? undefined : mapDay.visits[selected];
   const stopCount = dayGroups.reduce((total, group) => total + group.places.length, 0);
   return <section className="candidate-places" aria-label="Найденные места">
     {!view.result?.selection_policy && <><h3>Варианты мест</h3><p className="field-hint">{candidatePreviewNotice}</p></>}
     {missing.map(item => <p className="notice" key={item.label}>{item.label}: {selectionGapNotice(item.reason)}</p>)}
     {view.draft.days.length > 1 && <nav className="day-tabs" aria-label="День подбора">{view.draft.days.map(day =>
-      <button key={day.day_id} type="button" aria-pressed={dayId === day.day_id} onClick={() => { setSelectedDay(day.day_id); setSelected(undefined); }}>{day.date}</button>)}</nav>}
+      <button key={day.day_id} type="button" aria-pressed={dayId === day.day_id} onClick={() => { setSelectedDay(day.day_id); setSelected(undefined); }}>{dayLabel(day.date)}</button>)}</nav>}
     {view.result?.selection_policy && <div className="candidate-overview"><span>План дня</span><strong>{stopCount ? `${stopCount} ${stopCount === 1 ? 'место' : stopCount < 5 ? 'места' : 'мест'}` : 'Пока без мест'}</strong><p>Остановки показаны в порядке посещения.</p></div>}
     {mapsAvailable && mapDay.visits.length > 0 && <nav className="view-switch candidate-view-switch" aria-label="Вид подборки">
       <button type="button" aria-pressed={mode === 'plan'} onClick={() => setMode('plan')}>План</button>
@@ -34,6 +37,8 @@ export function CandidatePlaces({ view, mapsAvailable = false }: { view: Plannin
     {mode === 'map' && mapsAvailable && mapDay.visits.length > 0 ? <div className="candidate-mode-panel" key={`map:${dayId}`}>
       <PlanMap day={mapDay} origin={view.draft.points.origin} destination={view.draft.points.destination}
         placesOnly activeVisitIndex={selected} onSelectVisit={setSelected} />
+      {selectedPlace && <div className="map-selected-place" role="status"><span className="map-stop-number">{selected! + 1}</span>
+        <div><strong>{selectedPlace.name}</strong>{selectedPlace.location_label && <p>{selectedPlace.location_label}</p>}</div></div>}
       {dayDirections && <DgisLink href={dayDirections} className="all-stops-link">Открыть весь маршрут в 2ГИС ↗</DgisLink>}
     </div> : <div className="candidate-mode-panel" key={`plan:${dayId}`}>
     {dayGroups.map(group => {

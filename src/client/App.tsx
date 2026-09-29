@@ -1,7 +1,7 @@
 import { PlannerForm } from './PlannerForm';
-import { DgisMapSmoke } from './DgisMapSmoke';
+import { ServiceInformationPage } from './ServiceInformation';
 
 export function App() {
-  if (new URLSearchParams(window.location.search).get('map') === '2gis-smoke') return <DgisMapSmoke />;
+  if (new URLSearchParams(window.location.search).get('page') === 'information') return <ServiceInformationPage />;
   return <PlannerForm />;
 }

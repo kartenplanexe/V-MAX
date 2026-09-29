@@ -5,6 +5,8 @@ import { defaultSearchRadiusMeters } from '../shared/search-radius';
 import type { PublicConfig } from '../shared/public-config';
 import './planner-form.css';
 import { PointPicker } from './PointPicker';
+import { PlanningLoading } from './PlanningLoading';
+import { ServiceInformation } from './ServiceInformation';
 import { AddressPicker, type AddressChoice } from './AddressPicker';
 import { PlanResult } from './PlanResult';
 import { ConditionsPanel, type ConditionSectionId } from './ConditionsPanel';
@@ -181,7 +183,7 @@ const canReloadAfterError = (cause: unknown) => {
 async function request<T>(path: string, token?: string, method = 'GET', body?: unknown): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(path, { method, credentials: 'omit', cache: 'no-store', headers: {
+    response = await fetch(path, { method, credentials: 'omit', cache: 'no-store', signal: AbortSignal.timeout(120_000), headers: {
       ...(token ? { 'X-Max-Init-Data': token } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}),
     }, ...(body ? { body: JSON.stringify(body) } : {}) });
   } catch {
@@ -222,6 +224,7 @@ export function PlannerForm() {
   const [dataOpen, setDataOpen] = useState(false);
   const [eventPanel, setEventPanel] = useState<{ target?: EventPanelTarget } | null>(null);
   const [eventPending, setEventPending] = useState(false);
+  const [planningPending, setPlanningPending] = useState(false);
   useEffect(() => {
     let active = true;
     void fetch('/api/public-config', { cache: 'no-store' }).then(response => response.ok ? response.json() : null)
@@ -294,14 +297,17 @@ export function PlannerForm() {
   const patch = (edit: (value: Draft) => void) => setDraft(current => { if (!current) return current; const next = structuredClone(current); edit(next); return next; });
   async function calculate(current = session?.view, refresh = false) {
     if (!session || !current) return;
-    const base = `/api/planning/drafts/${current.id}`;
-    if (current.phase === 'DRAFT') {
-      current = await request<PlanningView>(base + '/confirm', session.token, 'POST', { base_version: current.version, event_id: crypto.randomUUID() });
-      accept(current);
-    }
-    setBusy(externalRouting ? 'Подбираем места…' : 'Подбираем места и проверяем маршрут…');
-    accept(await request<PlanningView>(base + '/plan', session.token, 'POST', { base_version: current.version, event_id: crypto.randomUUID(),
-      ...(refresh && current.result ? { refresh: true } : {}) }));
+    setPlanningPending(true);
+    try {
+      const base = `/api/planning/drafts/${current.id}`;
+      if (current.phase === 'DRAFT') {
+        current = await request<PlanningView>(base + '/confirm', session.token, 'POST', { base_version: current.version, event_id: crypto.randomUUID() });
+        accept(current);
+      }
+      setBusy(externalRouting ? 'Подбираем места…' : 'Подбираем места и проверяем маршрут…');
+      accept(await request<PlanningView>(base + '/plan', session.token, 'POST', { base_version: current.version, event_id: crypto.randomUUID(),
+        ...(refresh && current.result ? { refresh: true } : {}) }));
+    } finally { setPlanningPending(false); }
   }
   async function retryResult() {
     if (!session?.view) return;
@@ -371,7 +377,8 @@ export function PlannerForm() {
     </header>
     {errorNotice()}
     {notice && <div className="notice" role="status"><Icon name="check" /><p>{notice}</p></div>}
-    {busy && <div className="planner-progress" role="status" aria-live="polite"><span className="progress-dot" aria-hidden="true" /><span>{busy}</span></div>}
+    {busy && !planningPending && <div className="planner-progress" role="status" aria-live="polite"><span className="progress-dot" aria-hidden="true" /><span>{busy}</span></div>}
+    {planningPending && <PlanningLoading />}
     {!session && !busy && !canRecover && <section className="empty-state"><h2>Продолжим в MAX</h2><p>План доступен только вам. Войдите через чат с ботом.</p>
       <a className="app-link" href="https://max.ru/t801_hakaton_max_bot">Открыть чат с ботом <Icon name="arrow" /></a></section>}
     {incoming && session && <SharedRoutePreview preview={incoming.preview} busy={!!busy} search={searchLocality} close={() => setIncoming(null)} importRoute={localityToken => void act('Сохраняем вашу копию условий…', async () => {
@@ -480,14 +487,8 @@ export function PlannerForm() {
       <div className="sheet-actions"><Action stretched disabled={!!busy} onClick={() => void act('Загружаем сохранённую версию…', reloadSavedState)}>Загрузить сохранённую версию</Action>
         <Action variant="ghost" stretched disabled={!!busy} onClick={() => setReloadRequested(false)}>Продолжить правку</Action></div>
     </Sheet>}
-    <footer className="planner-footer"><Action variant="ghost" onClick={() => setDataOpen(true)}>О данных</Action></footer>
-    {dataOpen && <Sheet title="О данных" onClose={() => setDataOpen(false)}><div className="data-information">
-      <p>Текст пожеланий разбирает Alice AI. Места и географические данные получаем из 2ГИС, сведения о событиях — из KudaGo.</p>
-      <h3>Что сохраняется</h3><p>Черновик доступен 30 минут. Результат расчёта актуален не более 5 минут и может истечь раньше. После этого места и дорогу нужно проверить заново.</p>
-      <p>Ваши собственные условия хранятся до 30 дней после последнего изменения. К ним можно вернуться через «Мои маршруты». Исходное пожелание сохраняется с маршрутом; удалить его можно вместе с маршрутом.</p>
-      <h3>Когда вы делитесь</h3><p>Ссылка действует до 7 дней. Её может открыть любой пользователь MAX, у которого она есть. Личные точки старта и финиша передаются только при вашем явном выборе.</p>
-      <h3>Как удалить</h3><p>В «Моих маршрутах» выберите «Удалить». Удаление маршрута отключает созданные для него ссылки. Собственные копии других пользователей это не удаляет.</p>
-    </div></Sheet>}
+    <footer className="planner-footer"><Action variant="ghost" onClick={() => setDataOpen(true)}>О сервисе и данных</Action></footer>
+    {dataOpen && <Sheet title="О сервисе и данных" onClose={() => setDataOpen(false)}><ServiceInformation /></Sheet>}
   </main>;
 }
 const modesLabel = (mode: string | undefined) => mode ? modeLabels[mode] ?? mode : 'Передвижение';

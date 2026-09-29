@@ -34,10 +34,10 @@ async page => {
     await page.waitForFunction(t=>document.querySelector('.planner-page')?.dataset.theme===t,theme);
     const result=await geometry(); check(!result.overflow,'Result overflow '+theme+'/'+width);
     if(width===390) check(result.first_stop_bottom<844,'First stop is below the first viewport');
-    await page.screenshot({path:'output/playwright/stitch-result-'+theme+'-'+width+'.png',fullPage:true,animations:'disabled'});
+    await page.screenshot({path:'output/playwright/ui-result-'+theme+'-'+width+'.png',fullPage:true,animations:'disabled'});
     await open(); const panel=await geometry(); check(!panel.overflow&&panel.footer_visible&&panel.footer_clear,'Editor footer geometry '+theme+'/'+width);
     check(await dialog().locator('details[open]').count()===0,'Valid overview unexpectedly expanded');
-    await page.screenshot({path:'output/playwright/stitch-conditions-'+theme+'-'+width+'.png',animations:'disabled'});
+    await page.screenshot({path:'output/playwright/ui-conditions-'+theme+'-'+width+'.png',animations:'disabled'});
     await dialog().getByRole('button',{name:'Закрыть панель',exact:true}).click();
     check(await page.evaluate(()=>document.documentElement.style.overflow)!=='hidden','Page remained locked');
     observations.push({scenario:'layout_and_theme',theme,width,result,panel});
@@ -53,7 +53,7 @@ async page => {
   await page.waitForFunction(()=>document.activeElement?.getAttribute('type')==='number');
   check(await age.evaluate(e=>document.activeElement===e&&e.validity.valueMissing),'Native invalid field lost focus or validation');
   check(mutations.length===0,'Invalid collapsed field caused a mutation');
-  await page.screenshot({path:'output/playwright/stitch-collapsed-validation.png',animations:'disabled'});
+  await page.screenshot({path:'output/playwright/ui-collapsed-validation.png',animations:'disabled'});
   await dialog().getByRole('button',{name:'Отменить правки',exact:true}).click(); page.off('request',listener);
   check(same((await api(draftPath)).draft,baseline.draft),'Cancelling invalid edit changed saved data');
   observations.push({scenario:'collapsed_invalid_field_revealed_and_focused',status:'PASS',mutations:0});
@@ -67,15 +67,15 @@ async page => {
   observations.push({scenario:'keyboard_sections_and_time_chip',status:'PASS'});
   await page.getByRole('button',{name:'Заменить',exact:true}).first().click();
   await dialog().getByRole('heading',{name:'Заменить остановку',exact:true}).waitFor();
-  await page.screenshot({path:'output/playwright/stitch-alternative-mobile.png',animations:'disabled'});
+  await page.screenshot({path:'output/playwright/ui-alternative-mobile.png',animations:'disabled'});
   await dialog().getByRole('button',{name:'Закрыть панель',exact:true}).click();
   await page.getByRole('button',{name:'Поделиться',exact:true}).click();
   await dialog().getByRole('heading',{name:'Поделиться маршрутом',exact:true}).waitFor();
-  await page.screenshot({path:'output/playwright/stitch-share-mobile.png',animations:'disabled'});
+  await page.screenshot({path:'output/playwright/ui-share-mobile.png',animations:'disabled'});
   await dialog().getByRole('button',{name:'Закрыть панель',exact:true}).click();
   await page.getByRole('button',{name:'Добавить событие',exact:true}).click();
   await dialog().getByRole('heading',{name:'События для вашего дня',exact:true}).waitFor();
-  await page.screenshot({path:'output/playwright/stitch-events-mobile.png',animations:'disabled'});
+  await page.screenshot({path:'output/playwright/ui-events-mobile.png',animations:'disabled'});
   await dialog().getByRole('button',{name:'Закрыть панель',exact:true}).click();
   observations.push({scenario:'alternative_share_events_open',status:'PASS'});
   await page.goto(base+'/?qa=three');
@@ -96,7 +96,7 @@ async page => {
       check(await page.locator('.day-heading h3').textContent()===label,'Day heading did not follow the selected day');
       check(!(await geometry()).overflow,'Three-day horizontal overflow');
     }
-    await page.screenshot({path:'output/playwright/stitch-three-'+width+'.png',fullPage:true,animations:'disabled'});
+    await page.screenshot({path:'output/playwright/ui-three-'+width+'.png',fullPage:true,animations:'disabled'});
   }
   page.off('request',listener); check(mutations.length===0,'Switching days mutated the route');
   observations.push({scenario:'three_day_switching',status:'PASS',mutations:0});

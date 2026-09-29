@@ -12,6 +12,7 @@ const desired = [
   { name: 'routes', description: 'Показать мои маршруты' },
   { name: 'exit', description: 'Выйти из планирования' },
   { name: 'menu', description: 'Показать действия бота' },
+  { name: 'privacy', description: 'О сервисе и обработке данных' },
 ];
 
 async function call(method, path, body) {

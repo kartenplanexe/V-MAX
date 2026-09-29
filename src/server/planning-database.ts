@@ -20,7 +20,8 @@ export type SavedRoute = { id: string; createdAt: string; title: string; request
   localityName: string; draftId: string; status: 'draft' | 'planned' };
 export type BotNavigation = { welcomed: boolean; mode: 'idle' | 'awaiting_request' | 'planning';
   activeRouteId?: string; deletePendingRouteId?: string; routes: SavedRoute[];
-  greetingMessageId?: string; activeMessageIds?: string[]; cleanupMessageIds?: string[] };
+  greetingMessageId?: string; activeMessageIds?: string[]; cleanupMessageIds?: string[];
+  resultMessageIds?: string[]; resultDraftId?: string };
 const emptyNavigation = (): BotNavigation => ({ welcomed: false, mode: 'idle', routes: [] });
 
 /** One short-lived owner actor per DB connection. Session advisory locks, NOT open SQL transactions

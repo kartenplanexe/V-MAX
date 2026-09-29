@@ -64,7 +64,9 @@ export class RouteSharing {
       const own = projectSharedConditions(saved.conditions, body.include_private_points);
       const record = sessions.checkpoint().records.find(item => item.owner === owner && item.view.id === saved.id);
       const preview = projectSharedResult(view?.result, record?.resultExpires ?? 0, this.now().getTime(), body.include_private_points);
-      const expires = new Date(Math.min(this.now().getTime() + 7 * 86_400_000, Date.parse(saved.expires_at)));
+      const retention = await client.query<{ retained: boolean }>('SELECT retained FROM saved_user_conditions WHERE owner=$1 AND draft_id=$2', [owner, saved.id]);
+      const expires = new Date(Math.min(this.now().getTime() + 7 * 86_400_000,
+        retention.rows[0]?.retained ? Infinity : Date.parse(saved.expires_at)));
       if (Buffer.byteLength(JSON.stringify({ ...own, ...preview })) > 256 * 1024) reject('SHARE_CAPACITY', 429);
       const row: Row = { id: randomUUID(), token: randomBytes(32).toString('base64url'), owner, draft_id: saved.id,
         source_revision: saved.revision, fingerprint, conditions: own.conditions, omissions: own.omissions,

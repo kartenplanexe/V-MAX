@@ -159,8 +159,7 @@ try {
   previousId = before.id;
   const detail = yc(['serverless', 'container', 'revision', 'get', '--id', previousId]);
   const retainedEnvironment = checkExistingConfiguration(detail);
-  // Owner-approved map demo rollout. Preserve the active webhook transport;
-  // this is not an async infrastructure probe or a claim that >30s work is fixed.
+  // Preserve the active webhook transport when changing the map configuration.
   const deploymentEnvironment = { ...publicEnvironment, ...retainedEnvironment };
   if (externalDemo) {
     const currentAsync = (detail.image?.environment ?? detail.environment ?? {}).MAX_WEBHOOK_ASYNC ?? '';

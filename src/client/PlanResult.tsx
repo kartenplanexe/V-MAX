@@ -65,7 +65,8 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
     <CandidatePlaces view={view} mapsAvailable={mapsAvailable} />
     {!!plan.event_gaps?.length && <ul className="form-issues">{plan.event_gaps.map(gap =>
       <li key={`${gap.day_id}:${gap.activity_id}:${gap.code}`}>{eventGapText(gap.code)}</li>)}</ul>}
-    <div className="result-actions"><Action stretched disabled={busy} onClick={edit}>Изменить условия</Action>
+    <div className="result-actions"><Action stretched disabled={busy} onClick={share}>Поделиться условиями</Action>
+      <Action variant="secondary" stretched disabled={busy} onClick={edit}>Изменить условия</Action>
       <Action variant="secondary" stretched disabled={busy} onClick={retry}>Обновить места</Action></div>
     <p className="field-hint">Подборка сохранена в «Моих маршрутах».</p>
   </section>;

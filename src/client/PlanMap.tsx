@@ -58,7 +58,7 @@ export function PlanMap({ day, origin, destination, activeVisitIndex, onSelectVi
           pathResources.push(path); resources.push(path);
         }
         const missing = lines.length < day.visits.length + (destination ? 1 : 0);
-        const readyMessage = placesOnly ? 'Места на карте. Нажмите на точку, чтобы найти её в списке.' : lines.length
+        const readyMessage = placesOnly ? 'Нажмите на точку, чтобы увидеть название места.' : lines.length
           ? `Линии показывают рассчитанный путь.${missing ? ' Часть переходов доступна только в списке.' : ''} Время в пути ориентировочное.`
           : 'Показаны остановки. Линия пути недоступна — время и порядок есть в списке.';
         const firstExpiry = Math.min(...lines.map(segment => Date.parse(segment.source.valid_until)));

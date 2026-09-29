@@ -85,6 +85,16 @@ run('imports into a new recipient draft without LLM/confirmation/result and dedu
     expect((await f.planning.getSaved(f.recipient, copied.id)).conditions.days[0]?.activities).toHaveLength(2);
   } finally { await f.cleanup(); }
 });
+run('retained routes can create a fresh share after their original draft retention date', async () => {
+  const f = await fixture();
+  try {
+    await f.database.pool.query('UPDATE saved_user_conditions SET retained=true WHERE owner=$1 AND draft_id=$2', [f.owner, f.view.id]);
+    f.advance(31 * 86400000);
+    const shared = await f.sharing.create(f.owner, f.create());
+    expect(Date.parse(shared.expires_at) - f.database.now().getTime()).toBe(7 * 86400000);
+    expect((await f.sharing.resolve(f.recipient, { token: shared.token })).conditions.days).toHaveLength(1);
+  } finally { await f.cleanup(); }
+});
 run('source deletion cascades, link TTL is bounded, stale source revisions fail and failed context is not repeated', async () => {
   const f = await fixture();
   try {

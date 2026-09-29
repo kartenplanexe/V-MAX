@@ -402,7 +402,33 @@
 .candidate-mode-panel { min-width: 0; }
 .candidate-mode-panel .candidate-group:first-child { margin-top: 16px; }
 .candidate-mode-panel .all-stops-link { margin-top: 18px; }
+.planning-loading-sheet { width: min(440px, calc(100% - 32px)); text-align: center; }
+.planning-loading-sheet .sheet-heading { justify-content: center; }
+.planning-loading-sheet .sheet-heading .icon-action { display: none; }
+.planning-loading { padding: 8px 10px 30px; }
+.planning-loading-art { width: min(280px, 100%); margin: 8px auto 24px; border-radius: 36px; background: var(--soft); }
+.planning-loading-art svg { display: block; width: 100%; overflow: visible; }
+.loading-road { stroke: var(--line); stroke-width: 3; }
+.loading-trail { stroke: var(--accent-text); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 18 82; }
+.loading-stop { transform-box: fill-box; transform-origin: center; }
+.loading-stop > circle:first-child { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+.loading-stop > circle:nth-child(2), .loading-destination { fill: var(--accent-text); }
+.loading-stop path { stroke: var(--accent-text); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.planning-loading .loading-caption { max-width: 310px; margin: auto; font-size: 20px; font-weight: 600; line-height: 1.35; }
+.planning-loading .loading-detail { margin: 14px auto 0; max-width: 290px; min-height: 66px; color: var(--muted); }
+.loading-dots { display: flex; justify-content: center; gap: 7px; margin-top: 22px; }
+.loading-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-text); }
 @media (prefers-reduced-motion: no-preference) {
+  .loading-trail { animation: loading-travel 3.6s linear infinite; }
+  .loading-stop { animation: loading-arrival 3.6s ease-in-out infinite; }
+  .loading-stop--two { animation-delay: .8s; }
+  .loading-stop--three { animation-delay: 1.6s; }
+  .loading-dots i { animation: loading-breathe 1.4s ease-in-out infinite; }
+  .loading-dots i:nth-child(2) { animation-delay: .2s; }
+  .loading-dots i:nth-child(3) { animation-delay: .4s; }
+  @keyframes loading-travel { to { stroke-dashoffset: -100; } }
+  @keyframes loading-arrival { 0%, 35%, 100% { transform: scale(1); } 16% { transform: scale(1.12); } }
+  @keyframes loading-breathe { 0%, 100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } }
   .candidate-mode-panel { animation: planner-mode-enter 180ms ease-out both; }
   .planner-sheet[open] { animation: planner-sheet-enter 220ms ease-out both; }
   .candidate-dayline > li { animation: planner-stop-enter 420ms cubic-bezier(.2,.7,.2,1) both; }
@@ -419,3 +445,6 @@
   @keyframes planner-sheet-enter { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes planner-stop-enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 }
+
+.map-selected-place { display: flex; gap: 12px; align-items: flex-start; padding: 16px; margin: 12px 0; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+.map-selected-place p { margin: 5px 0 0; color: var(--muted); font-size: 14px; }

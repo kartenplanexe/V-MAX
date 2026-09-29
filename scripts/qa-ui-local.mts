@@ -23,7 +23,7 @@ import { registerQaEvents, resolveQaEvents } from './qa-events.fixture.mjs';
 
 if (process.env.NODE_ENV === 'production') throw new Error('Synthetic UI harness must never run in production');
 const host = '127.0.0.1', port = process.argv.includes('--external-places-map') ? 4176 : 4175, origin = `http://${host}:${port}`, app = Fastify({ logger: false, bodyLimit: 32 * 1024 });
-// Explicit owner-approved map smoke: only the browser map uses a real key.
+// Only the browser map uses a real key in this optional local scenario.
 // Places/LLM/auth remain synthetic. Never print the public demo key.
 const externalMap = process.argv.includes('--external-places-map');
 const mapKey = externalMap ? (await readFile(new URL('../.env.local', import.meta.url), 'utf8'))
@@ -42,11 +42,14 @@ const planning: PlanningContext = { catalog: { ...fixture.input.catalog, categor
   modes: ['walking', 'driving'], data_mode: 'test', point_area: { south: 55.7, north: 55.8, west: 37.5, east: 37.8 }, map_center: { lat: 55.75, lon: 37.62 } };
 function context() { const value = intentFixture().context; value.catalog.rows.push(['300', 'Парки', []]); return { ...value, now: qaNow().toISOString(), planning }; }
 let routingDenied = false;
-const sessions = new PlanningSessions({ now: qaNow, plan: job => planPlacesWithDgis(fixture.client(async (url, init) => {
+const planningDelay = process.argv.includes('--slow-planning') ? 5_000 : 0;
+const sessions = new PlanningSessions({ now: qaNow, plan: async job => {
+  if (planningDelay) await new Promise(resolve => setTimeout(resolve, planningDelay));
+  return planPlacesWithDgis(fixture.client(async (url, init) => {
   if (routingDenied && new URL(String(url)).hostname === 'routing.api.2gis.com') return new Response('', { status: 429 });
   return fixture.defaultFetch(url, init);
 }), job, { retrieval: { radiusMeters: 5000, maxPages: 1 }, dataMode: 'test', now: qaNow, resolveEvents: resolveQaEvents,
-  routingMode: externalMap ? 'external' : 'verified', routingStrategy: 'progressive', maxRoutePairs: 10 }) });
+  routingMode: externalMap ? 'external' : 'verified', routingStrategy: 'progressive', maxRoutePairs: 10 }); } });
 const active = new Map<string, string>(), saved = new Map<string, Map<string, SavedConditionsView>>(), expired = new Set<string>();
 const authenticate: PlanningAuthenticator = request => {
   const value = request.headers['x-max-init-data'];

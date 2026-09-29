@@ -63,6 +63,43 @@ const press = (id: string, payload: string) => ({ update_type: 'message_callback
   user: { user_id: 123 }, callback_id: id, payload }, message: { recipient: { chat_type: 'dialog' } } });
 
 describe('MAX chat', () => {
+  it('keeps the last result while navigating and removes its old controls', async () => {
+    const h = harness(), chat = new MaxChatController(h.deps);
+    await chat.handle(message('keep-plan-start', 'Хочу погулять в Москве'));
+    const routeId = h.navigation.activeRouteId!;
+    await h.planning.calculate();
+    await chat.handle(press('keep-plan-open', `nav:open:${routeId}`));
+    const resultIds = [...(h.navigation.resultMessageIds ?? [])];
+    const controls = h.navigation.activeMessageIds!.at(-1)!;
+    expect(resultIds.length).toBeGreaterThan(0);
+    await chat.handle(press('keep-plan-menu', 'nav:list:0'));
+    for (const id of resultIds) expect(h.transport.delete).not.toHaveBeenCalledWith(id);
+    expect(h.transport.delete).toHaveBeenCalledWith(controls);
+    await chat.handle(press('keep-plan-reopen', `nav:open:${routeId}`));
+    for (const id of resultIds) expect(h.transport.delete).toHaveBeenCalledWith(id);
+    const latestIds = [...h.navigation.resultMessageIds!];
+    await chat.handle(press('keep-plan-delete-question', `nav:delete-confirm:${routeId}`));
+    await chat.handle(press('keep-plan-delete', `nav:delete:${routeId}`));
+    for (const id of latestIds) expect(h.transport.delete).toHaveBeenCalledWith(id);
+    expect(h.navigation.resultMessageIds).toBeUndefined();
+  });
+
+  it('keeps a way back after an invalid address and a privacy detour', async () => {
+    const h = harness(), chat = new MaxChatController(h.deps);
+    await chat.handle(message('address-back-start', 'Хочу погулять в Москве'));
+    await chat.handle(press('address-back-edit', 'origin-address:draft-1:0'));
+    await chat.handle(message('address-too-short', 'а'));
+    expect(h.messages.at(-1)?.text).toContain('улицей и номером');
+    expect(JSON.stringify(h.messages.at(-1)?.buttons)).toContain('Продолжить маршрут');
+    expect(JSON.stringify(h.messages.at(-1)?.buttons)).toContain('nav:exit');
+    await chat.handle(message('privacy-during-address', '/privacy'));
+    expect(h.messages.at(-1)?.text).toContain('идентификатор MAX');
+    expect(h.state.chat?.pending?.kind).toBe('origin_address');
+    await chat.handle(message('address-after-privacy', 'Тверская 1'));
+    expect(h.messages.at(-1)?.text).toContain('Выберите найденный адрес');
+    expect(JSON.stringify(h.messages.at(-1)?.buttons)).toContain('nav:exit');
+  });
+
   it('keeps the blocking question and its action inside the MAX message limit even with a long draft', async () => {
     const h = harness(), view = draftView(), routeId = '55555555-5555-4555-8555-555555555556';
     const template = view.draft.days[0]!.activities[0]!;
@@ -346,7 +383,8 @@ describe('MAX chat', () => {
     const routeId = h.navigation.activeRouteId!;
     await chat.handle(message('route-unrelated', 'Сходить в другой музей'));
     expect(h.planning.start).toHaveBeenCalledTimes(1);
-    expect(h.messages.at(-1)?.text).toContain('открытого маршрута');
+    expect(h.messages.at(-1)?.text).toContain('Откуда удобнее начать?');
+    expect(JSON.stringify(h.messages.at(-1)?.buttons)).toContain('Ввести адрес');
     await chat.handle(press('list-1', 'nav:list:0'));
     expect(h.messages.at(-1)?.text).toContain('Мои маршруты (1)');
     await chat.handle(press('exit-1', 'nav:exit'));

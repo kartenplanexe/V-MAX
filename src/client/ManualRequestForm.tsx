@@ -34,6 +34,8 @@ export function ManualRequestForm({ options, busy, submit }: {
       </section>)}
       <Action variant="ghost" disabled={days.length >= 31} onClick={() => setDays(values => [...values, blankDay()])}><Icon name="plus" />Ещё день</Action>
       <p className="field-hint">Можно оставить занятия пустыми и выбрать событие из афиши на следующем шаге.</p>
+      {days.some(day => day.start && day.end && day.start >= day.end) && <p className="notice notice--error" role="alert">Окончание должно быть позже начала. Для ночного плана добавьте отдельный день.</p>}
+      {new Set(days.filter(day => day.date).map(day => day.date)).size < days.filter(day => day.date).length && <p className="notice notice--error" role="alert">Для каждого дня выберите свою дату.</p>}
       <Action type="submit" stretched disabled={days.some(day => !day.date || !day.start || !day.end || day.start >= day.end) || new Set(days.map(day => day.date)).size !== days.length}>{days.every(day => !day.activities.length) ? 'Продолжить к выбору событий' : 'Продолжить с этими условиями'}</Action>
     </fieldset>
   </form>;

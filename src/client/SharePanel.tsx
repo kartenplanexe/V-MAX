@@ -20,7 +20,7 @@ export function SharePanel({ created, busy, party, create, revoke }: {
       void Promise.resolve(result).catch(() => setFeedback('Не удалось открыть отправку. Можно скопировать ссылку.'));
     } catch { setFeedback('Не удалось открыть отправку. Можно скопировать ссылку.'); }
   }
-  return <section className="share-panel"><p>Получатель сможет посмотреть план и сохранить собственную копию условий. Ваш маршрут останется у вас.</p>
+  return <section className="share-panel"><p>Получатель сможет посмотреть пожелания и сохранить собственную копию условий. Места для своей поездки он подберёт заново. Ваш маршрут останется у вас.</p>
     {!created ? <><p className="field-hint">По ссылке будут доступны даты, время, занятия, их порядок, бюджет, состав группы и ваши требования к местам. Любой, кому передадут ссылку, сможет открыть эти условия в MAX.</p>
       {party && (party.total !== undefined || party.child_ages !== undefined) && <p className="field-hint">Состав группы в ссылке: {party.total !== undefined ? `${party.total} чел.` : 'число участников не указано'}{party.child_ages !== undefined ? party.child_ages.length ? `; возраст детей: ${party.child_ages.join(', ')} лет` : '; без детей' : ''}. Перед созданием ссылки можно изменить эти данные в условиях плана.</p>}
       <label className="checkbox-label"><input type="checkbox" checked={points} onChange={event => setPoints(event.target.checked)} disabled={busy} />Включить выбранные мной точки старта и финиша</label>

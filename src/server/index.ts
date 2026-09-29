@@ -19,6 +19,7 @@ const AuthBodySchema = z.object({
 const server = Fastify({
   bodyLimit: 32 * 1024,
   logger: {
+    serializers: { req: request => ({ method: request.method, url: request.url?.split('?')[0] }) },
     redact: {
       censor: '[REDACTED]',
       paths: ['req.headers.authorization', 'req.headers["x-max-init-data"]',
