@@ -58,7 +58,7 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
   if (plan.status === 'PLACES_FOUND') return <section className="result-section" aria-label="Результат подбора мест">
     {stalePlaces && <div className="notice" role="status"><p>Места найдены больше 30 минут назад. Перед выходом обновите подборку.</p></div>}
     <div className="route-receipt"><div className="result-notice" role="status"><Icon name="pin" /><div>
-      <h2>Места для вашего дня</h2><p>Посмотрите все остановки на карте или откройте маршрут в 2ГИС.</p>
+      <h2>Ваш план на день</h2><p>Места по порядку посещения. Переключитесь на карту, когда захотите увидеть их расположение.</p>
     </div></div></div>
     {view.capabilities.data_mode === 'test' && <p className="data-label">Учебный пример · синтетические места</p>}
     {plan.search_scope && <p className="scope-note">{searchScopeNotice(plan)}</p>}

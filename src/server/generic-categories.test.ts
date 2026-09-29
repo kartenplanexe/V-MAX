@@ -39,6 +39,17 @@ it('maps a request to visit nature to outdoor places without unrelated categorie
   const result = resolveGenericCategories(f.response, f.context.catalog);
   expect(result.pending).toEqual([{ day_id: 'new:1', activity_id: 'new:2' }]);
   expect(result.proposal.days[0]!.category_matches[0]).toMatchObject({
-    state: 'matched', include_any: ['168', '112668'], exclude: [],
+    state: 'matched', include_any: ['112668'], exclude: [],
+  });
+});
+
+it('does not substitute an ordinary city park for a nature trip', () => {
+  const f = food(), activity = f.response.days[0]!.activity_edits[0]!;
+  activity.label = 'природа'; activity.evidence = 'поехать на природу';
+  activity.selection.evidence = activity.evidence;
+  f.context.catalog.rows = [['168', 'Парки', []], ['169', 'Парки культуры и отдыха', []]];
+  const result = resolveGenericCategories(f.response, f.context.catalog);
+  expect(result.proposal.days[0]!.category_matches[0]).toMatchObject({
+    state: 'no_match', include_any: [], exclude: [],
   });
 });

@@ -1,9 +1,9 @@
 /* MAX UI supplies platform typography; licensed MAX Sans is used when supplied by the host. */
-:root { font-synthesis: none; color-scheme: light dark; background: #FAF8FF; }
+:root { font-synthesis: none; color-scheme: light dark; background: #F5F7FB; }
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }
 body { min-width: 320px; }
-@media (prefers-color-scheme: dark) { :root { background: #0D001A; } }
+@media (prefers-color-scheme: dark) { :root { background: #0F141C; } }
 .map-smoke {
   position: relative;
   width: 100vw;
