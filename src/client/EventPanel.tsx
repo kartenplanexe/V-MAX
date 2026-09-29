@@ -48,7 +48,7 @@ export function EventPanel({ view, target, search, availability, select, refresh
   }
   const date = (value: string) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`));
   const invalidDuration = option?.choice.duration_required && (!/^\d+$/u.test(duration) || Number(duration) < 5 || Number(duration) > 720);
-  return <section className="event-panel" aria-label="Выбор события"><p className="field-hint">Найдите событие в {view.draft.locality.name} и добавьте его в свой день.</p>
+  return <section className="event-panel" aria-label="Выбор события"><p className="field-hint">{view.draft.locality.name} · Выберите событие для своего дня.</p>
     <label>День маршрута<select value={dayId} disabled={!!busy} onChange={event => { setDayId(event.target.value); setReplace(''); clear(); }}>
       {view.draft.days.map(value => <option key={value.day_id} value={value.day_id}>{date(value.date)}{value.window ? ` · ${value.window.start}–${value.window.end}` : ''}</option>)}</select></label>
     <label>Что интересно<select value={category} disabled={!!busy} onChange={event => { setCategory(event.target.value); clear(); }}>
@@ -73,7 +73,7 @@ export function EventPanel({ view, target, search, availability, select, refresh
           </fieldset>
           {option && !choiceExpired && <><label>Как включить в план<select disabled={!!busy} value={replace} onChange={event => setReplace(event.target.value)}><option value="">Добавить отдельным занятием</option>
             {day.activities.map(activity => <option key={activity.id} value={activity.id}>Вместо: {activity.label}</option>)}</select></label>
-            {option.choice.duration_required && <label>На посещение, минут<input type="number" required min="5" max="720" step="5" value={duration} disabled={!!busy} onChange={event => setDuration(event.target.value)} /><span className="field-hint">Предлагаем час. Можно изменить.</span></label>}
+            {option.choice.duration_required && <label>На посещение, минут<input type="number" required min="5" max="720" step="1" value={duration} disabled={!!busy} onChange={event => setDuration(event.target.value)} /><span className="field-hint">Предлагаем час. Можно изменить.</span></label>}
             <p className="field-hint">Учтём событие и дорогу при обновлении плана. Билеты и регистрацию оформляйте у организатора.</p>
             <Action type="submit" stretched disabled={!!busy || !!invalidDuration}>{replace ? 'Заменить выбранное занятие' : 'Добавить событие в план'}</Action></>}
           {choiceExpired && <p className="notice">Срок этого варианта истёк. Обновите афишу.</p>}
