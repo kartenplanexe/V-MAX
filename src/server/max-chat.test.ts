@@ -8,6 +8,7 @@ import { planningFixture, demoNow } from './place-planning.fixture.js';
 import { planPlacesWithDgis } from './place-planning.js';
 import { projectSavedConditions } from './saved-conditions.js';
 import { planWarningCodes } from '../shared/plan-evidence-text.js';
+import { maxWorkerSecret } from './max-async.js';
 
 const draftView = (): PlanningView => ({
   id: 'draft-1', version: 0, phase: 'DRAFT', confirmed_version: null,
@@ -476,6 +477,50 @@ describe('MAX chat', () => {
       callback_id: 'forged-choice', payload: forgedPayload }, message: { recipient: { chat_type: 'dialog' } } });
     expect(h.planning.edit).not.toHaveBeenCalled();
     expect(h.messages.at(-1)?.text).toContain('не удалось подтвердить');
+  });
+
+  it('acknowledges queued work before a delayed plan and executes it once through the authenticated worker', async () => {
+    const h = harness(), f = planningFixture();
+    let finish!: () => void, started!: () => void, calls = 0;
+    const barrier = new Promise<void>(resolve => { finish = resolve; });
+    const entered = new Promise<void>(resolve => { started = resolve; });
+    const sessions = new PlanningSessions({ now: demoNow, plan: async () => {
+      calls++; started(); await barrier; return { status: 'UNAVAILABLE', warnings: [], days: [] };
+    } });
+    const view = sessions.create('max:123', f.input.intent, { catalog: f.input.catalog,
+      visit_policy: f.input.visit_policy, modes: ['walking'], data_mode: 'test' });
+    h.navigation.mode = 'planning'; h.navigation.activeRouteId = 'queued-route';
+    h.navigation.routes.push({ id: 'queued-route', draftId: view.id, createdAt: demoNow().toISOString(),
+      title: 'Synthetic route', requestText: 'Synthetic request', localityName: 'Test city', status: 'draft' });
+    const queued: unknown[] = [], app = Fastify();
+    registerMaxChatRoute(app, { ...h.deps, planning: { ...h.planning,
+      get: (owner, id) => sessions.get(owner, id), confirm: (owner, id, input) => sessions.confirm(owner, id, input),
+      calculate: (owner, id, input) => sessions.calculate(owner, id, input) } }, 'synthetic-token',
+    { dispatch: async payload => { queued.push(payload); } });
+    const ingress = await app.inject({ method: 'POST', url: '/api/max/webhook',
+      headers: { 'x-max-bot-api-secret': maxWebhookSecret('synthetic-token') },
+      payload: press('queued-plan', `plan:${view.id}:${view.version}`) });
+    expect(ingress.json()).toEqual({ status: 'accepted' }); expect(calls).toBe(0);
+    const denied = await app.inject({ method: 'POST', url: '/api/max/worker',
+      headers: { 'x-vmax-worker-secret': maxWebhookSecret('synthetic-token') }, payload: queued[0] as object });
+    expect(denied.statusCode).toBe(401);
+    const worker = () => app.inject({ method: 'POST', url: '/api/max/worker',
+      headers: { 'x-vmax-worker-secret': maxWorkerSecret('synthetic-token') }, payload: queued[0] as object });
+    const running = worker(); await entered;
+    expect(h.messages.some(m => m.text.includes('Подбираю места'))).toBe(true);
+    finish(); expect((await running).statusCode).toBe(200);
+    expect((await worker()).json()).toEqual({ status: 'duplicate' }); expect(calls).toBe(1);
+    expect(h.messages.some(m => m.text.includes('Подбираю места'))).toBe(true);
+    await app.close();
+  });
+
+  it('returns retry_later when managed queue acceptance failed, without processing the update', async () => {
+    const h = harness(), app = Fastify();
+    registerMaxChatRoute(app, h.deps, 'synthetic-token', { dispatch: async () => { throw Error('Queue unavailable'); } });
+    const result = await app.inject({ method: 'POST', url: '/api/max/webhook',
+      headers: { 'x-max-bot-api-secret': maxWebhookSecret('synthetic-token') }, payload: message('queue-failed', 'Привет') });
+    expect(result.statusCode).toBe(503); expect(h.messages).toHaveLength(0);
+    await app.close();
   });
 
   it('rejects webhook requests without the configured secret', async () => {

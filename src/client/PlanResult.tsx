@@ -48,7 +48,8 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
   const codes = planWarningCodes(plan), warnings = [...new Set(codes.map(warningText))];
   const hasVisits = plan.days.some(value => value.visits.length);
   const routingUnavailable = plan.status === 'ERROR' && plan.issues?.includes('ROUTING_PROVIDER_UNAVAILABLE');
-  const title = plan.status === 'AVAILABLE' ? 'План помещается в ваше время' : plan.status === 'LIMITED' ? 'Получился частичный план' : plan.status === 'ERROR' ? 'Расчёт не завершён' : plan.status === 'NEEDS_INPUT' ? 'Нужно уточнить условия' : 'Подходящий план пока не найден';
+  const missingWishes = plan.days.some(value => value.missing_activity_ids.length > 0);
+  const title = plan.status === 'AVAILABLE' ? 'План помещается в ваше время' : plan.status === 'LIMITED' ? missingWishes ? 'Получился частичный план' : 'План с оговорками' : plan.status === 'ERROR' ? 'Расчёт не завершён' : plan.status === 'NEEDS_INPUT' ? 'Нужно уточнить условия' : 'Подходящий план пока не найден';
   const status = day?.status === 'AVAILABLE' ? 'Готово' : day?.status === 'LIMITED' ? 'Частично' : 'Нет плана';
   const stamp = (value: string) => { const at = new Date(value); return Number.isFinite(at.getTime()) ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: draft.locality.timezone }).format(at) : 'не указано'; };
   if (expired) return <section className="result-section"><div className="result-notice"><Icon name="refresh" /><div><h2>Пора обновить маршрут</h2><p>Срок проверки мест и дороги истёк. Ваши условия сохранены.</p></div></div>
@@ -56,7 +57,7 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
   return <section className="result-section" aria-label="Результат расчёта">
     <div className={`route-receipt route-receipt--${plan.status.toLowerCase()}`}>
       <div className={`result-notice result-notice--${plan.status.toLowerCase()}`} role="status"><Icon name={plan.status === 'AVAILABLE' ? 'check' : 'alert'} />
-        <div><h2>{title}</h2><p>{plan.status === 'AVAILABLE' ? 'Дорога и запас времени учтены.' : plan.status === 'LIMITED' ? 'Часть пожеланий не вошла. Условия не менялись.' : plan.status === 'UNAVAILABLE' ? unavailablePlanNotice(plan) : plan.issues?.map(humanError).join(' ') || 'Проверьте условия или повторите расчёт.'}</p></div></div>
+        <div><h2>{title}</h2><p>{plan.status === 'AVAILABLE' ? 'Дорога и запас времени учтены.' : plan.status === 'LIMITED' ? missingWishes ? 'Часть пожеланий не вошла. Условия не менялись.' : 'Маршрут рассчитан. Ниже указано, какие сведения нужно проверить перед выходом.' : plan.status === 'UNAVAILABLE' ? unavailablePlanNotice(plan) : plan.issues?.map(humanError).join(' ') || 'Проверьте условия или повторите расчёт.'}</p></div></div>
       {stopCount > 0 && <dl className="route-metrics"><div><dt>{plan.days.length > 1 ? 'Всего остановок' : 'Остановок'}</dt><dd>{stopCount}</dd></div><div><dt>{plan.days.length > 1 ? 'Всего в пути с запасом' : 'В пути с запасом'}</dt><dd>{travel == null ? '—' : `${travel} мин`}</dd></div>
         <div><dt>{plan.days.length > 1 ? 'Расходы за все дни' : 'Расходы, ориентир'}</dt><dd>{money(plan.total_expected_cost_minor)}</dd></div></dl>}
     </div>

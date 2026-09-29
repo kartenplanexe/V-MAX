@@ -16,6 +16,7 @@ import { savedConditionsText } from '../shared/saved-conditions-text.js';
 import { partialSearchNotice, planFailureNotice, planWarningCodes, searchScopeNotice, shortlistNotice, unavailablePlanNotice } from '../shared/plan-evidence-text.js';
 import { russianTrustedRootCa } from './max-ca.js';
 import { mobilityText } from '../shared/route-travel-text.js';
+import { validMaxWorkerSecret } from './max-async.js';
 import { placeSourceLink, planDataEvidence, splitMaxText, travelSegmentText, eventVisitText, eventGapText } from './max-plan-text.js';
 
 type Button = { type: 'callback' | 'open_app' | 'request_geo_location'; text: string;
@@ -43,6 +44,7 @@ export interface MaxChatDependencies {
   mapEnabled: boolean;
   onIntentDiagnostic?: (code: string, diagnostic: InitialIntentError['diagnostic']) => void;
   onCallbackDiagnostic?: (code: string) => void;
+  onStepDiagnostic?: (code: string) => void;
 }
 
 const eventKey = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 32);
@@ -100,6 +102,20 @@ function parseUpdate(raw: unknown): Incoming | null {
       callbackId: item.callback_id, payload: item.payload };
   }
   return null;
+}
+
+/** Drop profiles and unrelated MAX fields before managed queue delivery. */
+export function minimalMaxUpdate(raw: unknown): unknown | null {
+  const parsed = parseUpdate(raw);
+  if (!parsed) return null;
+  const original = raw as Record<string, any>;
+  if (parsed.kind === 'started') return { update_type: 'bot_started',
+    user: { user_id: parsed.userId }, timestamp: original.timestamp };
+  if (parsed.kind === 'callback') return { update_type: 'message_callback', callback: {
+    user: { user_id: parsed.userId }, callback_id: parsed.callbackId, payload: parsed.payload } };
+  return { update_type: 'message_created', message: { sender: { user_id: parsed.userId },
+    recipient: { chat_type: 'dialog' }, body: { mid: original.message.body.mid, text: parsed.text,
+      ...(parsed.location ? { attachments: [{ type: 'location', latitude: parsed.location.lat, longitude: parsed.location.lon }] } : {}) } } };
 }
 
 /** Webhook secret is not a second manually managed credential; never expose the derived value. */
@@ -436,6 +452,7 @@ export class MaxChatController {
       return 'handled' as const;
     } catch (error) {
       if (error instanceof InitialIntentError || error instanceof PlanningSessionError) {
+        this.deps.onStepDiagnostic?.(error.code);
         if (error instanceof InitialIntentError)
           this.deps.onIntentDiagnostic?.(error.code, error.diagnostic ?? { stage: 'control' });
         const savedErrorText: Record<string, string> = {
@@ -842,6 +859,7 @@ export class MaxChatController {
       const confirmed = view.phase === 'DRAFT'
         ? await this.deps.planning.confirm(owner, id, { base_version: view.version, event_id: update.eventId + '-confirm' })
         : view;
+      await this.send(update.userId, { text: 'Подбираю места и проверяю дорогу. Это может занять до двух минут; результат пришлю сюда.' });
       const planned = await this.deps.planning.calculate(owner, id, { base_version: confirmed.version, event_id: update.eventId + '-calculate',
         ...(action === 'replan' && confirmed.result ? { refresh: true } : {}) });
       await this.changeNavigation(owner, state => {
@@ -884,24 +902,57 @@ export class MaxChatController {
   }
 }
 
-export function registerMaxChatRoute(app: FastifyInstance, deps: MaxChatDependencies, botToken: string) {
+export function registerMaxChatRoute(app: FastifyInstance, deps: MaxChatDependencies, botToken: string,
+  options: { dispatch?: (update: unknown) => Promise<void> } = {}) {
   const controller = new MaxChatController({ ...deps,
     onIntentDiagnostic: (code, diagnostic) => app.log.warn({ code, diagnostic }, 'MAX intent validation failed'),
     onCallbackDiagnostic: code => app.log.warn({ code: /^MAX_SEND_[A-Z0-9_]+$/u.test(code) ? code : 'OTHER' },
-      'MAX callback acknowledgement failed') });
+      'MAX callback acknowledgement failed'),
+    onStepDiagnostic: code => app.log.warn({ code: /^[A-Z_]{3,70}$/.test(code) ? code : 'OTHER' }, 'MAX planning step failed') });
+  const processUpdate = async (raw: unknown) => {
+    const update = parseUpdate(raw);
+    return update ? deps.database.withChatUpdate(`max:${update.userId}`, () => controller.handle(raw)) : 'ignored';
+  };
   app.post('/api/max/webhook', { bodyLimit: 64 * 1024 }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     if (!validMaxWebhookSecret(request.headers['x-max-bot-api-secret'], botToken))
       return reply.code(401).send({ status: 'unauthorized' });
     try {
-      const update = parseUpdate(request.body);
-      const status = update ? await deps.database.withChatUpdate(`max:${update.userId}`, () => controller.handle(request.body)) : 'ignored';
+      if (options.dispatch) {
+        const update = minimalMaxUpdate(request.body);
+        if (!update) return { status: 'ignored' };
+        await options.dispatch(update);
+        return { status: 'accepted' };
+      }
+      const status = await processUpdate(request.body);
       if (status === 'retry_later') return reply.code(503).send({ status });
       return { status };
     } catch (error) {
       const code = error instanceof Error && /^(?:MAX_SEND|INTENT|GEOGRAPHY|DATABASE|PLAN|SAVED|CHAT)_[A-Z0-9_]{1,70}$/u.test(error.message) ? error.message : 'OTHER';
       app.log.warn({ code }, 'MAX chat update failed');
       return reply.code(503).send({ status: 'retry_later' });
+    }
+  });
+  app.post('/api/max/worker', { bodyLimit: 64 * 1024 }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    if (!validMaxWorkerSecret(request.headers['x-vmax-worker-secret'], botToken))
+      return reply.code(401).send({ status: 'unauthorized' });
+    const until = Date.now() + 30_000;
+    while (true) {
+      try {
+        const status = await processUpdate(request.body);
+        if (status !== 'retry_later') return { status };
+      } catch (error) {
+        if (!(error instanceof PlanningSessionError) || !['CHAT_UPDATE_BUSY', 'CHAT_BUSY'].includes(error.code)) {
+          app.log.warn({ code: 'WORKER_FAILED' }, 'MAX async worker failed');
+          return reply.code(503).send({ status: 'retry_later' });
+        }
+      }
+      if (Date.now() >= until) {
+        app.log.warn({ code: 'WORKER_BUSY' }, 'MAX async worker failed');
+        return reply.code(503).send({ status: 'retry_later' });
+      }
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
   });
 }

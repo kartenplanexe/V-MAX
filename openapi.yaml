@@ -965,7 +965,7 @@
         },
         "responses": {
           "200": {
-            "description": "Handled, duplicate or ignored event.",
+            "description": "Handled, duplicate, ignored, or accepted by the configured managed async service. Accepted does not mean calculation is complete.",
             "content": {
               "application/json": {
                 "schema": {
@@ -975,7 +975,8 @@
                       "enum": [
                         "handled",
                         "duplicate",
-                        "ignored"
+                        "ignored",
+                        "accepted"
                       ]
                     }
                   },
@@ -1028,6 +1029,112 @@
           },
           "503": {
             "description": "Retry is required; automatic duplicate protection is server-owned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "const": "retry_later"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/max/worker": {
+      "post": {
+        "operationId": "maxAsyncWorker",
+        "summary": "Execute a managed MAX update (internal only)",
+        "security": [
+          {
+            "MaxWorkerSecret": []
+          }
+        ],
+        "description": "Separate server-derived credential; the webhook secret does not authorize this route. Body is a minimal MAX envelope, limited to 64 KiB. Persistent receipts prevent duplicate provider work. Not a judge/user API.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Handled, duplicate, or ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "handled",
+                        "duplicate",
+                        "ignored"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid worker credential.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "const": "unauthorized"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "JSON body exceeds the route body limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrameworkError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported request Content-Type.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrameworkError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Worker busy or interrupted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4248,6 +4355,12 @@
         "in": "header",
         "name": "X-Max-Bot-Api-Secret",
         "description": "Server-managed webhook secret. No administrative credentials are needed for judge user-flow checks."
+      },
+      "MaxWorkerSecret": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Vmax-Worker-Secret",
+        "description": "Separate internal worker credential; never supplied to clients."
       }
     },
     "schemas": {

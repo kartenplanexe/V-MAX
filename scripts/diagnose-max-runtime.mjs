@@ -14,6 +14,7 @@ const parsed = JSON.parse(child.stdout), entries = Array.isArray(parsed) ? parse
 if (!Array.isArray(entries)) throw new Error('Unknown log format.');
 const output = [], counts = {};
 const permitted = new Set(['MAX chat update failed', 'MAX callback acknowledgement failed', 'MAX intent validation failed',
+  'MAX planning step failed', 'MAX async worker failed',
   'Planning outcome summary', 'Planning expiry cleanup failed', 'Planning database initialization failed']);
 for (const entry of entries) {
   let payload = entry.json_payload ?? entry.jsonPayload;
@@ -22,7 +23,7 @@ for (const entry of entries) {
   }
   const kind = payload?.msg ?? payload?.message;
   if (permitted.has(kind)) output.push({ at: String(entry.timestamp ?? '').slice(0, 23), kind,
-    code: typeof payload.code === 'string' && /^(MAX_SEND|INTENT|GEOGRAPHY|DATABASE|PLAN|SAVED|CHAT)_[A-Z0-9_]{1,70}$/u.test(payload.code) ? payload.code : 'OTHER' });
+    code: typeof payload.code === 'string' && /^[A-Z_]{3,70}$/u.test(payload.code) ? payload.code : 'OTHER' });
   const status = payload?.res?.statusCode;
   if (Number.isInteger(status) && status >= 100 && status <= 599) counts[status] = (counts[status] ?? 0) + 1;
 }

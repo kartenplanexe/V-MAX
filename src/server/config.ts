@@ -58,4 +58,5 @@ export const config = {
   maxBotUsername: process.env.MAX_BOT_USERNAME?.trim() || 't801_hakaton_max_bot',
   port: parsePositiveInteger(process.env.PORT, 3000, 'PORT'),
   publicBaseUrl: process.env.PUBLIC_BASE_URL?.trim() || '',
+  maxWebhookAsync: process.env.MAX_WEBHOOK_ASYNC === 'yandex',
 } as const;

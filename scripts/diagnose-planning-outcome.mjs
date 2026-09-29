@@ -29,10 +29,10 @@ for (const entry of entries) {
     status: ['AVAILABLE', 'LIMITED', 'UNAVAILABLE', 'ERROR', 'NEEDS_INPUT'].includes(payload.status) ? payload.status : 'UNKNOWN',
     pipeline_stage: ['PREFLIGHT', 'EVENTS', 'PLACES', 'SHORTLIST', 'MATRIX', 'TRANSIT_SAMPLING',
       'SOLVE', 'RECOVERY', 'DEPARTURE_CHECKS', 'FINAL_VALIDATION'].includes(payload.pipeline_stage) ? payload.pipeline_stage : 'UNKNOWN',
-    budget_stop_code: ['HTTP_BUDGET_EXHAUSTED', 'PAIR_BUDGET_EXHAUSTED', 'DEADLINE_EXCEEDED'].includes(payload.budget_stop_code)
+    budget_stop_code: ['HTTP_BUDGET_EXHAUSTED', 'PAIR_BUDGET_EXHAUSTED', 'DEADLINE_EXCEEDED', 'SUBSCRIPTION_QUOTA_EXHAUSTED'].includes(payload.budget_stop_code)
       ? payload.budget_stop_code : null,
     stop_issue: ['ROUTING_BUDGET_EXCEEDED', 'ROUTING_BUDGET_OR_DEADLINE_EXCEEDED', 'PLAN_EXPIRED_OR_INVALID',
-      'ROUTE_RECHECK_FAILED', 'PLANNING_PIPELINE_FAILED'].includes(payload.stop_issue) ? payload.stop_issue : null,
+      'ROUTE_RECHECK_FAILED', 'PLANNING_PIPELINE_FAILED', 'ROUTING_PROVIDER_UNAVAILABLE'].includes(payload.stop_issue) ? payload.stop_issue : null,
     elapsed_ms: safeInt(payload.elapsed_ms), route_pair_calculations: safeInt(payload.route_pair_calculations),
     max_route_pair_calculations: safeInt(payload.max_route_pair_calculations), max_routing_http_calls: safeInt(payload.max_routing_http_calls),
     candidate_counts_available: payload.candidate_counts_available === true,

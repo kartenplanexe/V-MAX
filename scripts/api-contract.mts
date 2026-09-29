@@ -134,10 +134,17 @@ export function buildOpenApi() {
       description: 'Valid updates can send messages to a MAX user and invoke paid providers. Do not replay production events or use this endpoint as a user-facing API. The server ignores unsupported update types; body limit is 64 KiB. Administrative setup remains separate from contract checking.',
       requestBody: body({ type: 'object', additionalProperties: true,
         description: 'MAX update envelope; accepted message_created, bot_started and message_callback events are normalized server-side. Unsupported/malformed envelopes are ignored.' }),
-      responses: { '200': response('Handled, duplicate or ignored event.', object({ status: { enum: ['handled', 'duplicate', 'ignored'] } })),
+      responses: { '200': response('Handled, duplicate, ignored, or accepted by the configured managed async service. Accepted does not mean calculation is complete.', object({ status: { enum: ['handled', 'duplicate', 'ignored', 'accepted'] } })),
         '401': response('Missing or invalid webhook secret.', object({ status: { const: 'unauthorized' } })),
         '503': response('Retry is required; automatic duplicate protection is server-owned.', object({ status: { const: 'retry_later' } })), ...transportErrors } } },
   };
+  paths['/api/max/worker'] = { post: { operationId: 'maxAsyncWorker', summary: 'Execute a managed MAX update (internal only)',
+    security: [{ MaxWorkerSecret: [] }],
+    description: 'Separate server-derived credential; the webhook secret does not authorize this route. Body is a minimal MAX envelope, limited to 64 KiB. Persistent receipts prevent duplicate provider work. Not a judge/user API.',
+    requestBody: body({ type: 'object', additionalProperties: true }),
+    responses: { '200': response('Handled, duplicate, or ignored.', object({ status: { enum: ['handled', 'duplicate', 'ignored'] } })),
+      '401': response('Missing or invalid worker credential.', object({ status: { const: 'unauthorized' } })),
+      '503': response('Worker busy or interrupted.', object({ status: { const: 'retry_later' } })), ...transportErrors } } };
   paths['/api/planning/saved'] = { get: { operationId: 'listSavedRoutes', summary: 'List the authenticated owner\'s saved conditions',
     security: planningSecurity, parameters: [{ name: 'cursor', in: 'query', schema: { type: 'string', maxLength: 600 } }],
     description: 'Up to 50 records per page. can_open and has_fresh_result are informational; activate checks current ownership and expiry. Reads call no providers.',
@@ -208,6 +215,7 @@ export function buildOpenApi() {
     paths, components: { securitySchemes: {
       MaxInitData: { type: 'apiKey', in: 'header', name: 'X-Max-Init-Data', description: 'Complete signed MAX initData from a fresh authorized mini-app launch. Never publish it. Authorization is not used by the planner.' },
       MaxWebhookSecret: { type: 'apiKey', in: 'header', name: 'X-Max-Bot-Api-Secret', description: 'Server-managed webhook secret. No administrative credentials are needed for judge user-flow checks.' },
+      MaxWorkerSecret: { type: 'apiKey', in: 'header', name: 'X-Vmax-Worker-Secret', description: 'Separate internal worker credential; never supplied to clients.' },
     }, schemas },
     'x-source-files': ['src/server/index.ts', 'src/server/live-runtime.ts', 'src/server/planning-routes.ts', 'src/server/initial-requests.ts', 'src/server/durable-planning.ts', 'src/server/max-chat.ts', 'src/shared/planning-form.ts', 'src/shared/saved-conditions.ts', 'src/shared/route-alternatives.ts', 'src/shared/route-sharing.ts', 'src/server/route-sharing-routes.ts', 'src/server/saved-route-list.ts', 'src/server/manual-planning.ts', 'src/server/event-planning-routes.ts', 'src/server/durable-event-planning.ts', 'src/shared/event-selection.ts', 'src/shared/event-catalog.ts'],
     'x-runtime-notes': ['When required environment is missing, only bootstrap is registered for planning and returns 503; the other planning/webhook routes are absent.',

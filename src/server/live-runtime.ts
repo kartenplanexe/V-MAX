@@ -15,6 +15,7 @@ import { InitialIntentError } from './intent-start.js';
 import { PlanningSessionError } from './planning-sessions.js';
 import { databaseStartupDiagnostic } from './database-startup-diagnostic.js';
 import { MaxApiTransport, registerMaxChatRoute, routeTitle } from './max-chat.js';
+import { yandexMaxDispatcher } from './max-async.js';
 import { selectPublicMapglKey } from './public-config.js';
 import { RouteSharing } from './route-sharing.js';
 import { registerSharingRoutes } from './route-sharing-routes.js';
@@ -102,7 +103,8 @@ export async function registerLiveRuntime(app: FastifyInstance) {
     mapEnabled: Boolean(selectPublicMapglKey({ isProduction: config.isProduction,
       mapglApiKey: config.dgisMapglApiKey, placesApiKey: config.dgisPlacesApiKey,
       routingApiKey: config.dgisRoutingApiKey, backupApiKey: config.dgisBackupApiKey,
-      tertiaryApiKey: config.dgisTertiaryApiKey })) }, config.maxBotToken);
+      tertiaryApiKey: config.dgisTertiaryApiKey })) }, config.maxBotToken,
+    config.maxWebhookAsync ? { dispatch: yandexMaxDispatcher(config.publicBaseUrl, config.maxBotToken) } : {});
   app.get('/api/planning/bootstrap', async (req, reply) => {
     reply.header('Cache-Control', 'no-store');
     const owner = authenticate(req); if (!owner) return reply.code(401).send({ error: 'AUTH_REQUIRED' });

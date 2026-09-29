@@ -23,6 +23,7 @@ const secretKeys = [
 ];
 const publicEnvironment = {
   HOST: '0.0.0.0', NODE_ENV: 'production', PUBLIC_BASE_URL: baseUrl,
+  MAX_WEBHOOK_ASYNC: 'yandex',
   DGIS_ROUTING_LIMIT_MINUTE: '5', DGIS_ROUTING_LIMIT_DAY: '50', DGIS_ROUTING_LIMIT_MONTH: '1000',
   // Provider reset/restoration + empty application logs since 2026-09-28T21:00Z.
   // Monthly figure is the owner's last observed usage, not a live balance.
@@ -178,6 +179,7 @@ try {
   const args = [
     'serverless', 'container', 'revision', 'deploy', '--container-id', containerId,
     '--image', image, '--service-account-id', serviceAccountId,
+    '--async-service-account-id', serviceAccountId,
     '--network-id', networkId, '--memory', '1GB', '--cores', '1',
     '--execution-timeout', '180s', '--concurrency', '2', '--min-instances', '0',
     '--zone-instances-limit', '1', '--runtime', 'http',
@@ -197,6 +199,8 @@ try {
   const newRevision = yc(['serverless', 'container', 'revision', 'get', '--id', after.id]);
   const deployedImage = newRevision.image?.image_url ?? newRevision.image?.imageUrl;
   if (deployedImage !== image) throw new Error('Активная ревизия использует неожиданный образ.');
+  if (newRevision.async_invocation_config?.service_account_id !== serviceAccountId)
+    throw new Error('Асинхронный запуск webhook не настроен в новой ревизии.');
   const health = await getWithRetry('/api/health', 200);
   if (health.status !== 'ok') throw new Error('/api/health вернул неожиданный ответ.');
   await getWithRetry('/api/planning/bootstrap', 401, 'AUTH_REQUIRED');
