@@ -5,7 +5,7 @@ export const genericCategoryPolicyVersion = 'generic-activity-categories.v1';
 const fold = value => value.trim().toLocaleLowerCase('ru-RU').replaceAll('ё', 'е');
 const families = new Map(policy.families.filter(f => ['walk', 'food'].includes(f.id))
   .map(f => [f.id, new Set(f.rubrics.split('|').map(fold))]));
-const natureRubrics = new Set('природные достопримечательности|заповедники|лесопарки|ботанические сады|ботанический сад|водопады|родники|скалы|пляжи|вершины гор|туристические маршруты'.split('|').map(fold));
+const natureRubrics = new Set('природные достопримечательности|заповедники|лесопарки|ботанические сады|ботанический сад|водопады|родники|скалы|пляжи|вершины гор'.split('|').map(fold));
 
 /** Only broad action-only clauses; named types, constraints, negatives and
  * mixed evidence stay with the full-catalog mapper. Never creates an activity. */

@@ -47,7 +47,8 @@ it('does not substitute an ordinary city park for a nature trip', () => {
   const f = food(), activity = f.response.days[0]!.activity_edits[0]!;
   activity.label = 'природа'; activity.evidence = 'поехать на природу';
   activity.selection.evidence = activity.evidence;
-  f.context.catalog.rows = [['168', 'Парки', []], ['169', 'Парки культуры и отдыха', []]];
+  f.context.catalog.rows = [['168', 'Парки', []], ['169', 'Парки культуры и отдыха', []],
+    ['170', 'Туристические маршруты', []]];
   const result = resolveGenericCategories(f.response, f.context.catalog);
   expect(result.proposal.days[0]!.category_matches[0]).toMatchObject({
     state: 'no_match', include_any: [], exclude: [],
