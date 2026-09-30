@@ -91,13 +91,11 @@ export function ConditionsPanel({ draft, view, busy, dirty, mapsAvailable, patch
           {draft.days.length > 1 && <h4>День {index + 1}</h4>}
           <div className="field-row field-row--time">
             <label>Дата<input aria-label={`Дата дня ${index + 1}`} type="date" required value={day.date} onChange={event => patch(value => { value.days[index]!.date = event.target.value; })} /></label>
-            <label>Начало<input aria-label={`Начало дня ${index + 1}`} inputMode="numeric" pattern="(?:[01][0-9]|2[0-3]):[0-5][0-9]" placeholder="14:00" required value={day.window?.start ?? ''}
+            <label>Начало<input aria-label={`Начало дня ${index + 1}`} type="time" step="60" required value={day.window?.start ?? ''}
               onChange={event => patch(value => { value.days[index]!.window = { start: event.target.value, end: day.window?.end ?? '' }; })} /></label>
-            <label>Окончание<input aria-label={`Окончание дня ${index + 1}`} inputMode="numeric" pattern="(?:[01][0-9]|2[0-3]):[0-5][0-9]|24:00" placeholder="18:00" required value={day.window?.end ?? ''}
-              onChange={event => patch(value => { value.days[index]!.window = { start: day.window?.start ?? '', end: event.target.value }; })} /></label>
+            <label>Окончание<input aria-label={`Окончание дня ${index + 1}`} type="time" step="60" required value={day.window?.end === '24:00' ? '00:00' : day.window?.end ?? ''}
+              onChange={event => patch(value => { value.days[index]!.window = { start: day.window?.start ?? '', end: event.target.value === '00:00' ? '24:00' : event.target.value }; })} /></label>
           </div>
-          {Object.entries(view.provenance).some(([path, source]) => path.startsWith(`days.${day.day_id}.`) && source.includes('suggested')) &&
-            <p className="field-hint">Дата или время предложены по вашему запросу. Проверьте их перед расчётом.</p>}
         </div>)}
       </ConditionSection>
       <ConditionSection title="Передвижение и участники" icon="walk" {...section('people')} summary={`${draft.shared.mobility?.length === 1 ? modes[draft.shared.mobility[0]!] ?? 'Выберите способ' : 'Выберите способ'}${draft.shared.party?.total ? ` · участников: ${draft.shared.party.total}` : ''}`}>

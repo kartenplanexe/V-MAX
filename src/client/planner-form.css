@@ -214,8 +214,10 @@
 .activity-editor strong { font-size: 14px; font-weight: 500; }
 .activity-editor small { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
 .order-actions { display: flex; }
-.conditions-form .activity-editor > li > span { min-width: 0; overflow-wrap: anywhere; }
-.conditions-form .order-actions { flex-shrink: 0; }
+.conditions-form .activity-editor > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.conditions-form .activity-editor > li > span { display: contents; overflow-wrap: anywhere; }
+.conditions-form .activity-editor > li > span > :is(label, small) { grid-column: 1 / -1; }
+.conditions-form .order-actions { grid-column: 2; grid-row: 1; }
 .conditions-form .order-actions .icon-action { width: 44px; min-width: 44px; }
 .activity-picker { margin: 12px 0; }
 .sheet-actions { position: sticky; bottom: -18px; padding: 14px 0 max(18px, env(safe-area-inset-bottom)); background: var(--panel); display: grid; gap: 4px; border-top: 1px solid var(--line); }
