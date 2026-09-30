@@ -8,7 +8,7 @@
   --states-button-primary-disabled: #D9E6F9; --states-text-primary-inverse-static-disabled: #5F6C81; --states-button-primary-hover: #005FDC; --states-button-primary-pressed: #004FB8;
   --states-button-secondary-hover: #E2EBF8; --states-button-secondary-pressed: #D4E2F5;
   color: var(--ink); background: var(--page); font-family: var(--family-base); font-size: 15px; line-height: 1.45;
-  width: min(100%, 1160px); min-height: 100dvh; margin: auto; padding: 0 20px max(28px, env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; width: min(100%, 1160px); min-height: 100vh; min-height: 100dvh; margin: auto; padding: 0 20px max(16px, env(safe-area-inset-bottom));
 }
 .planner-page[data-theme=dark] {
   color-scheme: dark; --panel: #18212D; --page: #0F141C; --ink: #F4F7FB; --muted: #AAB4C3; --line: #334354; --soft: #222D3B;
@@ -68,7 +68,7 @@
 .planner-progress { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; margin: 12px 0 20px; }
 .progress-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-text); }
 .app-link { display: inline-flex; align-items: center; gap: 12px; min-height: 44px; margin-top: 16px; }
-.planner-workspace { display: grid; gap: 20px; }
+.planner-workspace { display: grid; gap: 20px; flex: 1; grid-template-rows: auto 1fr; }
 .planner-workspace--result { gap: 12px; }
 .planner-workspace--result .summary-label { font-size: 11px; margin-bottom: 4px !important; }
 .planner-workspace--result .route-summary h2 { font-size: 16px; font-weight: 500; line-height: 1.4; }
@@ -83,7 +83,10 @@
 .constraint-chips button { display: flex; align-items: center; gap: 6px; min-height: 44px; border: 1px solid var(--line); border-radius: 50px; padding: 7px 11px; background: var(--panel); color: var(--ink); font-size: 13px; cursor: pointer; }
 .constraint-chips svg { width: 16px; height: 16px; color: var(--muted); }
 .planner-page .edit-conditions { margin-top: 8px; padding-left: 0; color: var(--accent-text); }
-.planner-content { min-width: 0; }
+.planner-content { min-width: 0; display: flex; flex-direction: column; }
+.planner-content > section { flex: 1; }
+.result-section--empty { display: flex; flex-direction: column; }
+.result-section--empty > .result-actions { margin-top: auto; padding-top: 24px; }
 .clarification { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 26px; }
 .clarification h2 { margin-top: 20px; }
 .clarification > p { color: var(--muted); margin: 10px 0 22px; }
@@ -160,19 +163,15 @@
 .dayline-gap h4 { font-size: 14px; }
 .dayline-gap p { margin-top: 4px; color: var(--caution); font-size: 13px; }
 .dayline-gap small { display: block; margin-top: 8px; color: var(--muted); font-size: 11px; }
-.plan-evidence { border-block: 1px solid var(--line); margin: 18px 0; font-size: 13px; }
-.plan-evidence summary { min-height: 48px; padding: 14px 2px; cursor: pointer; color: var(--muted); }
-.plan-evidence ul { padding-left: 20px; margin: 0 0 16px; color: var(--muted); }
-.plan-evidence li + li { margin-top: 7px; }
 .result-actions { display: flex; gap: 8px; margin-top: 22px; }
 .result-actions .ui-action { flex: 1; }
 .form-issues { color: var(--negative); font-size: 13px; padding-left: 20px; }
-.planner-sheet { position: fixed; inset: auto 0 0; margin: auto; width: min(100%, 600px); max-width: 100%; max-height: 92dvh; border: 1px solid var(--line); border-bottom: 0; border-radius: 24px 24px 0 0; padding: 0 24px max(18px, env(safe-area-inset-bottom)); background: var(--panel); color: var(--ink); font: inherit; overflow-y: auto; overscroll-behavior: contain; }
+.planner-sheet { position: fixed; inset: 0; margin: auto; width: min(100%, 600px); max-width: 100%; height: 100dvh; max-height: 100dvh; border: 0; border-radius: 0; padding: 0 24px max(18px, env(safe-area-inset-bottom)); background: var(--panel); color: var(--ink); font: inherit; overflow-y: auto; overscroll-behavior: contain; }
 .planner-sheet::backdrop { background: rgb(13 0 26 / 48%); }
 .sheet-heading { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--panel); padding: 18px 0; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
 .sheet-heading h2 { font-size: 20px; }
 .sheet-handle { display: none; }
-.conditions-sheet { flex-direction: column; height: 92dvh; overflow: hidden; }
+.conditions-sheet { flex-direction: column; height: 100dvh; overflow: hidden; }
 .conditions-sheet[open] { display: flex; }
 .conditions-sheet .sheet-heading { flex-shrink: 0; margin-bottom: 0; }
 .conditions-form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -239,10 +238,12 @@
 @media (min-width: 800px) {
   .planner-page { padding-inline: 36px; }
   .planner-header { min-height: 80px; margin-bottom: 28px; }
-  .planner-workspace { grid-template-columns: minmax(230px, .75fr) minmax(0, 1.5fr); gap: 46px; align-items: start; }
+  .planner-workspace { grid-template-columns: minmax(230px, .75fr) minmax(0, 1.5fr); grid-template-rows: 1fr; gap: 46px; align-items: start; }
+  .planner-content { align-self: stretch; }
   .summary-rail { position: sticky; top: 24px; }
   .route-summary h2 { font-size: 25px; }
-  .planner-sheet { inset: 32px 0; margin: auto; max-height: calc(100dvh - 64px); border-radius: 24px; border-bottom: 1px solid var(--line); }
+  .planner-sheet { inset: 32px 0; margin: auto; height: auto; max-height: calc(100dvh - 64px); border-radius: 24px; border: 1px solid var(--line); }
+  .conditions-sheet { height: calc(100dvh - 64px); }
   .clarification { padding: 32px; }
 }
 @media (max-width: 420px) {

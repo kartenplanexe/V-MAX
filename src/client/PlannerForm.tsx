@@ -6,7 +6,6 @@ import type { PublicConfig } from '../shared/public-config';
 import './planner-form.css';
 import { PointPicker } from './PointPicker';
 import { PlanningLoading } from './PlanningLoading';
-import { ServiceInformation } from './ServiceInformation';
 import { AddressPicker, type AddressChoice } from './AddressPicker';
 import { PlanResult } from './PlanResult';
 import { ConditionsPanel, type ConditionSectionId } from './ConditionsPanel';
@@ -221,7 +220,6 @@ export function PlannerForm() {
   const [incoming, setIncoming] = useState<{ token: string; preview: SharePreview } | null>(null);
   const [savedOpen, setSavedOpen] = useState(false);
   const [shareDraftId, setShareDraftId] = useState('');
-  const [dataOpen, setDataOpen] = useState(false);
   const [eventPanel, setEventPanel] = useState<{ target?: EventPanelTarget } | null>(null);
   const [eventPending, setEventPending] = useState(false);
   const [planningPending, setPlanningPending] = useState(false);
@@ -414,7 +412,7 @@ export function PlannerForm() {
       {dirty && <div className="notice"><p>Есть несохранённые изменения.</p><Action variant="secondary" onClick={() => openConditions()}>Продолжить редактирование</Action></div>}
       {view.capabilities.data_mode === 'test' && !view.result && <p className="data-label">Учебный пример · синтетические данные</p>}
       </aside>
-      <div className="planner-content">{view.result && !dirty ? <PlanResult key={`${view.id}:${view.version}`} view={view} mapsAvailable={mapsAvailable} busy={!!busy} editSearch={() => openConditions('points')}
+      <div className="planner-content">{view.result && !dirty ? <PlanResult key={`${view.id}:${view.version}`} view={view} mapsAvailable={mapsAvailable} busy={!!busy}
         edit={() => openConditions()} share={() => setShareOpen(true)} chooseEvent={browseEvents} replace={target => void act('Проверяем замену…', () => previewAlternative(target))} retry={() => void act('Проверяем места заново…', retryResult)} warningText={warningText} humanError={humanError} /> : <section className="clarification" aria-labelledby="next-step">
         {draft.days.flatMap(day => day.activities.filter(activity => activity.intent_kind === 'event_visit').map(activity => <SelectedEventItem key={JSON.stringify([day.day_id, activity.id])} view={view} dayId={day.day_id} activityId={activity.id} busy={!!busy || dirty}
           recheck={() => void act('Перепроверяем событие…', () => recheckEvent(day.day_id, activity.id))} chooseOther={() => browseEvents({ day_id: day.day_id, replace_activity_id: activity.id })}
@@ -438,9 +436,8 @@ export function PlannerForm() {
           firstIssue?.code === 'EVENT_RECHECK_REQUIRED' ? <><h2 id="next-step">Проверим выбранные события</h2><p>Используйте «Перепроверить событие» выше. Собственные пожелания остаются в плане.</p></> :
           firstIssue ? <><span className="step-symbol"><Icon name="filters" /></span><h2 id="next-step">Уточним один момент</h2><p>{humanError(firstIssue.code)}</p>
             <Action stretched disabled={!!busy} onClick={() => openConditions()}>Уточнить условия</Action></> :
-          <><span className="step-symbol"><Icon name="route" /></span><h2 id="next-step">{externalRouting ? 'Всё готово к подбору' : 'Всё готово к расчёту'}</h2><p>{externalRouting ? 'Подберём варианты мест и покажем их на карте. Путь и время дороги посмотрите в 2ГИС. Выполнимость общего плана здесь не проверяется.' : 'Подберём места и проверим, что посещения и дорога помещаются в ваше время.'}</p>
+          <><span className="step-symbol"><Icon name="route" /></span><h2 id="next-step">{externalRouting ? 'Всё готово к подбору' : 'Всё готово к расчёту'}</h2><p>{externalRouting ? 'Подберём места для вашего дня. Маршрут откроется в 2ГИС.' : 'Подберём места и проверим, что посещения и дорога помещаются в ваше время.'}</p>
             {draft.points.origin && <div className="start-summary"><Icon name="pin" /><span><small>Начало маршрута</small><strong>{draft.points.origin.label ?? 'Выбранная точка'}</strong></span></div>}
-            <p className="field-hint">Область подбора — {new Intl.NumberFormat('ru-RU').format((draft.shared.search_radius_meters ?? defaultSearchRadiusMeters(draft.shared.mobility)) / 1000)} км от старта. Радиус можно изменить в условиях.</p>
             <Action stretched disabled={!!busy || !ready || view.phase === 'PLANNING'} onClick={() => void act('Подбираем места…', () => calculate())}>{externalRouting ? 'Подобрать места' : 'Составить план'}</Action></>}
         {view.phase === 'PLANNING' && <Action variant="secondary" onClick={() => void act('Проверяем статус…', async () => { accept(await request<PlanningView>(`/api/planning/drafts/${view.id}`, session!.token)); })}>Проверить статус расчёта</Action>}
       </section>}</div>
@@ -487,8 +484,6 @@ export function PlannerForm() {
       <div className="sheet-actions"><Action stretched disabled={!!busy} onClick={() => void act('Загружаем сохранённую версию…', reloadSavedState)}>Загрузить сохранённую версию</Action>
         <Action variant="ghost" stretched disabled={!!busy} onClick={() => setReloadRequested(false)}>Продолжить правку</Action></div>
     </Sheet>}
-    <footer className="planner-footer"><Action variant="ghost" onClick={() => setDataOpen(true)}>О сервисе и данных</Action></footer>
-    {dataOpen && <Sheet title="О сервисе и данных" onClose={() => setDataOpen(false)}><ServiceInformation /></Sheet>}
   </main>;
 }
 const modesLabel = (mode: string | undefined) => mode ? modeLabels[mode] ?? mode : 'Передвижение';

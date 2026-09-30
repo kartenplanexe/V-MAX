@@ -37,7 +37,7 @@ export function InitialRequestForm({ disabled, search, submit, manualOptions, ma
     </form>
     {manual && selected ? <><ManualRequestForm options={manual} busy={disabled} submit={value => manualSubmit({ ...value, locality_token: selected.token })} /><Action variant="ghost" onClick={() => setManual(null)}>Описать словами</Action></> : <form className="wish-composer" onSubmit={event => { event.preventDefault(); if (selected && text.trim()) void submit({ user_text: text.trim(), locality_token: selected.token, locality_query: query.trim() }); }}>
       <label htmlFor="initial-wishes">Ваши пожелания</label>
-      <p className="field-hint">Текст обработает Alice AI. Не указывайте телефон, документы и другие личные сведения. <a href="?page=information" target="_blank" rel="noreferrer">О сервисе и данных</a></p>
+      <p className="field-hint">Текст обработает Alice AI. Не указывайте телефон, документы и другие личные сведения. <a href="?page=information" target="_blank" rel="noreferrer">Политика обработки данных</a></p>
       <Textarea id="initial-wishes" value={text} maxLength={4000} rows={4} disabled={disabled} required
         placeholder="Завтра с 14 до 18 хочу погулять, а потом поесть. Пешком, вдвоём." onChange={event => setText(event.target.value)} />
       <div className="request-examples" aria-label="Примеры пожеланий">{['Хочу погулять', 'Хочу погулять, а потом поесть'].map(example =>

@@ -1,6 +1,6 @@
 import { useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import type { PlanningView } from '../shared/planning-form';
-import { defaultSearchRadiusMeters, MIN_SEARCH_RADIUS_METERS, MAX_SEARCH_RADIUS_METERS } from '../shared/search-radius';
+import { defaultSearchRadiusMeters, MAX_SEARCH_RADIUS_METERS } from '../shared/search-radius';
 import { AddressPicker, type AddressChoice } from './AddressPicker';
 import { PointPicker } from './PointPicker';
 import { Action, Icon } from './PlannerUi';
@@ -144,9 +144,8 @@ export function ConditionsPanel({ draft, view, busy, dirty, mapsAvailable, patch
         </div>}
       </ConditionSection>
       <ConditionSection title="Старт и финиш" icon="pin" {...section('points')} summary={draft.points.origin?.label ?? 'Выберите точку старта'}>
-        <label>Радиус от старта, км<input type="number" min={MIN_SEARCH_RADIUS_METERS / 1000} max={MAX_SEARCH_RADIUS_METERS / 1000} step="0.001" required value={Number.isFinite(radius) ? radius / 1000 : ''}
+        <label>Радиус от старта, км<input type="number" min="1" max={MAX_SEARCH_RADIUS_METERS / 1000} step="1" required value={Number.isFinite(radius) ? radius / 1000 : ''}
           onChange={event => patch(value => { value.shared.search_radius_meters = event.target.value === '' ? Number.NaN : Math.round(Number(event.target.value) * 1000); })} /></label>
-        <p className="field-hint">Подбираем места и включаем события в этой области. Это не длина прогулки. Время в пути и все остальные условия проверим отдельно.</p>
         <p className="selected-point"><span>Начало маршрута</span><strong>{draft.points.origin?.label ?? 'Точка не выбрана'}</strong></p>
         <div className="point-actions"><Action variant="secondary" onClick={locate}>Моё местоположение</Action>
           <Action variant="secondary" onClick={() => setPointEditor({ field: 'origin', mode: 'address' })}>Указать адрес</Action>

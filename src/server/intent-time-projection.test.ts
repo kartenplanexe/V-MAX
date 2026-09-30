@@ -10,6 +10,19 @@ function scenario(clause: string, updates: ReturnType<typeof time>[]) {
   return f;
 }
 
+it.each([
+  ['утром', 'morning', '09:00', '12:00'],
+  ['днём', 'day', '13:00', '16:00'],
+  ['вечером', 'evening', '17:00', '20:00'],
+])('suggests three hours for %s without attributing the clocks to the user', async (clause, period, start, end) => {
+  const f = scenario(clause, [time('period', period, clause)]);
+  const result = await parseInitialIntent({ ...f.context, userText: f.text, inputId: 'period-default' }, async () => f.response);
+  expect(result.status).toBe('draft'); if (result.status !== 'draft') return;
+  expect(result.draft.days[0]!.window).toEqual({ start, end });
+  expect(result.provenance['days.day-1.window.start']).toBe('suggested');
+  expect(result.provenance['days.day-1.window.end']).toBe('suggested');
+});
+
 // Complete authored proposals exercise the real evidence guard and projection.
 // The initial-extraction envelope additionally exercises the category-call gate.
 it.each([
@@ -35,7 +48,7 @@ it('retains an explicit start when the ordinary suggested end is representable',
   const f = scenario('после 18:00', [time('start', '18:00', 'после 18:00')]);
   const result = await parseInitialIntent({ ...f.context, userText: f.text, inputId: 'time-projection' }, async () => f.response);
   expect(result.status).toBe('draft'); if (result.status !== 'draft') return;
-  expect(result.draft.days[0]!.window).toEqual({ start: '18:00', end: '20:00' });
+  expect(result.draft.days[0]!.window).toEqual({ start: '18:00', end: '21:00' });
   expect(result.provenance['days.day-1.window.start']).toBe('user');
   expect(result.provenance['days.day-1.window.end']).toBe('suggested');
   expect(result.draft.days[0]!.duration_constraint_minutes).toBeUndefined();

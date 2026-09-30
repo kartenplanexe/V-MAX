@@ -1,7 +1,6 @@
-// Pure research projection: suggestions never overwrite extracted user fields.
 import fs from 'node:fs';
 import {reviewDailyResponse} from './daily-postprocessing.mjs';
-const policy=JSON.parse(fs.readFileSync(new URL('./time-default-policy.v1.json',import.meta.url),'utf8'));
+const policy=JSON.parse(fs.readFileSync(new URL('./time-default-policy.v2.json',import.meta.url),'utf8'));
 const minute=text=>typeof text==='string'&&/^([01]\d|2[0-3]):[0-5]\d$/.test(text)?Number(text.slice(0,2))*60+Number(text.slice(3)):null;
 const clock=n=>`${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`;
 function validDate(date) {

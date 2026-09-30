@@ -12,7 +12,10 @@ it('keeps demo bootstrap same-origin, isolates browser owners, and exposes no ma
     expect(a.view.capabilities.data_mode).toBe('test');
     expect(a.token).not.toEqual(b.token);
     expect((await app.inject({ url: `/api/planning/drafts/${a.view.id}`, headers: { ...headers, authorization: `Bearer ${b.token}` } })).statusCode).toBe(404);
-    expect((await app.inject({ url: '/api/public-config', headers })).json()).toEqual({ maps: { enabled: false } });
+    expect((await app.inject({ url: '/api/public-config', headers })).json()).toEqual({ maps: { enabled: false }, planning: { routingMode: 'verified' } });
+    expect((await app.inject({ url: '/api/planning/bootstrap', headers })).statusCode).toBe(401);
+    expect((await app.inject({ url: '/api/planning/bootstrap', headers: { ...headers, authorization: `Bearer ${a.token}` } })).json().view.id).toBe(a.view.id);
+    expect((await app.inject({ url: '/api/planning/bootstrap', headers: { ...headers, 'x-max-init-data': a.token } })).json().view.id).toBe(a.view.id);
   } finally { await app.close(); }
 });
 

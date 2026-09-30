@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { PlanningView } from '../shared/planning-form';
-import { planWarningCodes, searchScopeNotice, shortlistNotice, unavailablePlanNotice } from '../shared/plan-evidence-text';
+import { unavailablePlanNotice } from '../shared/plan-evidence-text';
 import { PlanMap } from './PlanMap';
 import { Action, Icon, useExpired } from './PlannerUi';
 import { transitStageText } from '../shared/route-travel-text';
@@ -27,8 +27,8 @@ function TransitDetails({ transit }: { transit: Transit }) {
     <p>{transit.waitingSeconds != null && transit.waitingSeconds > 0 ? 'Ожидание уже включено в общее время дороги. ' : ''}{transit.scheduleEvidence === 'unknown' ? 'Расписание не подтверждено.' : transit.scheduleEvidence === 'predicted' ? 'Время отправления прогнозируется.' : 'Расписание передано провайдером.'} Проверьте отправление перед поездкой. Стоимость проезда неизвестна.</p>
   </details>;
 }
-export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry, replace, share, chooseEvent, warningText, humanError }: {
-  view: PlanningView; mapsAvailable: boolean; busy: boolean; edit: () => void; editSearch: () => void; retry: () => void;
+export function PlanResult({ view, mapsAvailable, busy, edit, retry, replace, share, chooseEvent, warningText, humanError }: {
+  view: PlanningView; mapsAvailable: boolean; busy: boolean; edit: () => void; retry: () => void;
   replace: (target: AlternativeTarget) => void; share: () => void;
   chooseEvent: (target: EventPanelTarget) => void;
   warningText: (code: string) => string; humanError: (code: string) => string;
@@ -46,7 +46,6 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
     ? plan.days.reduce((sum, value) => sum + value.total_safe_travel_minutes!, 0) : null;
   const missing = day?.missing_activity_ids.map(id => requestedDay?.activities.find(activity => activity.id === id)?.label ?? 'Занятие') ?? [];
   const remaining = requestedDay?.window && day?.ends_at != null ? Math.max(0, minutes(requestedDay.window.end) - day.ends_at) : null;
-  const codes = planWarningCodes(plan), warnings = [...new Set(codes.map(warningText))];
   const hasVisits = plan.days.some(value => value.visits.length);
   const routingUnavailable = plan.status === 'ERROR' && plan.issues?.includes('ROUTING_PROVIDER_UNAVAILABLE');
   const missingWishes = plan.days.some(value => value.missing_activity_ids.length > 0);
@@ -61,16 +60,14 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
       <h2>Ваш план на день</h2><p>Места по порядку посещения. Переключитесь на карту, когда захотите увидеть их расположение.</p>
     </div></div></div>
     {view.capabilities.data_mode === 'test' && <p className="data-label">Учебный пример · синтетические места</p>}
-    {plan.search_scope && <p className="scope-note">{searchScopeNotice(plan)}</p>}
     <CandidatePlaces view={view} mapsAvailable={mapsAvailable} />
     {!!plan.event_gaps?.length && <ul className="form-issues">{plan.event_gaps.map(gap =>
       <li key={`${gap.day_id}:${gap.activity_id}:${gap.code}`}>{eventGapText(gap.code)}</li>)}</ul>}
     <div className="result-actions"><Action stretched disabled={busy} onClick={share}>Поделиться условиями</Action>
       <Action variant="secondary" stretched disabled={busy} onClick={edit}>Изменить условия</Action>
       <Action variant="secondary" stretched disabled={busy} onClick={retry}>Обновить места</Action></div>
-    <p className="field-hint">Подборка сохранена в «Моих маршрутах».</p>
   </section>;
-  return <section className="result-section" aria-label="Результат расчёта">
+  return <section className={`result-section${hasVisits ? '' : ' result-section--empty'}`} aria-label="Результат расчёта">
     <div className={`route-receipt route-receipt--${plan.status.toLowerCase()}`}>
       <div className={`result-notice result-notice--${plan.status.toLowerCase()}`} role="status"><Icon name={plan.status === 'AVAILABLE' ? 'check' : 'alert'} />
         <div><h2>{title}</h2><p>{plan.status === 'AVAILABLE' ? 'Дорога и запас времени учтены.' : plan.status === 'LIMITED' ? missingWishes ? 'Часть пожеланий не вошла. Условия не менялись.' : 'Маршрут рассчитан. Ниже указано, какие сведения нужно проверить перед выходом.' : plan.status === 'UNAVAILABLE' ? unavailablePlanNotice(plan) : plan.issues?.map(humanError).join(' ') || 'Проверьте условия или повторите расчёт.'}</p></div></div>
@@ -78,9 +75,7 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
         <div><dt>{plan.days.length > 1 ? 'Расходы за все дни' : 'Расходы, ориентир'}</dt><dd>{money(plan.total_expected_cost_minor)}</dd></div></dl>}
     </div>
     {view.capabilities.data_mode === 'test' && <p className="data-label">Учебный пример · места и время в пути синтетические</p>}
-    {plan.search_scope && <p className="scope-note">{searchScopeNotice(plan)}</p>}
     <CandidatePlaces view={view} mapsAvailable={mapsAvailable} />
-    {plan.search_scope && plan.status !== 'AVAILABLE' && plan.status !== 'ERROR' && <Action variant="ghost" disabled={busy} onClick={editSearch}>Изменить область поиска</Action>}
     {plan.days.length > 1 && <nav className="day-tabs" aria-label="Дни маршрута">{plan.days.map(value => <button key={value.day_id} type="button" aria-pressed={day?.day_id === value.day_id}
       onClick={() => { setSelectedDay(value.day_id); setSelectedVisit(0); }}><strong>{date(value.date)}</strong><span>{value.status === 'AVAILABLE' ? 'Готово' : value.status === 'LIMITED' ? 'Частично' : 'Нет плана'}</span></button>)}</nav>}
     {day && <>{plan.days.length > 1 && <div className="day-heading"><h3>{date(day.date)}</h3><span>{requestedDay?.window ? `${requestedDay.window.start}–${requestedDay.window.end}` : status}</span></div>}
@@ -115,7 +110,7 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
         })}
         {visits.length > 0 && day.ends_at != null && <li className="dayline-endpoint dayline-endpoint--finish"><span className="dayline-dot" aria-hidden="true" /><time>{time(day.ends_at)}</time><div>
           <strong>{draft.points.destination ? 'Прибытие к финишу' : 'Завершение плана'}</strong><p>{draft.points.destination?.label ?? 'У последней остановки'}{day.ends_at > visits.at(-1)!.ends_at && <> · дорога {day.ends_at - visits.at(-1)!.ends_at} мин</>}</p><TransitDetails transit={day.travel_segments?.find(segment => segment.to_id === '@destination')?.transit} /></div></li>}
-        {missing.length > 0 && <li className="dayline-gap"><span className="dayline-dot" aria-hidden="true" /><div><h4>Не удалось включить</h4><p>{missing.join(' · ')}</p>
+        {hasVisits && missing.length > 0 && <li className="dayline-gap"><span className="dayline-dot" aria-hidden="true" /><div><h4>Не удалось включить</h4><p>{missing.join(' · ')}</p>
           {remaining != null && remaining > 0 && <small>До конца вашего окна остаётся {remaining} мин. Подходящие занятия на это время не подтверждены.</small>}</div></li>}
       </ol>}
     </>}
@@ -125,12 +120,9 @@ export function PlanResult({ view, mapsAvailable, busy, edit, editSearch, retry,
       return activity ? <li key={`${gap.day_id}:${gap.activity_id}:${gap.code}`}><strong>{!day && eventDay ? `${date(eventDay.date)} · ` : ''}{activity.label}.</strong> {eventGapText(gap.code)}</li> : null;
     })}</ul>}
     {!!plan.issues?.length && hasVisits && <ul className="form-issues">{plan.issues.map(issue => <li key={issue}>{humanError(issue)}</li>)}</ul>}
-    {(warnings.length > 0 || plan.shortlist?.groups.some(group => group.truncated)) && <details className="plan-evidence"><summary>Что учтено и что стоит проверить</summary>
-      <ul>{warnings.map(text => <li key={text}>{text}</li>)}{plan.shortlist?.groups.some(group => group.truncated) && <li>{shortlistNotice}</li>}</ul></details>}
     <div className="result-actions">{hasVisits && <Action stretched disabled={busy} onClick={share}>Поделиться</Action>}
       {routingUnavailable && <Action stretched disabled={busy} onClick={retry} iconBefore={<Icon name="refresh" />}>Повторить расчёт</Action>}
       <Action variant={hasVisits || routingUnavailable ? 'secondary' : 'primary'} stretched disabled={busy} onClick={edit} iconBefore={<Icon name="filters" />}>Изменить условия</Action></div>
     {!routingUnavailable && <div className="result-secondary"><Action variant="ghost" stretched disabled={busy} onClick={retry} iconBefore={<Icon name="refresh" />}>Проверить заново</Action></div>}
-    <p className="field-hint">Условия сохранены в «Моих маршрутах». Места и дорогу проверяем заново при следующем расчёте.</p>
   </section>;
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ShareCreated, SharePreview } from '../shared/route-sharing';
 import { savedConditionsText } from '../shared/saved-conditions-text';
-import { searchScopeNotice, unavailablePlanNotice } from '../shared/plan-evidence-text';
+import { unavailablePlanNotice } from '../shared/plan-evidence-text';
 import { Action, Icon, useExpired } from './PlannerUi';
 
 export function SharePanel({ created, busy, party, create, revoke }: {
@@ -57,7 +57,6 @@ export function SharedRoutePreview({ preview, busy, search, importRoute, close }
     <details className="plan-evidence" open><summary>Пожелания и условия</summary><p className="saved-text">{savedConditionsText({ id: 'shared', revision: preview.conditions.conditions_revision, expires_at: preview.expires_at, conditions: preview.conditions }).split('\n').slice(2).join('\n')}</p></details>
     {result ? <><h3>{result.status === 'LIMITED' ? 'Частичный маршрут автора' : result.status === 'AVAILABLE' ? 'Маршрут автора' : 'Результат автора'}</h3>
       {result.status === 'UNAVAILABLE' && <p className="field-hint">{unavailablePlanNotice(result)}</p>}
-      {result.search_scope && <p className="scope-note">{searchScopeNotice(result)}</p>}
       {result.days.map(day => <div key={day.day_id} className="shared-day"><h4>{day.date} · {day.status === 'AVAILABLE' ? 'Все занятия' : day.status === 'LIMITED' ? 'Частично' : 'Не составлен'}</h4>
         <ol className="compact-route">{day.visits.map(visit => <li key={`${visit.activity_id}:${visit.place_id}`}><strong>{visit.name}</strong>{visit.location_label && <span>{visit.location_label}</span>}</li>)}</ol></div>)}
       <p className="field-hint">При продолжении в своей копии места и дорогу проверим заново.</p></> : <p className="field-hint">В ссылке доступны сохранённые условия. Места и маршрут нужно проверить заново.</p>}

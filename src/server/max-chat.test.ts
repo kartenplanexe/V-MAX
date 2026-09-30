@@ -656,7 +656,7 @@ describe('MAX chat', () => {
     view.result = { status: 'UNAVAILABLE', warnings: ['RETRIEVAL_PARTIAL'],
       days: [{ day_id: 'd1', date: '2026-09-26', status: 'UNAVAILABLE', missing_activity_ids: ['a1'], visits: [] }] };
     const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
-    expect(text).toContain('Поиск охватил только часть мест');
+    expect(text).toContain('Попробуйте изменить запрос и выполните запрос снова.');
     expect(text).not.toContain('Не все источники ответили');
   });
 
@@ -684,9 +684,9 @@ describe('MAX chat', () => {
     const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
     expect(text).toContain('Готово — вот план');
     expect(text).toContain('Парк');
-    expect(text).toContain('радиусе 5 км от старта');
+    expect(text).not.toContain('радиусе 5 км от старта');
     expect(text).toContain('Получена только часть мест');
-    expect(text).toContain('сокращённая подборка кандидатов');
+    expect(text).not.toContain('сокращённая подборка кандидатов');
     expect(text).not.toContain('проверенного плана пока нет');
   });
 
@@ -696,8 +696,8 @@ describe('MAX chat', () => {
       search_scope: { radius_meters: 750, coverage: 'BOUNDED_RESULTS' }, shortlist: { groups: [{ truncated: false }] },
       days: [{ day_id: 'd1', date: '2026-09-26', status: 'UNAVAILABLE', missing_activity_ids: ['a1'], visits: [] }] });
     const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
-    expect(text).toContain('радиусе 750 м от старта');
-    expect(text).toContain('В проверенной части поиска');
+    expect(text).not.toContain('радиусе 750 м от старта');
+    expect(text).toContain('Попробуйте изменить запрос и выполните запрос снова.');
     expect(text).not.toContain('Получена только часть мест');
     expect(text).not.toContain('сокращённая подборка кандидатов');
     expect(text).not.toContain('Подтверждённых подходящих мест для этих ограничений нет');

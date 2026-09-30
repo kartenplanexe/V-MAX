@@ -173,7 +173,7 @@ it('marks server-suggested evening separately and preserves unknown budget units
   f.response.shared_updates = [{ op: 'set', field: 'budget', value: { kind: 'limit', amount_rub: 5000, basis: 'unknown', period: 'unknown' }, evidence: '5000 рублей' }];
   const result = await parseInitialIntent({ ...f.context, userText: f.text + ' вечером 5000 рублей', inputId: 'defaults' }, async () => f.response);
   expect(result.status).toBe('draft'); if (result.status !== 'draft') return;
-  expect(result.draft.days[0]!.window).toEqual({ start: '18:00', end: '20:00' });
+  expect(result.draft.days[0]!.window).toEqual({ start: '17:00', end: '20:00' });
   expect(result.provenance['days.day-1.window.start']).toBe('suggested');
   expect(result.draft.shared.budget).toMatchObject({ basis: 'unknown', period: 'unknown' });
 });

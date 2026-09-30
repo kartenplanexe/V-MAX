@@ -13,7 +13,7 @@ import type { BotNavigation, ChatPending, PlanningDatabase, SavedRoute } from '.
 import type { AddressChoice, VerifiedLocality } from './live-geography.js';
 import type { SavedConditionsView } from '../shared/saved-conditions.js';
 import { savedConditionsText } from '../shared/saved-conditions-text.js';
-import { partialSearchNotice, planFailureNotice, planWarningCodes, searchScopeNotice, shortlistNotice, unavailablePlanNotice } from '../shared/plan-evidence-text.js';
+import { partialSearchNotice, planFailureNotice, planWarningCodes, unavailablePlanNotice } from '../shared/plan-evidence-text.js';
 import { russianTrustedRootCa } from './max-ca.js';
 import { mobilityText } from '../shared/route-travel-text.js';
 import { validMaxWorkerSecret } from './max-async.js';
@@ -51,7 +51,7 @@ export interface MaxChatDependencies {
 }
 
 const eventKey = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 32);
-const welcomeText = 'Привет! Я помогу составить план досуга прямо в чате. Опишите желание своими словами — например: «Завтра после 16 хочу погулять в Казани и поесть». Или выберите действие ниже.\n\nТекст обработает Alice AI. Не присылайте телефон, документы и другие личные сведения. Подробнее — /privacy и «О сервисе и данных» в мини-приложении.';
+const welcomeText = 'Привет! Я помогу составить план досуга прямо в чате. Опишите желание своими словами — например: «Завтра после 16 хочу погулять в Казани и поесть». Или выберите действие ниже.\n\nТекст обработает Alice AI. Не присылайте телефон, документы и другие личные сведения. Подробнее — /privacy.';
 const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 const appButton = (botUsername: string, text = 'Подробнее и карта'): Button => ({ type: 'open_app', text, web_app: botUsername });
 const callback = (text: string, payload: string): Button => ({ type: 'callback', text, payload });
@@ -224,10 +224,7 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
     messages.push({ text: 'Часть переходов в режиме ОТ выполняется полностью пешком.' });
   if (warnings.has('ROUTE_GEOMETRY_UNAVAILABLE')) messages.push({ text:
     'Геометрия части переходов недоступна: на карте может не быть линии пути.' });
-  const scope = searchScopeNotice(result);
-  if (scope) messages.push({ text: scope });
   if (result.days.some(day => day.visits.length) && searchIncomplete) messages.push({ text: partialSearchNotice });
-  if (result.shortlist?.groups.some(group => group.truncated)) messages.push({ text: shortlistNotice });
   if (result.issues?.includes('ROUTING_SCOPE_TOO_LARGE')) messages.push({ text:
     'В одном расчёте не удалось проверить пути для всех занятий. Разделите их по дням или уменьшите число занятий в условиях маршрута.' });
   if (result.issues?.includes('BUDGET_PRICE_DATA_REQUIRED')) messages.push({ text:
@@ -574,7 +571,7 @@ export class MaxChatController {
   private async handleMessage(owner: string, update: Incoming) {
     const text = update.text?.trim();
     if (text === '/privacy') {
-      await this.prompt(owner, update.userId, 'Для плана сохраняются ваш идентификатор MAX, пожелания и выбранные условия. Текст разбирает Alice AI; поиск и карта используют 2ГИС, афиша — KudaGo. Геолокация необязательна. Готовые подборки доступны до удаления через «Мои маршруты».\n\nПодробности — в разделе «О сервисе и данных» внизу мини-приложения. Реквизиты оператора и контакт для обращений пока не заполнены.', [[appButton(this.deps.botUsername, 'Открыть мини-приложение')]]);
+      await this.prompt(owner, update.userId, 'Для плана сохраняются ваш идентификатор MAX, пожелания и выбранные условия. Текст разбирает Alice AI; поиск и карта используют 2ГИС, афиша — KudaGo. Геолокация необязательна. Готовые подборки доступны до удаления через «Мои маршруты».\n\nПравовые документы доступны по ссылке «Политика обработки данных» в форме нового запроса. Реквизиты оператора и контакт для обращений пока не заполнены.', [[appButton(this.deps.botUsername, 'Открыть мини-приложение')]]);
       return;
     }
     if (text === '/new') { await this.startNew(owner, update.userId); return; }
@@ -798,9 +795,9 @@ export class MaxChatController {
       await this.setPending(owner, undefined);
     } else if (issue?.code === 'WINDOW_REQUIRED') {
       question = '\n\nВ какое время вы свободны? Можно выбрать предложение:';
-      buttons.push([callback('09–11', `window:${view.id}:${view.version}:09:00:11:00`),
-        callback('13–15', `window:${view.id}:${view.version}:13:00:15:00`),
-        callback('18–20', `window:${view.id}:${view.version}:18:00:20:00`)]);
+      buttons.push([callback('09–12', `window:${view.id}:${view.version}:09:00:12:00`),
+        callback('13–16', `window:${view.id}:${view.version}:13:00:16:00`),
+        callback('17–20', `window:${view.id}:${view.version}:17:00:20:00`)]);
       await this.setPending(owner, undefined);
     } else if (!issue) {
       question = this.deps.routingMode === 'external' ? '\n\nПодберу варианты мест. Дорогу и время в пути посмотрите в 2ГИС; выполнимость общего плана здесь не проверяется.' : '\n\nЕсли всё верно, составлю маршрут и проверю время в пути.';

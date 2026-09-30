@@ -2,6 +2,7 @@
 :root { font-synthesis: none; color-scheme: light dark; background: #F5F7FB; }
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }
+#root { min-height: 100vh; min-height: 100dvh; }
 body { min-width: 320px; }
 @media (prefers-color-scheme: dark) { :root { background: #0F141C; } }
 .map-smoke {
