@@ -8,7 +8,7 @@ const now = Date.parse('2026-09-27T09:00:00Z'), start = Date.parse('2026-09-28T1
 const context = { fetchedAt: new Date(now).toISOString(), validUntil: new Date(now + 300000).toISOString() };
 const scope = { date: '2026-09-28', window: { start: '10:00', end: '19:00' }, timezone: 'Europe/Moscow', providerLocation: 'nnv', now };
 const rawVenue = { id: 44, title: 'Synthetic venue', site_url: 'https://kudago.com/nnv/place/test/', coords: { lat: 56.32, lon: 44 },
-  is_closed: false, timetable: 'пн–пт 10:00–19:00; сб, вс закрыто' };
+  is_closed: false, timetable: 'пн\u2013пт 10:00\u201319:00; сб, вс закрыто' };
 function rawEvent(visit = false) { return { id: 123, title: 'Synthetic event', location: { slug: 'nnv' }, site_url: 'https://kudago.com/nnv/event/test/',
   dates: [{ start, end: visit ? start + 30 * 86400 : start + 3600, is_startless: false, is_endless: false, is_continuous: false,
     use_place_schedule: visit, schedules: [] }], place: rawVenue, price: 'бесплатно', is_free: true, age_restriction: '6+' }; }

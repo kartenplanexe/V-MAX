@@ -15,7 +15,7 @@ export function eventSourceUrl(value: string | null | undefined): string | undef
 }
 export function eventWindowText(window: { start_utc: number; end_utc: number }, timezone: string) {
   const format = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: timezone });
-  return `${format.format(new Date(window.start_utc * 1000))} — ${format.format(new Date(window.end_utc * 1000))}`;
+  return `${format.format(new Date(window.start_utc * 1000))} - ${format.format(new Date(window.end_utc * 1000))}`;
 }
 export function selectedEventDisplay(view: PlanningView, dayId: string, activityId: string): SelectedEventDisplay | undefined {
   const day = view.draft.days.find(value => value.day_id === dayId), activity = day?.activities.find(value => value.id === activityId);
@@ -26,7 +26,7 @@ export function selectedEventDisplay(view: PlanningView, dayId: string, activity
 }
 export function EventPriceAge({ price, age }: Pick<EventCard, 'price' | 'age'>) {
   return <div className="event-price-age"><p>{price.kind === 'free' && price.strict_eligible ? 'Вход бесплатный по данным источника' : price.kind === 'conflict' ? 'Сведения о цене противоречивы' : price.display || 'Цена не указана'}</p>
-    {price.kind === 'bounded' ? <p className="field-hint">Для бюджета — до {new Intl.NumberFormat('ru-RU').format(price.admission_upper_minor! / 100)} ₽ на человека. Билеты уточните у организатора.</p>
+    {price.kind === 'bounded' ? <p className="field-hint">Для бюджета - до {new Intl.NumberFormat('ru-RU').format(price.admission_upper_minor! / 100)} ₽ на человека. Билеты уточните у организатора.</p>
       : price.kind !== 'free' && <p className="field-hint">Верхняя цена не указана. С ограничением бюджета такое событие может не войти в план.</p>}
     <p>{age.state === 'known' && age.minimum != null ? `Возрастное ограничение: ${age.minimum}+` : 'Возрастное ограничение неизвестно'}</p></div>;
 }
@@ -37,7 +37,7 @@ export function EventSource({ source, timezone }: { source: Source; timezone: st
 }
 export function EventChoiceFacts({ choice, timezone }: { choice: EventAvailabilityChoice | SelectedEventDisplay; timezone: string }) {
   return <div className="event-choice-facts"><h4>{choice.title}</h4>{choice.venue_name && <p>{choice.venue_name}</p>}{choice.location_label && <p className="event-address">{choice.location_label}</p>}
-    <p className="event-schedule-label">{choice.schedule.kind === 'fixed' ? 'Официальный сеанс — целиком' : 'Доступные часы посещения'}</p>
+    <p className="event-schedule-label">{choice.schedule.kind === 'fixed' ? 'Официальный сеанс - целиком' : 'Доступные часы посещения'}</p>
     <ul className="event-windows">{choice.schedule.windows_utc.map((window, index) => <li key={index}>{eventWindowText(window, timezone)}</li>)}</ul>
     <EventPriceAge price={choice.price} age={choice.age} /><EventSource source={choice.source} timezone={timezone} /></div>;
 }

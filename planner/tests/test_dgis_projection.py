@@ -22,7 +22,7 @@ def test_previous_special_schedule_is_used_for_overnight():
 
 def test_unknown_or_malformed_schedule_does_not_become_open_or_closed():
     for schedule in ({}, {"Fri": {"working_hours": [{"from": "12:99", "to": "15:00"}]}},
-                     {"Fri": {"working_hours": []}, "comment": "санитарный день — последняя пятница"}):
+                     {"Fri": {"working_hours": []}, "comment": "санитарный день \u2014 последняя пятница"}):
         out = project({"id": "1", "name": "Тест", "schedule": schedule})
         assert out["opening_intervals"] == {}
         assert out["normalization_warnings"]

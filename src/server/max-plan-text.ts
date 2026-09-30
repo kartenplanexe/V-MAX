@@ -16,9 +16,9 @@ export function eventVisitText(visit: Visit, timezone: string): string[] {
         try { return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: timezone }).format(new Date(at * 1000)); }
         catch { return `${new Date(at * 1000).toISOString()} (UTC)`; }
       };
-      lines.push(`Сеанс по данным KudaGo: ${format(event.official_start_utc)}–${format(event.official_end_utc)}.`);
+      lines.push(`Сеанс по данным KudaGo: ${format(event.official_start_utc)}-${format(event.official_end_utc)}.`);
     } else lines.push('Выбран фиксированный сеанс; официальное время в данных не указано.');
-  } else lines.push(`Посещение ≈${visit.ends_at - visit.starts_at} мин — длительность, выбранная вами.`);
+  } else lines.push(`Посещение ≈${visit.ends_at - visit.starts_at} мин - длительность, выбранная вами.`);
   lines.push(event.minimum_age === null ? 'Возрастное ограничение неизвестно.' : `Возраст: ${event.minimum_age}+.`);
   lines.push(visit.price_expected_minor === 0 ? 'Вход бесплатный по данным источника.' : visit.price_expected_minor != null
     ? `На билеты для вашей группы: до ${visit.price_expected_minor / 100} ₽ по данным афиши.` : 'Стоимость входа неизвестна.');

@@ -38,12 +38,12 @@ const messages: Record<string, string> = {
   AGE_ELIGIBILITY_DATA_REQUIRED: 'Источник не подтвердил возрастное ограничение для вашей группы. Выберите другое событие или уточните данные у организатора.',
   EVENT_PREVIEW_EXPIRED: 'Срок проверки афиши истёк. Обновите афишу и выберите вариант снова.',
   EVENT_PREVIEW_STALE: 'Условия плана изменились. Откройте актуальные условия и повторите выбор.',
-  EVENT_SELECTION_CHANGED: 'Выбранный сеанс или площадка изменились. Ваше пожелание сохранено — перепроверьте или выберите событие заново.',
+  EVENT_SELECTION_CHANGED: 'Выбранный сеанс или площадка изменились. Ваше пожелание сохранено - перепроверьте или выберите событие заново.',
   EVENT_DURATION_REQUIRED: 'Для посещения выставки укажите свою оценку длительности: от 5 до 720 минут.',
   EVENT_LOCALITY_UNSUPPORTED: 'Для этого города пока нет подключённой афиши. Можно выбрать другие занятия.',
   EVENT_OUTSIDE_LOCALITY: 'Площадка события находится вне выбранного города. Выберите другое событие.',
   UNKNOWN_EVENT_ACTIVITY: 'Выбранное занятие изменилось. Откройте актуальные условия.',
-  EVENT_RESELECT_REQUIRED: 'Для события выберите другой сеанс через афишу — обычная замена места к нему не применяется.',
+  EVENT_RESELECT_REQUIRED: 'Для события выберите другой сеанс через афишу - обычная замена места к нему не применяется.',
   EVENT_DURATION_NOT_APPLICABLE: 'У этого сеанса официальная длительность. Выберите его без своей оценки времени.',
   EVENT_DURATION_OUTSIDE_WINDOW: 'Указанная длительность не помещается в часы посещения. Измените её или выберите другой вариант.',
   EVENT_LOCATION_CHANGED: 'Площадка события изменилась. Выберите событие заново и подтвердите новое место.',
@@ -57,13 +57,13 @@ const messages: Record<string, string> = {
   INTENT_CONFIG_REQUIRED: 'Разбор текста сейчас недоступен. Выберите город и нажмите «Выбрать вручную».',
   PLANNER_NOT_CONFIGURED: 'Планировщик пока недоступен. Попробуйте открыть его позже.',
   GEOGRAPHY_UNAVAILABLE: 'Не удалось получить города из 2ГИС. Проверьте подключение и повторите поиск.',
-  ADDRESS_QUERY_REQUIRED: 'Укажите улицу и номер дома — от 4 до 120 символов.',
-  LOCALITY_SELECTION_EXPIRED: 'Выберите город ещё раз — время выбора истекло.',
+  ADDRESS_QUERY_REQUIRED: 'Укажите улицу и номер дома - от 4 до 120 символов.',
+  LOCALITY_SELECTION_EXPIRED: 'Выберите город ещё раз - время выбора истекло.',
   OPERATION_IN_PROGRESS: 'Предыдущее действие ещё выполняется. Дождитесь результата.',
   INTENT_INTERRUPTED: 'Разбор был прерван. Напишите новый запрос; предыдущий автоматически не повторяется.',
   PLAN_INTERRUPTED: 'Расчёт прервался. Можно запустить его снова.',
   CATALOG_UNAVAILABLE: 'Каталог категорий 2ГИС сейчас недоступен. Новый план не составлен; сохранённые маршруты можно открыть позже.',
-  INVALID_REQUEST_TEXT: 'Напишите пожелания — не более 4000 символов.',
+  INVALID_REQUEST_TEXT: 'Напишите пожелания - не более 4000 символов.',
   INTENT_INVALID_RESPONSE: 'Не удалось надёжно разобрать пожелания. План не создан.',
   INTENT_NEEDS_CLARIFICATION: 'В запросе есть неоднозначное или неподдержанное условие. Мы не стали его угадывать.',
   INTENT_PROVIDER_FAILED: 'Сервис разбора запроса не ответил. Автоматического повтора не было.',
@@ -114,7 +114,7 @@ const messages: Record<string, string> = {
   CLARIFICATION_NOT_FOUND: 'Это уточнение уже изменилось. Загрузите сохранённую версию.',
   ACTIVITY_EXCLUSIONS_REVIEW_REQUIRED: 'Этот тип конфликтует с сохранёнными исключениями занятия. Выберите совместимый тип; исключения не сняты.',
   SHARE_CLARIFICATION_REQUIRED: 'Перед отправкой маршрута разберите оставшиеся уточнения.',
-  PLANNING_PIPELINE_FAILED: 'Не удалось завершить расчёт. Ваши параметры сохранены — попробуйте позже.',
+  PLANNING_PIPELINE_FAILED: 'Не удалось завершить расчёт. Ваши параметры сохранены - попробуйте позже.',
   ROUTING_PROVIDER_UNAVAILABLE: routingUnavailableNotice,
   ROUTE_RECHECK_FAILED: 'Время дороги изменилось: прежний план больше не помещается. Попробуйте расширить свободное окно.',
   PLAN_EXPIRED_OR_INVALID: 'Данные устарели во время расчёта. Этот план не выдаём как проверенный.',
@@ -149,7 +149,7 @@ const warningText = (code: string) => ({
   EVENT_VISIT_DURATION_ESTIMATED: 'Длительность посещения события выбрана вами; это не продолжительность официального сеанса.',
   EVENT_AGE_UNKNOWN: 'Источник не указал возрастное ограничение события. Уточните его у организатора.',
   PRICE_UNKNOWN: 'Не все цены известны: общий бюджет не подтверждён.',
-  PRICE_ESTIMATED: 'Цена — ориентир, а не гарантированная стоимость.',
+  PRICE_ESTIMATED: 'Цена - ориентир, а не гарантированная стоимость.',
   AGE_ELIGIBILITY_UNVERIFIED: 'Возрастные ограничения места неизвестны. Уточните возможность посещения с детьми перед поездкой.',
   BUDGET_ESTIMATED_NOT_GUARANTEED: 'Расходы оценены приблизительно. Соблюдение лимита не гарантируется.',
   TRANSPORT_COST_UNKNOWN: 'Стоимость транспорта неизвестна.',
@@ -230,7 +230,7 @@ export function PlannerForm() {
         setExternalRouting(value?.planning?.routingMode !== 'verified'); } }).catch(() => {});
     void waitForMaxLaunchData(() => readMaxLaunchData(window.WebApp?.initData, window.location.hash)).then(token => {
       if (!active) return;
-      if (!token) { setBusy(''); setError('Откройте мини-приложение из чата с ботом — MAX передаст данные для входа.'); return; }
+      if (!token) { setBusy(''); setError('Откройте мини-приложение из чата с ботом - MAX передаст данные для входа.'); return; }
       setLaunchToken(token);
       const launch = new URLSearchParams(token).get('start_param');
       const launchShare = launch && /^share_[A-Za-z0-9_-]{43}$/u.test(launch) ? launch.slice(6) : '';
@@ -312,7 +312,7 @@ export function PlannerForm() {
     const latest = await request<PlanningView>(`/api/planning/drafts/${displayed.id}`, session.token);
     accept(latest);
     if (!same(latest.draft, displayed.draft)) {
-      setNotice('Условия уже изменились. Загружена сохранённая версия — проверьте её перед расчётом.');
+      setNotice('Условия уже изменились. Загружена сохранённая версия - проверьте её перед расчётом.');
       return;
     }
     await calculate(latest, true);
@@ -401,7 +401,7 @@ export function PlannerForm() {
       <aside className="summary-rail" aria-label="Условия маршрута"><div className="route-summary"><p className="summary-label">Ваши пожелания</p>
         <h2>{(draft.days.length === 1 ? draft.days[0]!.activities.map(activity => activityTitle(draft.days[0]!.day_id, activity)).join(' → ') : [...new Set(draft.days.flatMap(day => day.activities.map(activity => activityTitle(day.day_id, activity))))].join(' · ')) || 'Выберите, чем заняться'}</h2>
         <div className="constraint-chips"><button type="button" onClick={() => openConditions('time')}><Icon name="calendar" />{draft.days.length === 1 ? displayDate(draft.days[0]!.date) : `${draft.days.length} дня`}</button>
-          <button type="button" onClick={() => openConditions('time')}><Icon name="clock" />{new Set(draft.days.map(day => `${day.window?.start}:${day.window?.end}`)).size > 1 ? 'Время по дням' : draft.days[0]?.window ? `${draft.days[0].window.start}–${draft.days[0].window.end}` : 'Выбрать время'}</button>
+          <button type="button" onClick={() => openConditions('time')}><Icon name="clock" />{new Set(draft.days.map(day => `${day.window?.start}:${day.window?.end}`)).size > 1 ? 'Время по дням' : draft.days[0]?.window ? `${draft.days[0].window.start}-${draft.days[0].window.end}` : 'Выбрать время'}</button>
           <button type="button" onClick={() => openConditions('people')}><Icon name="walk" />{modesLabel(draft.shared.mobility?.length === 1 ? draft.shared.mobility[0] : undefined)}</button>
           <button type="button" onClick={() => openConditions('points')}><Icon name="pin" />Радиус {new Intl.NumberFormat('ru-RU').format((draft.shared.search_radius_meters ?? defaultSearchRadiusMeters(draft.shared.mobility)) / 1000)} км</button>
           {draft.shared.budget?.kind === 'limit' && <button type="button" onClick={() => openConditions('budget')}><Icon name="wallet" />{new Intl.NumberFormat('ru-RU').format(draft.shared.budget.amount_rub)} ₽{draft.shared.budget.enforcement === 'estimated' ? ' ≈' : ''}</button>}</div>
@@ -423,7 +423,7 @@ export function PlannerForm() {
             loadActivities={() => request<ManualChoices>(`/api/planning/drafts/${view.id}/activity-options`, session!.token)}
             choose={(dayId, activityId, choice, options) => void act('Сохраняем занятие…', () => quickSave({ op: 'activity_choice', day_id: dayId,
               activity_id: activityId, catalog_version: options.catalog_version, choice }))} /></> :
-          firstIssue?.code === 'ORIGIN_REQUIRED' ? <><span className="step-symbol"><Icon name="pin" /></span><h2 id="next-step">Откуда начинаем?</h2><p>{externalRouting ? 'Выберите удобную точку — подберём близкие места.' : 'Выберите удобную точку — от неё посчитаем время в пути.'}</p>
+          firstIssue?.code === 'ORIGIN_REQUIRED' ? <><span className="step-symbol"><Icon name="pin" /></span><h2 id="next-step">Откуда начинаем?</h2><p>{externalRouting ? 'Выберите удобную точку - подберём близкие места.' : 'Выберите удобную точку - от неё посчитаем время в пути.'}</p>
           <div className="choice-list"><Action stretched disabled={!!busy} onClick={() => void act('Определяем местоположение…', () => locate(true))} iconBefore={<Icon name="pin" />}>Моё местоположение</Action>
             <Action variant="secondary" stretched disabled={!!busy} onClick={() => setPointEditor('address')}>Указать адрес</Action>
             {mapsAvailable && <Action variant="ghost" stretched disabled={!!busy} onClick={() => setPointEditor('map')}>Выбрать на карте</Action>}</div></> :

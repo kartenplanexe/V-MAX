@@ -15,7 +15,7 @@ function fixture() {
   for (const item of f.items) { item.point.lat += 0.57; item.point.lon += 6.38; }
   const start = Date.parse('2026-09-25T13:30:00Z') / 1000;
   const venue = { id: 44, title: 'Учебный зал', site_url: 'https://kudago.com/nnv/place/synthetic-only/',
-    coords: { lat: 56.321, lon: 44.001 }, is_closed: false, timetable: 'пн–вс 10:00–22:00' };
+    coords: { lat: 56.321, lon: 44.001 }, is_closed: false, timetable: 'пн\u2013вс 10:00\u201322:00' };
   const event = { id: 123, title: 'Учебный сеанс', location: { slug: 'nnv' }, site_url: 'https://kudago.com/nnv/event/synthetic-only/',
     dates: [{ start, end: start + 3600, is_startless: false, is_endless: false, is_continuous: false,
       use_place_schedule: false, schedules: [] }], place: venue, price: 'бесплатно', is_free: true, age_restriction: '0+' };

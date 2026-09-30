@@ -86,7 +86,7 @@ export function ConditionsPanel({ draft, view, busy, dirty, mapsAvailable, patch
   }}>
     <fieldset disabled={busy} className="conditions-scroll">
       <h3 className="conditions-group-title">Время, место и ограничения</h3><div className="conditions-group">
-      <ConditionSection title="Дата и время" icon="calendar" {...section('time')} summary={draft.days.length > 1 ? `${draft.days.length} дня · отдельные окна` : `${dateLabel(draft.days[0]!.date)} · ${draft.days[0]!.window ? `${draft.days[0]!.window!.start}–${draft.days[0]!.window!.end}` : 'Время не задано'}`}>
+      <ConditionSection title="Дата и время" icon="calendar" {...section('time')} summary={draft.days.length > 1 ? `${draft.days.length} дня · отдельные окна` : `${dateLabel(draft.days[0]!.date)} · ${draft.days[0]!.window ? `${draft.days[0]!.window!.start}-${draft.days[0]!.window!.end}` : 'Время не задано'}`}>
         {draft.days.map((day, index) => <div className="day-fields" key={day.day_id}>
           {draft.days.length > 1 && <h4>День {index + 1}</h4>}
           <div className="field-row field-row--time">
@@ -178,7 +178,7 @@ export function ConditionsPanel({ draft, view, busy, dirty, mapsAvailable, patch
               <Action variant="ghost" className="icon-action" aria-label={`Убрать занятие «${activity.label}»`} onClick={() => remove(dayIndex, activity.id)}><Icon name="close" /></Action></div>
           </li>)}</ol>
           {!day.activities.length && <p className="field-hint">Добавьте занятие или событие, чтобы построить маршрут на этот день.</p>}
-          {day.activities.some(activity => activity.intent_kind !== 'event_visit') && <p className="field-hint">Длительность посещения — оценка. Задайте своё время, если хотите провести в месте больше или меньше минут.</p>}
+          {day.activities.some(activity => activity.intent_kind !== 'event_visit') && <p className="field-hint">Длительность посещения - оценка. Задайте своё время, если хотите провести в месте больше или меньше минут.</p>}
           {day.activities.length > 1 && <label className="checkbox-label"><input type="checkbox" checked={day.order.length > 0} onChange={event => patch(value => {
             const target = value.days[dayIndex]!; target.order = event.target.checked ? target.activities.slice(1).map((a, i) => [target.activities[i]!.id, a.id]) : [];
           })} />Посетить в этом порядке</label>}

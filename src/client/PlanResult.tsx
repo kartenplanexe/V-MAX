@@ -20,7 +20,7 @@ const modes: Record<string, string> = { walking: 'Пешком', driving: 'На 
 type Transit = NonNullable<NonNullable<PlanningView['result']>['days'][number]['travel_segments']>[number]['transit'];
 function TransitDetails({ transit }: { transit: Transit }) {
   if (!transit) return null;
-  return <details className="transit-details"><summary>{transit.pedestrian ? 'Этот участок — пешком' : `Как проехать${transit.transferCount ? ` · пересадок ${transit.transferCount}` : ''}`}</summary>
+  return <details className="transit-details"><summary>{transit.pedestrian ? 'Этот участок - пешком' : `Как проехать${transit.transferCount ? ` · пересадок ${transit.transferCount}` : ''}`}</summary>
     <ol>{transit.stages.map((stage, index) => <li key={index}><strong>{transitStageText(stage)}</strong>
       {stage.movingSeconds != null && <span>В пути около {Math.ceil(stage.movingSeconds / 60)} мин</span>}
       {stage.waitingSeconds != null && stage.waitingSeconds > 0 && <span>Ожидание около {Math.ceil(stage.waitingSeconds / 60)} мин</span>}</li>)}</ol>
@@ -71,14 +71,14 @@ export function PlanResult({ view, mapsAvailable, busy, edit, retry, replace, sh
     <div className={`route-receipt route-receipt--${plan.status.toLowerCase()}`}>
       <div className={`result-notice result-notice--${plan.status.toLowerCase()}`} role="status"><Icon name={plan.status === 'AVAILABLE' ? 'check' : 'alert'} />
         <div><h2>{title}</h2><p>{plan.status === 'AVAILABLE' ? 'Дорога и запас времени учтены.' : plan.status === 'LIMITED' ? missingWishes ? 'Часть пожеланий не вошла. Условия не менялись.' : 'Маршрут рассчитан. Ниже указано, какие сведения нужно проверить перед выходом.' : plan.status === 'UNAVAILABLE' ? unavailablePlanNotice(plan) : plan.issues?.map(humanError).join(' ') || 'Проверьте условия или повторите расчёт.'}</p></div></div>
-      {stopCount > 0 && <dl className="route-metrics"><div><dt>{plan.days.length > 1 ? 'Всего остановок' : 'Остановок'}</dt><dd>{stopCount}</dd></div><div><dt>{plan.days.length > 1 ? 'Всего в пути с запасом' : 'В пути с запасом'}</dt><dd>{travel == null ? '—' : `${travel} мин`}</dd></div>
+      {stopCount > 0 && <dl className="route-metrics"><div><dt>{plan.days.length > 1 ? 'Всего остановок' : 'Остановок'}</dt><dd>{stopCount}</dd></div><div><dt>{plan.days.length > 1 ? 'Всего в пути с запасом' : 'В пути с запасом'}</dt><dd>{travel == null ? '-' : `${travel} мин`}</dd></div>
         <div><dt>{plan.days.length > 1 ? 'Расходы за все дни' : 'Расходы, ориентир'}</dt><dd>{money(plan.total_expected_cost_minor)}</dd></div></dl>}
     </div>
     {view.capabilities.data_mode === 'test' && <p className="data-label">Учебный пример · места и время в пути синтетические</p>}
     <CandidatePlaces view={view} mapsAvailable={mapsAvailable} />
     {plan.days.length > 1 && <nav className="day-tabs" aria-label="Дни маршрута">{plan.days.map(value => <button key={value.day_id} type="button" aria-pressed={day?.day_id === value.day_id}
       onClick={() => { setSelectedDay(value.day_id); setSelectedVisit(0); }}><strong>{date(value.date)}</strong><span>{value.status === 'AVAILABLE' ? 'Готово' : value.status === 'LIMITED' ? 'Частично' : 'Нет плана'}</span></button>)}</nav>}
-    {day && <>{plan.days.length > 1 && <div className="day-heading"><h3>{date(day.date)}</h3><span>{requestedDay?.window ? `${requestedDay.window.start}–${requestedDay.window.end}` : status}</span></div>}
+    {day && <>{plan.days.length > 1 && <div className="day-heading"><h3>{date(day.date)}</h3><span>{requestedDay?.window ? `${requestedDay.window.start}-${requestedDay.window.end}` : status}</span></div>}
       {mapsAvailable && visits.length > 0 && <nav className="view-switch" aria-label="Отображение маршрута"><Action variant="ghost" aria-pressed={mode === 'plan'} onClick={() => setMode('plan')}><Icon name="list" />План</Action>
         <Action variant="ghost" aria-pressed={mode === 'map'} onClick={() => setMode('map')}><Icon name="map" />Карта</Action></nav>}
       {mode === 'map' && mapsAvailable ? <PlanMap day={day} origin={plan.origin ?? draft.points.origin} destination={draft.points.destination} activeVisitIndex={selectedVisit} onSelectVisit={setSelectedVisit} /> : <ol className="dayline">
@@ -92,7 +92,7 @@ export function PlanResult({ view, mapsAvailable, busy, edit, retry, replace, sh
             <div className="dayline-buffer">Запас перед посещением · {visit.arrival_buffer_minutes} мин{wait > 0 && <> · ожидание {wait} мин</>}</div>
             <TransitDetails transit={day.travel_segments?.find(segment => segment.to_id === visit.place_id)?.transit} />
             <article className="stop-card"><span className="stop-number" aria-label={`Остановка ${index + 1}`}>{index + 1}</span>
-              <div className="stop-time"><time>{time(visit.starts_at)}–{time(visit.ends_at)}</time><span>{visit.ends_at - visit.starts_at} мин · {visit.event?.duration_basis === 'provider_session' ? 'официальный сеанс' : visit.event?.duration_basis === 'user_estimate' ? 'ваша оценка длительности' : 'расчётный визит'}</span></div>
+              <div className="stop-time"><time>{time(visit.starts_at)}-{time(visit.ends_at)}</time><span>{visit.ends_at - visit.starts_at} мин · {visit.event?.duration_basis === 'provider_session' ? 'официальный сеанс' : visit.event?.duration_basis === 'user_estimate' ? 'ваша оценка длительности' : 'расчётный визит'}</span></div>
               <div className="stop-content"><h4>{visit.name}</h4>{visit.location_label && <p className="stop-address">{visit.location_label}</p>}
                 <p className="stop-price">{visit.event && visit.price_expected_minor === 0 ? 'Вход бесплатный по данным источника' : visit.price_expected_minor == null ? 'Стоимость не указана' : `${money(visit.price_expected_minor)} · ориентир`}</p>
                 {visit.event && <div className="event-result-details"><p>{visit.event.minimum_age == null ? 'Возрастное ограничение неизвестно' : `Возрастное ограничение: ${visit.event.minimum_age}+`}</p>

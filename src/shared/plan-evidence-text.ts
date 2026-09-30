@@ -3,7 +3,7 @@ import type { PlanningView } from './planning-form.js';
 type Plan = NonNullable<PlanningView['result']>;
 
 export const partialSearchNotice = 'Получена только часть мест. Подходящие варианты могут остаться за пределами поиска.';
-export const routingUnavailableNotice = 'Сервис проверки дороги сейчас недоступен. Ваши условия сохранены — повторите расчёт позже.';
+export const routingUnavailableNotice = 'Сервис проверки дороги сейчас недоступен. Ваши условия сохранены - повторите расчёт позже.';
 
 export function planWarningCodes(plan: Plan): string[] {
   return [...new Set([...plan.warnings, ...(plan.search_scope?.coverage === 'PARTIAL' ? ['RETRIEVAL_PARTIAL'] : [])])];

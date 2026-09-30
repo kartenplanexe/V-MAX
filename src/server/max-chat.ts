@@ -51,7 +51,7 @@ export interface MaxChatDependencies {
 }
 
 const eventKey = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 32);
-const welcomeText = 'Привет! Я помогу составить план досуга прямо в чате. Опишите желание своими словами — например: «Завтра после 16 хочу погулять в Казани и поесть». Или выберите действие ниже.\n\nТекст обработает Alice AI. Не присылайте телефон, документы и другие личные сведения. Подробнее — /privacy.';
+const welcomeText = 'Привет! Я помогу составить план досуга прямо в чате. Опишите желание своими словами - например: «Завтра после 16 хочу погулять в Казани и поесть». Или выберите действие ниже.\n\nТекст обработает Alice AI. Не присылайте телефон, документы и другие личные сведения. Подробнее - /privacy.';
 const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 const appButton = (botUsername: string, text = 'Подробнее и карта'): Button => ({ type: 'open_app', text, web_app: botUsername });
 const callback = (text: string, payload: string): Button => ({ type: 'callback', text, payload });
@@ -77,7 +77,7 @@ export const navigationButtons = (state: BotNavigation, surface: NavigationSurfa
 export const routeTitle = (view: PlanningView) => {
   const first = view.draft.days[0];
   const activity = first?.activities.map(item => item.label).slice(0, 2).join(' → ');
-  return [view.draft.locality.name, first?.date, activity].filter(Boolean).join(' · ').slice(0, 120);
+  return [first?.date, view.draft.locality.name, activity].filter(Boolean).join(' · ').slice(0, 120);
 };
 
 function parseUpdate(raw: unknown): Incoming | null {
@@ -135,7 +135,7 @@ function summary(view: PlanningView) {
   for (const day of view.draft.days) {
     const date = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' })
       .format(new Date(`${day.date}T12:00:00Z`));
-    parts.push(`📅 ${date}${day.window ? ` · ${day.window.start}–${day.window.end}` : ' · время уточним'}`);
+    parts.push(`📅 ${date}${day.window ? ` · ${day.window.start}-${day.window.end}` : ' · время уточним'}`);
     if (day.activities.length) parts.push(`✨ ${day.activities.map(a => a.label).join(' → ')}`);
   }
   const mobility = view.draft.shared.mobility?.length === 1 ? view.draft.shared.mobility[0] : undefined;
@@ -148,11 +148,11 @@ function summary(view: PlanningView) {
     const scope = `${budget.basis === 'whole_party' ? 'на всех' : budget.basis === 'per_person' ? 'на человека' : '(единицу уточним)'} ${budget.period === 'whole_trip' ? 'за поездку' : budget.period === 'per_day' ? 'за день' : '(срок уточним)'}`;
     parts.push(budget.enforcement === 'estimated'
       ? `💳 Ориентир ${budget.amount_rub} ₽ ${scope}. Цены оценим по среднему чеку на человека; соблюдение суммы не гарантируется.`
-      : `💳 До ${budget.amount_rub} ₽ ${scope} — строгий лимит`);
+      : `💳 До ${budget.amount_rub} ₽ ${scope} - строгий лимит`);
   }
   if (view.draft.points.origin) parts.push(`↗️ Старт: ${view.draft.points.origin.label ?? 'выбранная точка'}`);
   parts.push(`Радиус от старта: ${new Intl.NumberFormat('ru-RU').format((view.draft.shared.search_radius_meters ?? defaultSearchRadiusMeters(view.draft.shared.mobility)) / 1000)} км. Можно изменить в условиях мини-приложения.`);
-  if (Object.values(view.provenance).includes('suggested')) parts.push('Время без точных часов — наше предложение, его можно изменить.');
+  if (Object.values(view.provenance).includes('suggested')) parts.push('Время без точных часов - наше предложение, его можно изменить.');
   return parts.join('\n').slice(0, 3900);
 }
 
@@ -167,7 +167,7 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
   const segments = result.days.flatMap(day => day.travel_segments ?? []);
   const timezone = view.draft.locality.timezone;
   const unknownFare = ['TRANSIT_PRICE_UNKNOWN', 'TRANSPORT_COST_UNKNOWN'].some(code => warnings.has(code));
-  const lead = result.status === 'PLACES_FOUND' ? 'Подобрал варианты мест. Путь и время дороги можно посмотреть в 2ГИС по ссылкам ниже.' : result.status === 'AVAILABLE' ? 'Готово — вот план:' : result.status === 'LIMITED'
+  const lead = result.status === 'PLACES_FOUND' ? 'Подобрал варианты мест. Путь и время дороги можно посмотреть в 2ГИС по ссылкам ниже.' : result.status === 'AVAILABLE' ? 'Готово - вот план:' : result.status === 'LIMITED'
     ? tentative ? 'Предварительный план: доступность места на это время не подтверждена.' : 'Удалось составить часть плана:' : result.status === 'ERROR'
       ? planFailureNotice(result) : routeCheckFailed
         ? 'Места могли найтись, но сейчас не удалось проверить путь до них.'
@@ -189,23 +189,23 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
       if (!day || !activity) continue;
       lines.push(`\n${view.draft.days.length > 1 ? `${day.date} · ` : ''}${activity.label} · ${group.places.length}`);
       for (const place of group.places.slice(0, 3)) {
-        lines.push(`• ${place.name}${place.location_label ? ` — ${place.location_label}` : ''}`);
+        lines.push(`• ${place.name}${place.location_label ? ` - ${place.location_label}` : ''}`);
         if (place.event_visit) {
           const event = place.event_visit;
           const time = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
-          lines.push(`${time(event.starts_at)}–${time(event.ends_at)} · ${event.schedule_kind === 'fixed' ? 'сеанс' : 'планируемое посещение'}`);
+          lines.push(`${time(event.starts_at)}-${time(event.ends_at)} · ${event.schedule_kind === 'fixed' ? 'сеанс' : 'планируемое посещение'}`);
           lines.push(event.admission_upper_minor === null ? 'Стоимость билетов уточните у организатора.' : event.admission_upper_minor === 0
-            ? 'Вход бесплатный.' : `На билеты для вашей группы — до ${event.admission_upper_minor / 100} ₽ по данным афиши.`);
-        } else if (place.estimated_visit_minutes !== undefined) lines.push(`На посещение — примерно ${place.estimated_visit_minutes} мин.`);
+            ? 'Вход бесплатный.' : `На билеты для вашей группы - до ${event.admission_upper_minor / 100} ₽ по данным афиши.`);
+        } else if (place.estimated_visit_minutes !== undefined) lines.push(`На посещение - примерно ${place.estimated_visit_minutes} мин.`);
         const link = candidateSourceLink(place.source); if (link) lines.push(link);
         const directions = dgisDirectionsLink(place.point, view.draft.shared.mobility?.[0], view.draft.points.origin);
         if (directions) lines.push(`Перейти в 2ГИС: ${directions}`);
       }
-      if (group.places.length > 3) lines.push(`Ещё ${group.places.length - 3} — в мини-приложении.`);
+      if (group.places.length > 3) lines.push(`Ещё ${group.places.length - 3} - в мини-приложении.`);
     }
     if (result.candidate_preview.groups.some(group => group.places.some(place => place.source.data_mode !== 'live')))
       lines.push('Среди вариантов есть учебные или подготовленные данные; это не живая проверка мест.');
-    lines.push('Полный список и время получения данных — в мини-приложении.');
+    lines.push('Полный список и время получения данных - в мини-приложении.');
     messages.push({ text: lines.join('\n') });
   }
   if (result.days.some(day => day.visits.length)) messages.push({ text:
@@ -249,7 +249,7 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
     for (const visit of day.visits) {
       const segment = day.travel_segments?.find(candidate => candidate.from_id === previous && candidate.to_id === visit.place_id);
       lines.push(...travelSegmentText(segment, timezone));
-      lines.push(`${clock(visit.starts_at)}–${clock(visit.ends_at)}  ${visit.name}`);
+      lines.push(`${clock(visit.starts_at)}-${clock(visit.ends_at)}  ${visit.name}`);
       lines.push(...eventVisitText(visit, timezone));
       if (visit.location_label) lines.push(`📍 ${visit.location_label}`);
       lines.push(`В пути ${visit.travel_before_minutes} мин${visit.distance_before_meters == null ? '' : ` / ≈${Math.round(visit.distance_before_meters / 100) / 10} км`} · запас ${visit.arrival_buffer_minutes} мин · ${visit.price_expected_minor == null ? 'цена неизвестна' : `≈ ${visit.price_expected_minor / 100} ₽`}`);
@@ -273,7 +273,7 @@ export function formatChatPlanMessages(view: PlanningView): Message[] {
     if (day.missing_activity_ids.length) {
       const labels = day.missing_activity_ids.map(id => draftDay?.activities.find(activity => activity.id === id)?.label ?? 'часть пожеланий');
       lines.push(`Не удалось включить: ${labels.join(', ')}.`);
-      lines.push('Это неполный маршрут — оставшиеся пожелания не считаем выполненными.');
+      lines.push('Это неполный маршрут - оставшиеся пожелания не считаем выполненными.');
     }
     if (!day.visits.length) lines.push(unavailablePlanNotice(result));
     messages.push({ text: lines.join('\n') });
@@ -383,7 +383,7 @@ export class MaxChatController {
       state.mode = 'awaiting_request'; delete state.activeRouteId; delete state.deletePendingRouteId;
       return structuredClone(state);
     });
-    await this.send(userId, { text: 'Новый маршрут. Напишите, как хотите провести время — например: «Завтра после 16 погулять в Казани и поесть».',
+    await this.send(userId, { text: 'Новый маршрут. Напишите, как хотите провести время - например: «Завтра после 16 погулять в Казани и поесть».',
       buttons: navigationButtons(state) });
   }
 
@@ -394,13 +394,16 @@ export class MaxChatController {
       return structuredClone(state);
     });
     await this.send(userId, { text: state.routes.length
-      ? 'Вышли из планирования. Сохранённые маршруты — в «Моих маршрутах».' : 'Вы вне режима планирования.',
+      ? 'Вышли из планирования. Сохранённые маршруты - в «Моих маршрутах».' : 'Вы вне режима планирования.',
       buttons: navigationButtons(state) });
   }
 
   private async listRoutes(owner: string, userId: number, page = 0) {
     const state = await this.changeNavigation(owner, value => {
       delete value.deletePendingRouteId;
+      for (const route of value.routes) {
+        route.title = route.title.replace(/^(.+?) · (\d{4}-\d{2}-\d{2})(?= · |$)/u, '$2 · $1');
+      }
       return structuredClone(value);
     });
     const routes = [...state.routes].reverse();
@@ -419,7 +422,7 @@ export class MaxChatController {
       ...(current < maxPage ? [callback('Дальше →', `nav:list:${current + 1}`)] : []),
     ]);
     buttons.push(...navigationButtons(state, 'list'));
-    await this.send(userId, { text: `Мои маршруты (${routes.length}):\n${lines.join('\n')}\n\nВыберите маршрут, чтобы продолжить. Готовые подборки доступны до удаления; незавершённые условия — до 30 дней. При обновлении места проверяются заново.`, buttons });
+    await this.send(userId, { text: `Мои маршруты (${routes.length}):\n${lines.join('\n')}\n\nВыберите маршрут, чтобы продолжить. Готовые подборки доступны до удаления; незавершённые условия - до 30 дней. При обновлении места проверяются заново.`, buttons });
   }
 
   private async openRoute(owner: string, userId: number, routeId: string) {
@@ -568,7 +571,7 @@ export class MaxChatController {
   private async handleMessage(owner: string, update: Incoming) {
     const text = update.text?.trim();
     if (text === '/privacy') {
-      await this.prompt(owner, update.userId, 'Для плана сохраняются ваш идентификатор MAX, пожелания и выбранные условия. Текст разбирает Alice AI; поиск и карта используют 2ГИС, афиша — KudaGo. Геолокация необязательна. Готовые подборки доступны до удаления через «Мои маршруты».\n\nПравовые документы доступны по ссылке «Политика обработки данных» в форме нового запроса. Реквизиты оператора и контакт для обращений пока не заполнены.', [[appButton(this.deps.botUsername, 'Открыть мини-приложение')]]);
+      await this.prompt(owner, update.userId, 'Для плана сохраняются ваш идентификатор MAX, пожелания и выбранные условия. Текст разбирает Alice AI; поиск и карта используют 2ГИС, афиша - KudaGo. Геолокация необязательна. Готовые подборки доступны до удаления через «Мои маршруты».\n\nПравовые документы доступны по ссылке «Политика обработки данных» в форме нового запроса. Реквизиты оператора и контакт для обращений пока не заполнены.', [[appButton(this.deps.botUsername, 'Открыть мини-приложение')]]);
       return;
     }
     if (text === '/new') { await this.startNew(owner, update.userId); return; }
@@ -642,7 +645,7 @@ export class MaxChatController {
       return;
     }
     await this.setPending(owner, { kind: 'city', requestText: text, requestId: update.eventId, nonce: randomUUID().slice(0, 8) });
-    await this.prompt(owner, update.userId, 'В каком городе или населённом пункте составить план? Напишите название — остальное пожелание уже запомнил.');
+    await this.prompt(owner, update.userId, 'В каком городе или населённом пункте составить план? Напишите название - остальное пожелание уже запомнил.');
   }
 
   private async chooseCity(owner: string, userId: number, requestText: string, requestId: string, cityText: string, routeId?: string) {
@@ -665,7 +668,7 @@ export class MaxChatController {
   private async chooseAddress(owner: string, userId: number, draftId: string, query: string) {
     const q = query.trim();
     if (q.length < 4 || q.length > 120) {
-      await this.prompt(owner, userId, 'Напишите адрес с улицей и номером дома — от 4 до 120 символов.'); return;
+      await this.prompt(owner, userId, 'Напишите адрес с улицей и номером дома - от 4 до 120 символов.'); return;
     }
     const view = await this.deps.planning.get(owner, draftId);
     const choices = await this.addressChoices(owner, q, view.draft.locality.id);
@@ -791,9 +794,9 @@ export class MaxChatController {
       await this.setPending(owner, undefined);
     } else if (issue?.code === 'WINDOW_REQUIRED') {
       question = '\n\nВ какое время вы свободны? Можно выбрать предложение:';
-      buttons.push([callback('09–12', `window:${view.id}:${view.version}:09:00:12:00`),
-        callback('13–16', `window:${view.id}:${view.version}:13:00:16:00`),
-        callback('17–20', `window:${view.id}:${view.version}:17:00:20:00`)]);
+      buttons.push([callback('09-12', `window:${view.id}:${view.version}:09:00:12:00`),
+        callback('13-16', `window:${view.id}:${view.version}:13:00:16:00`),
+        callback('17-20', `window:${view.id}:${view.version}:17:00:20:00`)]);
       await this.setPending(owner, undefined);
     } else if (!issue) {
       question = this.deps.routingMode === 'external' ? '\n\nПодберу варианты мест. Дорогу и время в пути посмотрите в 2ГИС; выполнимость общего плана здесь не проверяется.' : '\n\nЕсли всё верно, составлю маршрут и проверю время в пути.';
@@ -833,7 +836,7 @@ export class MaxChatController {
       if (saved) {
         await this.setPending(owner, { kind: 'city', requestText: route.requestText, requestId: update.eventId,
           routeId, nonce: randomUUID().slice(0, 8) });
-        await this.send(update.userId, { text: 'Ваши изменённые условия сохранены. В каком городе продолжить? Напишите название — получим свежие данные, затем проверим даты и точку старта.' });
+        await this.send(update.userId, { text: 'Ваши изменённые условия сохранены. В каком городе продолжить? Напишите название - получим свежие данные, затем проверим даты и точку старта.' });
         return;
       }
       await this.openRoute(owner, update.userId, route.id);

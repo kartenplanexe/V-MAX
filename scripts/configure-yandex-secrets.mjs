@@ -51,7 +51,7 @@ try {
     const secret = yc(['lockbox', 'secret', 'get', '--id', secretId]);
     const baseVersion = secret.current_version?.id;
     if (!baseVersion) throw new Error('Не удалось определить текущую версию Lockbox. Изменений нет.');
-    console.log('Подключаюсь к ВМ. Если SSH попросит пароль ключа — введите его в этом терминале.');
+    console.log('Подключаюсь к ВМ. Если SSH попросит пароль ключа - введите его в этом терминале.');
     const remote = execute('ssh', [
       '-i', join(homedir(), '.ssh', 'maxbot-db'), '-o', 'ConnectTimeout=15',
       '-o', 'StrictHostKeyChecking=yes', 'yc-user@158.160.195.62',

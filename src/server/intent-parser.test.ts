@@ -128,7 +128,7 @@ describe('parsePlanningRequestDraft', () => {
   it('accepts an explicit exploratory preference without repeating the interest question', () => {
     const draft = parsePlanningRequestDraft({
       ...baseInput,
-      text: '2026-09-23 я свободен с 12 до 16, пешком, не знаю — удивите меня.',
+      text: '2026-09-23 я свободен с 12 до 16, пешком, не знаю \u2014 удивите меня.',
     });
 
     expect(draft.interest_profile?.variety).toBe('EXPLORATORY');

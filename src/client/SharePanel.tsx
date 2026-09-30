@@ -16,7 +16,7 @@ export function SharePanel({ created, busy, party, create, revoke }: {
     try {
       if (!window.WebApp?.shareMaxContent) { setFeedback('В этой версии MAX нет экрана отправки. Скопируйте ссылку ниже.'); return; }
 
-      const result = window.WebApp.shareMaxContent({ text: 'План досуга — откройте, чтобы посмотреть условия и маршрут.', link: created.deep_link });
+      const result = window.WebApp.shareMaxContent({ text: 'План досуга - откройте, чтобы посмотреть условия и маршрут.', link: created.deep_link });
       void Promise.resolve(result).catch(() => setFeedback('Не удалось открыть отправку. Можно скопировать ссылку.'));
     } catch { setFeedback('Не удалось открыть отправку. Можно скопировать ссылку.'); }
   }

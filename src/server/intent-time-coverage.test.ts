@@ -7,14 +7,14 @@ const time = (field: string, value: string, evidence: string) => ({ op: 'set', f
 const proposal = (updates: unknown[]) => ({ action: 'new_request', days: [{ time_updates: updates }] });
 
 it.each(['Завтра с 16:00 до 16:20 погулять', 'Время с 9 до 11', 'Можно после 18', 'Свободен до 20 часов',
-  'Гулять в 8 часов', 'Время 10:00–12:00', 'Прогулка после 18.', 'После 18, потом поесть'])('detects numeric clock omissions without supplying a window: %s', text => {
+  'Гулять в 8 часов', 'Время 10:00\u201312:00', 'Прогулка после 18.', 'После 18, потом поесть'])('detects numeric clock omissions without supplying a window: %s', text => {
   const p = proposal([]), before = structuredClone(p);
   expect(inspectTimeLiteralCoverage(p, text).errors).toEqual(['TIME_LITERAL_MISSING']);
   expect(p).toEqual(before);
 });
 it.each(['хочу погулять', '28.09 музей', '12.10.2026 музей', 'Бюджет до 20 рублей', 'с 2 детьми',
-  'Ребёнку 8 лет', 'Группа от 10 до 12 человек', 'дом 16 корпус 20', 'Пройти 10–12 километров', 'Поездка с 9 до 11.10', 'После 12.10.2026',
-  'Бюджет с 5 до 10 тысяч рублей', 'Бюджет с 10 до 20 €', 'Погулять 1–2 часа'])
+  'Ребёнку 8 лет', 'Группа от 10 до 12 человек', 'дом 16 корпус 20', 'Пройти 10\u201312 километров', 'Поездка с 9 до 11.10', 'После 12.10.2026',
+  'Бюджет с 5 до 10 тысяч рублей', 'Бюджет с 10 до 20 €', 'Погулять 1\u20132 часа'])
 ('does not invent clock mentions in other numbers: %s', text => {
   expect(inspectTimeLiteralCoverage(proposal([]), text).errors).toEqual([]);
 });

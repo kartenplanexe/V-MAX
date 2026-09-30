@@ -20,7 +20,7 @@ export function PlanningLoading() {
         </svg>
       </div>
       <p className="loading-caption">Ищем места, ради которых стоит выйти из дома</p>
-      <p className="loading-detail">{takingLonger ? 'Поиск занимает чуть больше времени. Мы ещё работаем — повторять запрос не нужно.' : 'Учитываем ваши пожелания и время на прогулку.'}</p>
+      <p className="loading-detail">{takingLonger ? 'Поиск занимает чуть больше времени. Мы ещё работаем - повторять запрос не нужно.' : 'Учитываем ваши пожелания и время на прогулку.'}</p>
       <span className="loading-dots" aria-hidden="true"><i /><i /><i /></span>
     </div>
   </Sheet>;

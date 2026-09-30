@@ -50,7 +50,7 @@ export function EventPanel({ view, target, search, availability, select, refresh
   const invalidDuration = option?.choice.duration_required && (!/^\d+$/u.test(duration) || Number(duration) < 5 || Number(duration) > 720);
   return <section className="event-panel" aria-label="Выбор события"><p className="field-hint">{view.draft.locality.name} · Выберите событие для своего дня.</p>
     <label>День маршрута<select value={dayId} disabled={!!busy} onChange={event => { setDayId(event.target.value); setReplace(''); clear(); }}>
-      {view.draft.days.map(value => <option key={value.day_id} value={value.day_id}>{date(value.date)}{value.window ? ` · ${value.window.start}–${value.window.end}` : ''}</option>)}</select></label>
+      {view.draft.days.map(value => <option key={value.day_id} value={value.day_id}>{date(value.date)}{value.window ? ` · ${value.window.start}-${value.window.end}` : ''}</option>)}</select></label>
     <label>Что интересно<select value={category} disabled={!!busy} onChange={event => { setCategory(event.target.value); clear(); }}>
       <option value="">Все события</option>{EVENT_CATEGORIES.map(value => <option value={value.id} key={value.id}>{value.label}</option>)}</select></label>
     {category === 'cinema' && <p className="field-hint">Специальные кинопоказы из афиши KudaGo. Обычные сеансы уточняйте у кинотеатра.</p>}

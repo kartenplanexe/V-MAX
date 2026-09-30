@@ -10,7 +10,7 @@ function date(patch = {}) { return { start, end: start + 3600, is_continuous: fa
 function event(patch = {}) { return { id: 123, title: 'Synthetic exhibition', site_url: 'https://kudago.com/nnv/event/synthetic/',
   dates: [date()], place: { id: 44, title: 'Synthetic venue', coords: { lat: 56.32, lon: 44 }, is_closed: false },
   categories: ['exhibitions'], age_restriction: '6+', price: 'от 500 ₽', is_free: false, ...patch }; }
-function venue(timetable = 'пн–пт 10:00–18:00, сб, вс 11:00–17:00') {
+function venue(timetable = 'пн\u2013пт 10:00\u201318:00, сб, вс 11:00\u201317:00') {
   return normalizeKudagoVenue({ id: 44, title: 'Synthetic venue', site_url: 'https://kudago.com/nnv/place/synthetic/',
     timetable, coords: { lat: 56.32, lon: 44 }, is_closed: false }, now);
 }
@@ -33,10 +33,10 @@ describe('source-neutral event facts', () => {
     expect(kudagoEventUrl(url)).toBeUndefined();
   });
   it.each([
-    ['450 рублей', 45000], ['от 0 до 300 рублей', 30000], ['400–600 ₽', 60000], ['1 500 руб.', 150000],
+    ['450 рублей', 45000], ['от 0 до 300 рублей', 30000], ['400\u2013600 ₽', 60000], ['1 500 руб.', 150000],
     ['1\u00a0500,50 руб.', 150050], ['от 1 200 до 2 500 рублей', 250000],
-    ['от 500 ₽', null], ['до 500 ₽', null], ['500 ₽ за группу', null], ['500', null], ['600–400 ₽', null],
-    ['бесплатно, экскурсия 500 ₽', null], ['400–600 ₽, выходные 1000 ₽', null],
+    ['от 500 ₽', null], ['до 500 ₽', null], ['500 ₽ за группу', null], ['500', null], ['600\u2013400 ₽', null],
+    ['бесплатно, экскурсия 500 ₽', null], ['400\u2013600 ₽, выходные 1000 ₽', null],
   ])('uses only a complete finite admission price: %s', (value, upper) => {
     expect(admissionPriceUpper(value)).toBe(upper);
   });
@@ -89,14 +89,14 @@ describe('source-neutral event facts', () => {
 
 describe('fully parsed venue timetable and period intersection', () => {
   it('accepts day ranges, day lists, closed days and separate opening intervals', () => {
-    const parsed = parseVenueTimetable('пн выходной; вт–пт 10:00–13:00, 14:00–18:00; сб, вс 11:00–17:00');
+    const parsed = parseVenueTimetable('пн выходной; вт\u2013пт 10:00\u201313:00, 14:00\u201318:00; сб, вс 11:00\u201317:00');
     expect(parsed.state).toBe('KNOWN');
     expect(parsed.weekly[0]).toEqual([]);
     expect(parsed.weekly[1]).toEqual([{ start: 600, end: 780 }, { start: 840, end: 1080 }]);
     expect(parsed.weekly[6]).toEqual([{ start: 660, end: 1020 }]);
   });
-  it.each(['пн–пт 10:00–18:00 кроме праздников', 'ежедневно 10:00–18:00, касса до 17:00',
-    'пн–вс 10:00–18:00; пн 12:00–19:00', 'ежедневно 20:00–02:00'])('refuses unknown qualifiers, conflicts and unsupported overnight: %s', text => {
+  it.each(['пн\u2013пт 10:00\u201318:00 кроме праздников', 'ежедневно 10:00\u201318:00, касса до 17:00',
+    'пн\u2013вс 10:00\u201318:00; пн 12:00\u201319:00', 'ежедневно 20:00\u201302:00'])('refuses unknown qualifiers, conflicts and unsupported overnight: %s', text => {
     expect(parseVenueTimetable(text).state).toBe('INCOMPLETE');
   });
   it('intersects the real period with local venue hours and never uses long-period endpoints as daily hours', () => {
@@ -113,27 +113,27 @@ describe('fully parsed venue timetable and period intersection', () => {
     const scope = { fromDate: '2026-09-28', toDate: '2026-09-28', timezone: 'Europe/Moscow' };
     expect(resolveEventVisitWindows(card, { ...venue(), provider_venue_id: 99 }, scope).state).toBe('INCOMPLETE');
     expect(resolveEventVisitWindows(card, { ...venue(), is_closed: true }, scope).state).toBe('INCOMPLETE');
-    expect(resolveEventVisitWindows(card, venue('ежедневно 10:00–18:00 кроме праздников'), scope).state).toBe('INCOMPLETE');
+    expect(resolveEventVisitWindows(card, venue('ежедневно 10:00\u201318:00 кроме праздников'), scope).state).toBe('INCOMPLETE');
     const recurring = normalizeKudagoEvent(event({ dates: [date({ use_place_schedule: true, schedules: [{}] })] }), now);
     expect(resolveEventVisitWindows(recurring, venue(), scope).state).toBe('INCOMPLETE');
   });
   it('converts 24:00 to the next local day, handles a real DST offset change, and refuses ambiguous wall time', () => {
     const card = normalizeKudagoEvent(event({ dates: [date({ is_startless: true, is_endless: true, use_place_schedule: true })] }), now);
-    const fullDay = resolveEventVisitWindows(card, venue('ежедневно 00:00–24:00'),
+    const fullDay = resolveEventVisitWindows(card, venue('ежедневно 00:00\u201324:00'),
       { fromDate: '2026-10-25', toDate: '2026-10-25', timezone: 'Europe/Berlin' });
     expect(fullDay.state).toBe('READY');
     expect(fullDay.windows[0]!.end_utc - fullDay.windows[0]!.start_utc).toBe(25 * 3600);
-    const fold = resolveEventVisitWindows(card, venue('ежедневно 02:30–04:00'),
+    const fold = resolveEventVisitWindows(card, venue('ежедневно 02:30\u201304:00'),
       { fromDate: '2026-10-25', toDate: '2026-10-25', timezone: 'Europe/Berlin' });
     expect(fold).toMatchObject({ state: 'INCOMPLETE', reasons: ['AMBIGUOUS_LOCAL_TIME'] });
-    const gap = resolveEventVisitWindows(card, venue('ежедневно 02:30–04:00'),
+    const gap = resolveEventVisitWindows(card, venue('ежедневно 02:30\u201304:00'),
       { fromDate: '2026-03-29', toDate: '2026-03-29', timezone: 'Europe/Berlin' });
     expect(gap.state).toBe('INCOMPLETE');
     const invalid = resolveEventVisitWindows(card, venue(), { fromDate: '2026-09-28', toDate: '2026-09-28', timezone: 'INVALID' });
     expect(invalid.state).toBe('INCOMPLETE');
   });
   it('preserves known weekdays independently of an unknown day and never calls unknown closed', () => {
-    const partial = venue('вт–вс 11:00–19:00');
+    const partial = venue('вт\u2013вс 11:00\u201319:00');
     expect(partial.hours.state).toBe('PARTIAL');
     expect(partial.hours.known_days).toEqual([false, true, true, true, true, true, true]);
     const card = normalizeKudagoEvent(event({ dates: [date({ is_startless: true, is_endless: true, use_place_schedule: true })] }), now);

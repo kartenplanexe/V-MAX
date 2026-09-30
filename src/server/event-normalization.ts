@@ -55,7 +55,7 @@ export function admissionPriceUpper(display: string | null): number | null {
   if (!display) return null;
   const amount = '(\\d{1,3}(?:[ \\u00a0]\\d{3})+|\\d+)(?:[.,](\\d{1,2}))?';
   const currency = '(?:₽|руб\\.?|рублей|рубля|рубль)';
-  const range = new RegExp(`^(?:от\\s+)?${amount}\\s*(?:до|[–—-])\\s*${amount}\\s*${currency}$`, 'iu').exec(display);
+  const range = new RegExp(`^(?:от\\s+)?${amount}\\s*(?:до|[\u2013\u2014-])\\s*${amount}\\s*${currency}$`, 'iu').exec(display);
   const exact = new RegExp(`^${amount}\\s*${currency}$`, 'iu').exec(display);
   const minor = (whole: string, fraction?: string) => Number(whole.replace(/\s/gu, '')) * 100 + Number((fraction ?? '').padEnd(2, '0'));
   const upper = range ? minor(range[3]!, range[4]) : exact ? minor(exact[1]!, exact[2]) : null;
@@ -111,7 +111,7 @@ export function parseVenueTimetable(raw: string | null | undefined): EventVenue[
   const fail = (reason: string): EventVenue['hours'] => ({ state: 'INCOMPLETE', weekly: Array.from({ length: 7 }, () => []),
     known_days: Array(7).fill(false) as boolean[], reasons: [reason], policy_version: 'kudago-weekly-hours.v2' });
   if (!raw || raw.length > 4000) return fail('HOURS_UNKNOWN');
-  const value = raw.toLowerCase().replace(/[–—−]/gu, '-').replace(/\s+/gu, ' ').trim()
+  const value = raw.toLowerCase().replace(/[\u2013\u2014−]/gu, '-').replace(/\s+/gu, ' ').trim()
     .replace(/(\d{2}:\d{2}|выходной|закрыто),\s*(?=[а-я])/gu, '$1;');
   const assigned = new Set<number>();
   for (const clause of value.split(';').map(s => s.trim()).filter(Boolean)) {

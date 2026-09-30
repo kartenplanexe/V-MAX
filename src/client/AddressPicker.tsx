@@ -19,7 +19,7 @@ export function AddressPicker({ city, search, onSelect, onClose, disabled = fals
   async function submit() {
     if (disabled || loading) return;
     const value = query.trim();
-    if (value.length < 4 || value.length > 120) { setError('Укажите улицу и номер дома — от 4 до 120 символов.'); return; }
+    if (value.length < 4 || value.length > 120) { setError('Укажите улицу и номер дома - от 4 до 120 символов.'); return; }
     setLoading(true); setError(''); setChoices([]); setSearched(false);
     try { setChoices(await search(value)); setSearched(true); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось найти адрес.'); }

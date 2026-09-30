@@ -15,4 +15,4 @@ app.get('/planner-form', async (_request, reply) => reply.type('text/html').send
 app.get('/', async (_request, reply) => reply.redirect('/planner-form'));
 await app.listen({ host: '127.0.0.1', port: 4174 });
 console.log('Откройте http://127.0.0.1:4174/planner-form');
-console.log('Учебные места и время в пути; настоящий Python/OR-Tools. Без ключей, LLM и внешних запросов. Ctrl+C — остановить.');
+console.log('Учебные места и время в пути; настоящий Python/OR-Tools. Без ключей, LLM и внешних запросов. Ctrl+C - остановить.');

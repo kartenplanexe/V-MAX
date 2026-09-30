@@ -29,8 +29,8 @@ it('shows the selected event time and group ticket estimate in external-mode bot
       event_visit: { starts_at: 960, ends_at: 1020, schedule_kind: 'visit_window', admission_upper_minor: 120000 },
       source: { provider: 'kudago', data_mode: 'test', url: 'https://nn.kudago.com/event/test/', fetched_at: '2026-09-25T09:00:00Z', valid_until: '2026-09-25T09:05:00Z' } }] }] } });
   const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
-  expect(text).toContain('16:00–17:00 · планируемое посещение');
-  expect(text).toContain('для вашей группы — до 1200 ₽');
+  expect(text).toContain('16:00-17:00 · планируемое посещение');
+  expect(text).toContain('для вашей группы - до 1200 ₽');
   expect(text).toContain('https://nn.kudago.com/event/test/');
   expect(text).not.toContain('Вход бесплатный');
 });
@@ -236,7 +236,7 @@ describe('MAX chat', () => {
     const chat = new MaxChatController({ ...h.deps, geography: { ...h.deps.geography, search },
       planning: { ...h.planning, get: (actor, id) => sessions.get(actor, id), getSaved: async () => saved, restore } });
     await chat.handle(press('open-saved-after-expiry', `nav:open:${routeId}`));
-    expect(h.messages.at(-1)?.text).toContain('17:00–20:00');
+    expect(h.messages.at(-1)?.text).toContain('17:00-20:00');
     expect(h.messages.at(-1)?.text).toContain('2400');
     expect(h.messages.at(-1)?.text).toContain('Участников: 2');
     expect(h.messages.at(-1)?.text).not.toContain('culture');
@@ -391,6 +391,7 @@ describe('MAX chat', () => {
     await chat.handle(message('route-1', 'Хочу погулять завтра с 16 до 19 в Москве'));
     expect(h.navigation.mode).toBe('planning');
     expect(h.navigation.routes).toHaveLength(1);
+    expect(h.navigation.routes[0]!.title).toMatch(/^2026-09-26 · Москва · /u);
     expect((h.messages.at(-1)?.buttons as { payload?: string }[][]).flat().map(button => button.payload))
       .not.toContain('nav:new');
     const routeId = h.navigation.activeRouteId!;
@@ -398,8 +399,11 @@ describe('MAX chat', () => {
     expect(h.planning.start).toHaveBeenCalledTimes(1);
     expect(h.messages.at(-1)?.text).toContain('Откуда удобнее начать?');
     expect(JSON.stringify(h.messages.at(-1)?.buttons)).toContain('Ввести адрес');
+    h.navigation.routes[0]!.title = 'Москва · 2026-09-26 · прогулка';
     await chat.handle(press('list-1', 'nav:list:0'));
     expect(h.messages.at(-1)?.text).toContain('Мои маршруты (1)');
+    expect(h.messages.at(-1)?.text).toContain('1. 2026-09-26 · Москва · прогулка');
+    expect((h.messages.at(-1)?.buttons as { text: string }[][])[0]![0]!.text).toBe('2026-09-26 · Москва · прогулка');
     await chat.handle(press('exit-1', 'nav:exit'));
     expect(h.navigation.mode).toBe('idle');
     expect((h.messages.at(-1)?.buttons as { payload: string }[][]).flat().map(button => button.payload))
@@ -670,7 +674,7 @@ describe('MAX chat', () => {
     const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
     expect(text).toContain('Предварительный план');
     expect(text).toContain('проверьте доступность перед выходом');
-    expect(text).not.toContain('Готово — вот план');
+    expect(text).not.toContain('Готово - вот план');
   });
 
   it('keeps a verified plan usable while disclosing a partial search and a narrowed candidate pool', () => {
@@ -682,7 +686,7 @@ describe('MAX chat', () => {
           travel_before_minutes: 10, arrival_buffer_minutes: 5, price_expected_minor: null, warnings: [] }] }] });
     expect(planWarningCodes(view.result)).toContain('RETRIEVAL_PARTIAL');
     const text = formatChatPlanMessages(view).map(message => message.text).join('\n');
-    expect(text).toContain('Готово — вот план');
+    expect(text).toContain('Готово - вот план');
     expect(text).toContain('Парк');
     expect(text).not.toContain('радиусе 5 км от старта');
     expect(text).toContain('Получена только часть мест');
@@ -893,7 +897,7 @@ describe('MAX chat', () => {
     await chat.handle(press('open-saved-event-identity', `nav:open:${routeId}`));
     const text = h.messages.map(message => message.text).join('\n');
     expect(text).toContain('Выбранное событие: сеанс, площадку и условия нужно проверить заново');
-    expect(text).toContain('45 мин — ваша оценка'); expect(text).not.toContain('Expired provider title');
+    expect(text).toContain('45 мин - ваша оценка'); expect(text).not.toContain('Expired provider title');
     expect(text).not.toMatch(/kudago\.com|13:00|бесплатн/u);
     expect(h.planning.start).not.toHaveBeenCalled(); expect(search).not.toHaveBeenCalled();
   });

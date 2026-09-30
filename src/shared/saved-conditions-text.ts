@@ -5,7 +5,7 @@ export function savedConditionsText(saved: SavedConditionsView): string {
   const lines = ['Сохранённые условия', 'Места и прежний маршрут нужно проверить заново.'];
   for (const question of conditions.clarifications ?? []) lines.push(`Осталось уточнить: «${question.text}». До уточнения расчёт не выполняется.`);
   for (const day of conditions.days) {
-    lines.push(`${day.date}${day.window ? ` · ${day.window.start}–${day.window.end}` : ' · время не указано'}`);
+    lines.push(`${day.date}${day.window ? ` · ${day.window.start}-${day.window.end}` : ' · время не указано'}`);
     lines.push(day.activities.map(activity => activity.label).join(' · ') || 'Занятия не выбраны');
     for (const [before, after] of day.order) {
       const left = day.activities.find(activity => activity.id === before), right = day.activities.find(activity => activity.id === after);
@@ -17,7 +17,7 @@ export function savedConditionsText(saved: SavedConditionsView): string {
       }
       if (activity.semantic_key === 'selected_event') {
         lines.push('Выбранное событие: сеанс, площадку и условия нужно проверить заново.');
-        if (activity.target.visit_duration_minutes) lines.push(`Выбранная длительность посещения: ${activity.target.visit_duration_minutes} мин — ваша оценка.`);
+        if (activity.target.visit_duration_minutes) lines.push(`Выбранная длительность посещения: ${activity.target.visit_duration_minutes} мин - ваша оценка.`);
       } else if (activity.category_reconfirmation_required) lines.push(`Для «${activity.label}» нужно заново уточнить ограничения выбора мест.`);
     }
   }
@@ -44,6 +44,6 @@ export function savedConditionsText(saved: SavedConditionsView): string {
     lines.push('Финиш нужно выбрать заново; это условие остаётся обязательным до вашего изменения.');
   if (conditions.reconfirmation_required.some(issue => issue.code !== 'POINT_RECONFIRM_REQUIRED'))
     lines.push('Часть ограничений требует нового уточнения. Исходное пожелание остаётся в истории чата; автоматически снимать ограничения не будем.');
-  if (Object.values(conditions.provenance).includes('suggested')) lines.push('Предложенные системой параметры остаются предложениями — проверьте их перед расчётом.');
+  if (Object.values(conditions.provenance).includes('suggested')) lines.push('Предложенные системой параметры остаются предложениями - проверьте их перед расчётом.');
   return lines.join('\n');
 }

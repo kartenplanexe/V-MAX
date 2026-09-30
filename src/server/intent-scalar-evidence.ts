@@ -12,7 +12,7 @@ export function dateAfter(now: string, timezone: string, offset: number) {
 }
 export function overlapsBusyTime(text: string, window: { start: string; end: string }) {
   const minute = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
-  const busy = /(?<!\p{L})(?:работаю|работа|занят[аы]?|уч[её]ба|учусь|встреча|совещание)(?!\p{L})[^.!?;\n]*?с\s*(\d{1,2})(?::(\d{2}))?\s*(?:до|[-–—])\s*(\d{1,2})(?::(\d{2}))?/giu;
+  const busy = /(?<!\p{L})(?:работаю|работа|занят[аы]?|уч[её]ба|учусь|встреча|совещание)(?!\p{L})[^.!?;\n]*?с\s*(\d{1,2})(?::(\d{2}))?\s*(?:до|[-\u2013\u2014])\s*(\d{1,2})(?::(\d{2}))?/giu;
   return [...text.matchAll(busy)].some(match => {
     const start = Number(match[1]) * 60 + Number(match[2] ?? 0), end = Number(match[3]) * 60 + Number(match[4] ?? 0);
     return start < end && end <= 1440 && Math.max(start, minute(window.start)) < Math.min(end, minute(window.end));

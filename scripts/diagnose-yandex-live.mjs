@@ -96,7 +96,7 @@ try {
   if (Number.isNaN(created.getTime())) throw new Error('Не удалось определить время создания ревизии.');
   const since = new Date(created.getTime() - 30_000).toISOString();
   const until = new Date(Math.min(Date.now(), created.getTime() + (launchOnly ? 60 : 12) * 60_000)).toISOString();
-  console.log(`Читаю журнал контейнера за ${since} — ${until}; ревизия ${revisionId}. Только чтение.`);
+  console.log(`Читаю журнал контейнера за ${since} - ${until}; ревизия ${revisionId}. Только чтение.`);
   const result = ycJson(['logging', 'read', '--group-name', 'default',
     '--resource-ids', containerId, '--since', since, '--until', until, '--limit', launchOnly ? '1000' : '200']);
   const entries = Array.isArray(result) ? result : result.entries;

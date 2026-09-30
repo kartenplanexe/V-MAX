@@ -41,7 +41,7 @@ it.skipIf(!existsSync(defaultPlannerPython()))('returns both activity groups, pr
   expect(text).toContain('directions/tab/pedestrian/points/');
   expect(text).toContain('Подборка сохранена');
   expect(text).not.toContain('Срок результата в приложении');
-  expect(text).not.toMatch(/План помещается|В пути \d|Готово — вот план/);
+  expect(text).not.toMatch(/План помещается|В пути \d|Готово - вот план/);
 }, 20000);
 
 it.skipIf(!existsSync(defaultPlannerPython()))('the confirmed walk policy reserves a meal and adds walk stops only when there is spare time', async () => {
@@ -76,11 +76,11 @@ it.skipIf(!existsSync(defaultPlannerPython()))('the confirmed walk policy reserv
     expect(f.routingBatches()).toBe(0);
     expect(f.requests.every(request => request.url.searchParams.get('sort') === 'distance')).toBe(true);
     const html = renderToStaticMarkup(createElement(CandidatePlaces, { view: planned }));
-    expect(html).toContain('На посещение — примерно 5 мин.');
-    expect(html).toContain('На посещение — примерно 60 мин.');
+    expect(html).toContain('На посещение - примерно 5 мин.');
+    expect(html).toContain('На посещение - примерно 60 мин.');
     expect(html).not.toContain('Не удалось совместить');
     const text = formatChatPlanMessages(planned).map(message => message.text).join('\n');
-    expect(text).toContain('На посещение — примерно 60 мин.');
+    expect(text).toContain('На посещение - примерно 60 мин.');
   }
 }, 20000);
 

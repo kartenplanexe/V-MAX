@@ -25,7 +25,7 @@ export function SavedConditionsPanel({ saved, disabled, search, restore }: {
   return <section className="saved-conditions" aria-label="Сохранённые условия">
     <div className="result-notice"><Icon name="refresh" /><div><h2>Вернёмся к вашему плану</h2><p>Условия сохранились. Места, расписания и дорогу нужно проверить заново.</p></div></div>
     <div className="saved-summary">{saved.conditions.days.map(day => <div key={day.day_id} className="saved-day">
-      <p className="summary-label">{new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${day.date}T12:00:00Z`))}{day.window && ` · ${day.window.start}–${day.window.end}`}</p>
+      <p className="summary-label">{new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${day.date}T12:00:00Z`))}{day.window && ` · ${day.window.start}-${day.window.end}`}</p>
       <h3>{day.activities.map(activity => activity.label).join(' → ')}</h3></div>)}</div>
     <details className="plan-evidence"><summary>Все сохранённые условия</summary><p className="saved-text">{savedConditionsText(saved).split('\n').slice(2).join('\n')}</p></details>
     <p className="field-hint">Даты сами не сдвигаются. Перед новым расчётом проверьте время и старт.</p>

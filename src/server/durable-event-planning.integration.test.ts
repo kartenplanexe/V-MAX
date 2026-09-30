@@ -26,7 +26,7 @@ async function fixture(withFood = false, paid = false) {
   const database = PlanningDatabase.connect(scoped.href, undefined, { now: () => new Date(time) });
   await database.migrate(); await database.migrate();
   const venue = { id: 44, title: 'Synthetic venue title', site_url: 'https://nn.kudago.com/place/synthetic/',
-    coords: { lat: 56.32, lon: 44 }, is_closed: false, timetable: 'ежедневно 10:00–20:00' };
+    coords: { lat: 56.32, lon: 44 }, is_closed: false, timetable: 'ежедневно 10:00-20:00' };
   const event = { id: 123, title: 'Synthetic provider title', location: 'nnv', site_url: 'https://nn.kudago.com/event/synthetic/',
     dates: [{ start: Date.parse('2026-09-28T10:00:00Z') / 1000, end: Date.parse('2026-09-28T11:00:00Z') / 1000,
       is_startless: false, is_endless: false, is_continuous: false, use_place_schedule: false, schedules: [] }],

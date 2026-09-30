@@ -1,12 +1,12 @@
 # Настройки
 
-Для обычного запуска выполните шаги из [README](../README.md). Этот документ нужен при изменении стандартной конфигурации. Исходный образец — [.env.example](../.env.example).
+Для обычного запуска выполните шаги из [README](../README.md). Этот документ нужен при изменении стандартной конфигурации. Исходный образец - [.env.example](../.env.example).
 
 ## Обязательные подключения
 
 | Сервис | Настройки и доступ |
 |---|---|
-| MAX | `MAX_BOT_TOKEN`, `MAX_BOT_USERNAME`; для собственной установки в MAX — `PUBLIC_BASE_URL` с публичным HTTPS. |
+| MAX | `MAX_BOT_TOKEN`, `MAX_BOT_USERNAME`; для собственной установки в MAX - `PUBLIC_BASE_URL` с публичным HTTPS. |
 | 2ГИС | `DGIS_PLACES_API_KEY` для Places, Categories и Regions; `DGIS_MAPGL_API_KEY` для MapGL и Map Tiles. Нужны действующие права и квоты. |
 | PostgreSQL | Compose использует `POSTGRES_PASSWORD` и сам задаёт `DATABASE_URL`. |
 | Alice Flash | `YANDEX_API_KEY`, `YANDEX_FOLDER_ID` для разбора свободного текста. У учётной записи должна быть роль `ai.languageModels.user`. Можно пропустить, если нужна только ручная форма. |

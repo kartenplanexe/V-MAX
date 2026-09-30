@@ -36,7 +36,7 @@ export function buildDailyRepairRequest(input, errors, invalidResponse) {
   if (errors.includes('ANCHOR_WITHOUT_OFFSETS')) hints.push(
     'date_anchor допустим только когда каждый день использует anchor_offset. Если день уже содержит самостоятельную relative/absolute/weekday дату, оставь date_anchor=null и дословную date_evidence.');
   if (errors.includes('DATE_WITHOUT_EVIDENCE')) hints.push(
-    'Для самостоятельной явно указанной даты укажи date_evidence — точный непрерывный фрагмент user_text. Если даты не было, используй anchor_offset days=0 и date_evidence=null.');
+    'Для самостоятельной явно указанной даты укажи date_evidence - точный непрерывный фрагмент user_text. Если даты не было, используй anchor_offset days=0 и date_evidence=null.');
   if (errors.includes('UNSUPPORTED_EVIDENCE')) hints.push(
     'Все evidence, date_evidence, scope_evidence и unresolved.text должны быть дословными непрерывными фрагментами исходного user_text. Не пересказывай, не меняй окончания и не объединяй разрозненные слова.');
   if (errors.includes('SCHEMA')) hints.push(

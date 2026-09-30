@@ -35,7 +35,7 @@ export function PlanMap({ day, origin, destination, activeVisitIndex, onSelectVi
         const response = await fetch('/api/public-config', { cache: 'no-store', signal: controller.signal });
         if (!response.ok) throw new Error();
         const config: PublicConfig = await response.json();
-        if (!config.maps.enabled || !config.maps.mapglKey) { fail('Карта пока недоступна. Адреса и порядок остановок — в списке ниже.'); return; }
+        if (!config.maps.enabled || !config.maps.mapglKey) { fail('Карта пока недоступна. Адреса и порядок остановок - в списке ниже.'); return; }
         const sdk = await Promise.race([load('https://mapgl.2gis.com/api/js/v1'),
           new Promise<never>((_, reject) => timers.push(setTimeout(() => reject(new Error()), 12000)))]);
         if (cancelled || !element.current) return;
@@ -60,7 +60,7 @@ export function PlanMap({ day, origin, destination, activeVisitIndex, onSelectVi
         const missing = lines.length < day.visits.length + (destination ? 1 : 0);
         const readyMessage = placesOnly ? 'Нажмите на точку, чтобы увидеть название места.' : lines.length
           ? `Линии показывают рассчитанный путь.${missing ? ' Часть переходов доступна только в списке.' : ''} Время в пути ориентировочное.`
-          : 'Показаны остановки. Линия пути недоступна — время и порядок есть в списке.';
+          : 'Показаны остановки. Линия пути недоступна - время и порядок есть в списке.';
         const firstExpiry = Math.min(...lines.map(segment => Date.parse(segment.source.valid_until)));
         if (Number.isFinite(firstExpiry)) timers.push(setTimeout(() => {
           if (cancelled) return;

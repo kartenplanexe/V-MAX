@@ -79,7 +79,7 @@ it('gets independently bounded venue details, checks ID identity and returns tim
   const client = new KudagoClient({ now: () => now, fetcher: async url => {
     expect(new URL(String(url)).pathname).toBe('/public-api/v1.4/places/10/');
     return new Response(JSON.stringify({ id: 10, title: 'Synthetic place', site_url: 'https://kudago.com/nnv/place/test/',
-      is_closed: false, coords: { lat: 56.3, lon: 44 }, timetable: 'ежедневно 10:00–19:00', body_text: 'PRIVATE EXTRA' })); } });
+      is_closed: false, coords: { lat: 56.3, lon: 44 }, timetable: 'ежедневно 10:00\u201319:00', body_text: 'PRIVATE EXTRA' })); } });
   const result = await client.getVenue(10, { requestBudget: { consume() { consumed++; } } });
   expect(result.status).toBe('OK'); expect(result.venue?.hours.state).toBe('KNOWN'); expect(consumed).toBe(1);
   expect(JSON.stringify(result)).not.toContain('PRIVATE');

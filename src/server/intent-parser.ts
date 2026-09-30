@@ -419,7 +419,7 @@ function parseDate(text: string, referenceLocalDate: string | undefined) {
 
 function parseTimeWindow(text: string) {
   const interval = text.match(
-    /(?:^|\s|[,;])(?:с\s*)?([01]?\d|2[0-3])(?::([0-5]\d))?\s*(?:до|[-–—])\s*([01]?\d|2[0-3])(?::([0-5]\d))?(?=$|\s|[,;.])/iu,
+    /(?:^|\s|[,;])(?:с\s*)?([01]?\d|2[0-3])(?::([0-5]\d))?\s*(?:до|[-\u2013\u2014])\s*([01]?\d|2[0-3])(?::([0-5]\d))?(?=$|\s|[,;.])/iu,
   );
   if (interval) {
     return {

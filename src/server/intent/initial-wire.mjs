@@ -41,7 +41,7 @@ export function initialWireAdapter(request) {
   const defs = structuredClone(dailySchema.$defs);
   defs.sharedChange.oneOf = defs.sharedChange.oneOf.filter(branch => branch.properties.op.const !== 'clear');
   const mobilityChange = defs.sharedChange.oneOf.find(branch => branch.properties.field.const === 'mobility');
-  mobilityChange.properties.value.description = 'Способ из user_text. Для одного «поехать/съездить» верни оба варианта ["public_transport","driving"]; для «на машине» — ["driving"]. Не пропускай явно названный транспорт.';
+  mobilityChange.properties.value.description = 'Способ из user_text. Для одного «поехать/съездить» верни оба варианта ["public_transport","driving"]; для «на машине» - ["driving"]. Не пропускай явно названный транспорт.';
   const timeField = (value, description) => ({ description, anyOf: [{ type: 'null' }, object({ value, evidence: ref('quote') })] });
   defs.initialTime = object({
     start: timeField(ref('clock'), 'Начало доступного времени. null только если начало не задано.'),
@@ -73,7 +73,7 @@ export function initialWireAdapter(request) {
   const system = fs.readFileSync(new URL('./initial-intent-system-v1.md', import.meta.url), 'utf8') +
     (repairErrors.includes('UNSUPPORTED_EVIDENCE') ? '\nUNSUPPORTED_EVIDENCE: все evidence, date_evidence, scope_evidence и unresolved.text должны быть дословными непрерывными фрагментами user_text. Не меняй окончания, не подставляй нормализованное название из locality_context и не пиши вопрос вместо цитаты. Проверь особенно unresolved.text. Если неопределённость реальна, сохрани её с точной цитатой, а не удаляй.' : '') +
     (repairErrors.length ? `\nПредыдущее предложение отклонено проверкой: ${repairErrors.join(', ')}. ` +
-      'Заново проверь исходный текст, область каждого дня, буквальные цитаты и индексы порядка. before — занятие раньше, after — занятие позже. ' +
+      'Заново проверь исходный текст, область каждого дня, буквальные цитаты и индексы порядка. before - занятие раньше, after - занятие позже. ' +
       'TIME_LITERAL_MISSING означает пропущенное цифровое время: проверь оба конца time.start/time.end; чужое или неоднозначное время сохрани в unresolved, не превращай занятость в свободное окно. Верни полный исправленный JSON.' : '');
   const invalid = () => ({ action: 'new_request' });
   const id = index => `new:${index}`;

@@ -20,7 +20,7 @@ export function SavedRoutesPanel({ busy, load, open, remove }: {
   }
   return <section className="saved-routes">
     <p className="field-hint">Ваши условия сохраняются автоматически. Открытие маршрута не запускает новый расчёт.</p>
-    {page?.items.length === 0 && <div className="empty-state"><Icon name="route" /><h3>Здесь будут ваши маршруты</h3><p>Составьте первый план — к его условиям можно будет вернуться.</p></div>}
+    {page?.items.length === 0 && <div className="empty-state"><Icon name="route" /><h3>Здесь будут ваши маршруты</h3><p>Составьте первый план - к его условиям можно будет вернуться.</p></div>}
     {deleting ? <section className="delete-confirmation" aria-label="Подтверждение удаления"><h3>Удалить «{deleting.title}»?</h3><p>Условия маршрута и созданные для него ссылки станут недоступны. Копии, которые другие пользователи уже сохранили себе, останутся у них.</p>
       <div className="share-actions"><Action variant="destructive" disabled={busy || loading} onClick={() => { setLoading(true); setError(''); void remove(deleting).then(() => { setPage(value => value ? { ...value, items: value.items.filter(item => item.id !== deleting.id) } : value); setDeleting(null); })
         .catch(cause => setError(cause instanceof Error ? cause.message : 'Не удалось удалить маршрут.')) .finally(() => setLoading(false)); }}>Удалить маршрут</Action>
