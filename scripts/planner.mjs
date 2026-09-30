@@ -7,7 +7,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const directory = resolve(root, 'planner');
 const python = resolve(directory, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
 if (!existsSync(python)) {
-  console.error('Сначала установите Python-зависимости: cd planner; uv sync --frozen. См. planner/README.md.');
+  console.error('Сначала установите Python-зависимости: uv sync --project planner --frozen. См. README.md.');
   process.exit(1);
 }
 const [action, ...args] = process.argv.slice(2);

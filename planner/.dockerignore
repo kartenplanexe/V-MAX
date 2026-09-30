@@ -1,9 +1,0 @@
-*
-!pyproject.toml
-!uv.lock
-!LICENSE-uv.txt
-!run.py
-!src/
-!src/**
-**/__pycache__/
-**/*.pyc

@@ -41,7 +41,7 @@ export async function runPythonPlanner(job: unknown, options: {
       child.kill();
       reject(new Error(message));
     }
-    child.on('error', () => fail('Planner process is unavailable. Run the Python setup from planner/README.md.'));
+    child.on('error', () => fail('Planner process is unavailable. Run the Python setup from README.md.'));
     child.stdout.on('data', (chunk: Buffer) => {
       bytes += chunk.length;
       if (bytes > MAX_BYTES) return fail('Planner output exceeds the size limit.');
