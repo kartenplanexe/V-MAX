@@ -1,5 +1,4 @@
-// Bounded, versioned semantic checks; NOT a claim of universal language understanding.
-// Called only after the schema/evidence guard. No network, logging or draft mutation.
+// Additional semantic checks after schema and evidence validation.
 import fs from 'node:fs';
 const policy = JSON.parse(fs.readFileSync(new URL('./semantic-policy.v1.json', import.meta.url), 'utf8'));
 export const semanticPolicyVersion = policy.version;
@@ -31,8 +30,7 @@ export function semanticAnchors(text, { source = true } = {}) {
     family: family.id, start: match.index, end: match.index + match[0].length, word: match[0],
     action: family.action.test(match[0]), negative: false, negativeScope: null,
   }))).sort((a, b) => a.start - b.start);
-  // Quoted venue names are not new activities («Кафе “Кино”»). The same rule
-  // applies to labels: category-like words inside a name cannot invent intent.
+  // Category words inside venue names do not create new activities.
   const namedSpans = [...text.matchAll(/[«"]([^»"]+)[»"]/gu)].filter(match =>
     /(?:кафе|рестора[а-яё]*|музе[а-яё]*|кинотеатр[а-яё]*|парк[а-яё]*)\s*$/iu.test(text.slice(0, match.index)));
   return anchors.filter(anchor => {
@@ -42,20 +40,17 @@ export function semanticAnchors(text, { source = true } = {}) {
       /^[А-ЯЁ]/u.test(anchor.word)) return false;
     if (!source) return true;
     const { prefix, suffix } = clause(text, anchor.start, anchor.end);
-    // Homographic noun/verb «еду» needs a grounded consumption/desire context.
-    // Otherwise leave it unverified instead of asserting an extra meal.
+    // The word «еду» needs food context to count as an eating request.
     if (fold(anchor.word) === 'еду' && !/(?:хочу|хотим|хочется|ищу|ищем|найти|заказать|люблю)\s*$/iu.test(prefix)) return false;
     // «Есть два часа» is possession, not a request to eat.
     if (fold(anchor.word) === 'есть' && !/(?:хочу|хотим|хочется|буду|будем|нужно|надо)\s*$/iu.test(prefix) &&
       !/^\s*(?:не\s+)?(?:хочу|хотим|буду|будем)/iu.test(suffix)) return false;
-    // Origins, finish points and names embedded in a different requested activity
-    // are not independent visits. Ambiguous contexts are left to confirmation.
+    // Start points, destinations and embedded names are not separate visits.
     if (/(?:старт|финиш|начало|начать|начнем|начнём|закончить|от|до|возле|около|рядом\s+с)\s+(?:у\s+)?$/iu.test(prefix)) return false;
     if (prior && !connector.test(text.slice(prior.end, anchor.start)) &&
       /^\s+(?:в|на|у|возле|около)\s*$/iu.test(text.slice(prior.end, anchor.start)) &&
       prior.family !== 'walk') return false; // «поесть в парке/музее»
-    // Walking inside a specifically requested indoor attraction is a visit to
-    // that attraction, not a second outdoor route.
+    // Walking inside an attraction is part of that visit.
     const next = anchors.find(other => other.start >= anchor.end && other.family !== anchor.family);
     if (anchor.family === 'walk' && next && ['culture', 'cinema', 'food', 'sport'].includes(next.family) &&
       /^\s+(?:в|по)\s*$/iu.test(text.slice(anchor.end, next.start))) return false;
@@ -86,9 +81,7 @@ function groups(anchors, text) {
   return result;
 }
 function labelFamilies(activity) {
-  // A broad evidence quote is not evidence that a single label preserves every
-  // activity in that quote. Prefer explicit label, then named types, then a
-  // single-family evidence fragment. This also permits ordinary paraphrases.
+  // Prefer the activity label, then named types, then a single-activity quote.
   let found = semanticAnchors(activity.label ?? '', { source: false });
   if (!found.length) found = semanticAnchors((activity.selection?.named_types ?? []).join(' '), { source: false });
   if (!found.length) {
@@ -112,8 +105,7 @@ function hasPath(day, from, to) {
 
 function matchesUnit(entry, unit, text) {
   if (![...unit.families].some(family => entry.families.has(family))) return false;
-  // Narrow source quotes bind an activity to its own intent unit. Broad quotes
-  // remain possible, but one activity cannot cover two independent units.
+  // One activity cannot cover two separately requested activities.
   const quotes = [entry.activity.evidence, entry.activity.selection?.evidence].filter(Boolean);
   const spans = [];
   for (const quote of quotes) {
@@ -176,8 +168,7 @@ export function inspectSemanticCoverage(proposal, input) {
         add('SEMANTIC_CATEGORY_MISMATCH', [...actual].sort().join('+'), day.day_id);
     }
   }
-  // Use unique short date quotes as scope boundaries. A broad/repeated quote is
-  // not a grant to move an activity to a different day or repeat it every day.
+  // Only unique, short date quotes define day boundaries.
   const markers = proposal.days.flatMap(day => {
     const quote = day.date_evidence;
     if (!quote || quote.length > 40 || semanticAnchors(quote).length) return [];
@@ -192,8 +183,7 @@ export function inspectSemanticCoverage(proposal, input) {
     const low = (scopeBoundaries.filter(at => at < unit.start).at(-1) ?? -1) + 1;
     const high = scopeBoundaries.find(at => at >= unit.end) ?? text.length;
     const local = scopeMarkers.filter(value => value.start >= low && value.start < high);
-    // Date words can precede OR follow the activity. Several local markers are
-    // ambiguous; do not convert a prefix heuristic into a false hard constraint.
+    // Multiple nearby date markers require review; dates may follow the activity.
     const marker = local.length === 1 ? local[0] : local.length ? null
       : scopeMarkers.filter(value => value.start < low).at(-1);
     const days = proposal.days.length === 1 ? proposal.days : marker ? marker.day ? [marker.day] : proposal.days : [null];

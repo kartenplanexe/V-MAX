@@ -8,8 +8,7 @@ import { registerMaxChatRoute, maxWebhookSecret, type MaxChatDependencies } from
 import { maxWorkerSecret } from './max-async.js';
 import { demoNow, planningFixture } from './place-planning.fixture.js';
 
-// Explicit long acceptance test: real HTTP, PostgreSQL and application handlers.
-// The dispatcher is a test boundary; this does not certify managed cloud delivery.
+// Local HTTP and PostgreSQL acceptance test; cloud dispatch is replaced.
 it.skipIf(!process.env.TEST_DATABASE_URL || !process.env.RUN_LONG_ASYNC_ACCEPTANCE)(
   'persists a 40-second plan and rejects redelivery after reconnect without another calculation', async () => {
     const url = process.env.TEST_DATABASE_URL!;

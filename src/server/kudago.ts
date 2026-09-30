@@ -107,8 +107,7 @@ export class KudagoClient {
         seen.add(identity.data.id);
         try {
           const card = normalizeKudagoEvent(item, this.#context());
-          // Provider query semantics alone do not prove overlap. Unknown dates remain
-          // clearly incomplete cards; only definitely disjoint records are removed.
+          // Drop only events known to fall outside the window; retain unknown-date gaps.
           const entries = card.schedule.entries;
           if (entries.length && entries.every(entry => entry.end_utc !== null && entry.end_utc <= scope.starts_at ||
               entry.start_utc !== null && entry.start_utc >= scope.ends_at)) { result.outside_scope++; continue; }

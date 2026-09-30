@@ -266,8 +266,7 @@ export function PlannerForm() {
   async function reloadSavedState() {
     const token = session?.token || launchToken;
     if (!token) return;
-    // Reading server state never retries a mutation or confirms a new plan.
-    // Keep local edits intact until this request has actually succeeded.
+    // Preserve local edits until the state read succeeds.
     const value = await request<Omit<Bootstrap, 'token'>>('/api/planning/bootstrap', token);
     setSession({ ...value, token }); setDraft(value.view ? structuredClone(value.view.draft) : null);
     setDetailsOpen(false); setPointEditor(null); setEventPanel(null); setAlternative(null);

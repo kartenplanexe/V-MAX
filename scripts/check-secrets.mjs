@@ -1,5 +1,4 @@
-// Scan Git history and the exact non-ignored working-tree source candidates.
-// Private env/logs are never copied. Gitleaks is pinned, offline and fully redacted.
+// Scan tracked source and Git history with redacted Gitleaks output.
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
@@ -23,8 +22,7 @@ function scan(mode, directory, name) {
   const report = resolve(output, `${name}.json`);
   if (existsSync(report)) rmSync(report);
   const result = spawnSync('docker', ['run', '--rm', '--network', 'none', '--cap-drop', 'ALL', '--read-only',
-    // Dropped root capabilities do not grant access to a Linux runner's private
-    // Git files or write access to its report directory. Use the checkout owner.
+    // Run as the checkout owner so the scanner can read Git files and write reports.
     ...(typeof process.getuid === 'function' && typeof process.getgid === 'function'
       ? ['--user', `${process.getuid()}:${process.getgid()}`] : []),
     '--security-opt', 'no-new-privileges', '--tmpfs', '/tmp',
@@ -36,8 +34,7 @@ function scan(mode, directory, name) {
     '--report-format', 'json', '--report-path', `/reports/${name}.json`],
   { cwd: root, encoding: 'utf8', timeout: 180_000, maxBuffer: 10 * 1024 * 1024, windowsHide: true });
   if (![0, 1].includes(result.status) || !existsSync(report)) {
-    // A clean runner can fail before gitleaks starts. Expose only fixed categories
-    // and process metadata; Docker/gitleaks text can contain scanned source data.
+    // Raw scanner output may contain secrets; report only fixed error categories.
     const diagnostic = `${result.stderr ?? ''}\n${result.stdout ?? ''}`;
     const reason = /toomanyrequests|too many requests|rate limit/i.test(diagnostic) ? 'registry-rate-limit'
       : /manifest unknown|no matching manifest|pull access denied|unauthorized|failed to resolve reference/i.test(diagnostic) ? 'image-unavailable'

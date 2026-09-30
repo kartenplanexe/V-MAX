@@ -54,10 +54,7 @@ function canonical(value: unknown): string {
 }
 const fingerprint = (operation: string, value: unknown) => createHash('sha256').update(operation + canonical(value)).digest('hex');
 
-/** Bounded, volatile single-process implementation. NOT a shared/serverless store.
- * Only a trusted parser/seed adapter can create drafts: no client POST of a full intent.
- * No LLM dependency; all form writes are typed, atomic and revision-bound.
- */
+// In-memory session logic; DurablePlanning provides persistence and cross-process locking.
 export class PlanningSessions {
   readonly #records = new Map<string, RecordState>();
   readonly #activeOwners = new Set<string>();
@@ -91,8 +88,7 @@ export class PlanningSessions {
   /** Persist only under the store's owner lock; contains personal draft state, never API credentials. */
   checkpoint(): PlanningCheckpoint {
     this.#prune();
-    // Old readers strip unknown draft fields. They must reject, rather than lose,
-    // unresolved user conditions during a rolling deployment or rollback.
+    // Reject checkpoints with unknown unresolved fields rather than silently dropping them.
     const version = [...this.#records.values()].some(r => r.view.draft.clarifications?.length) ? 2 : 1;
     return structuredClone({ version, records: [...this.#records.values()].map(r => ({ ...r,
       events: [...r.events], failures: [...r.failures].map(([key, e]) => [key, { code: e.code, status: e.status }] as [string, { code: string; status: number }]) })),
@@ -139,8 +135,7 @@ export class PlanningSessions {
     }
     if (budget?.kind === 'limit' && budget.enforcement === 'estimated' && budget.price_basis_assumption !== 'per_person') add('BUDGET_PRICE_BASIS_REQUIRED', 'shared.budget');
     if (budget?.kind === 'limit' && draft.shared.mobility?.[0] !== 'walking') add('TRANSPORT_COST_POLICY_REQUIRED', 'shared.budget');
-    // Age is checked against evidence for each candidate. Unknown place/event
-    // eligibility may leave an explicit gap; it never becomes unrestricted.
+    // Unknown age restrictions require review.
     let parts: Intl.DateTimeFormatPart[];
     try { parts = new Intl.DateTimeFormat('en-GB', { timeZone: draft.locality.timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(this.#now()); }
     catch { return [{ code: 'TIMEZONE_REQUIRED', field: 'locality' }]; }
@@ -214,8 +209,7 @@ export class PlanningSessions {
     if (area && (point.lat < area.south || point.lat > area.north || point.lon < area.west || point.lon > area.east))
       reject('EVENT_OUTSIDE_LOCALITY', 422);
   }
-  /** Server-only: EventPlanning resolves opaque choices before supplying facts.
-   * No public PATCH accepts this target or evidence payload. */
+  // EventPlanning resolves opaque choices before supplying source facts.
   selectEvent(owner: string, id: string, input: unknown): PlanningView {
     const record = this.#record(owner, id), body = parse(SelectEventInput, input);
     const hash = this.#event(record, 'selectEvent', body, body);
@@ -259,9 +253,7 @@ export class PlanningSessions {
   create(owner: string, seed: unknown, context: PlanningContext, provenance: Record<string, string> = {}): PlanningView {
     return this.#create(owner, randomUUID(), 0, seed, context, provenance);
   }
-  /** Server-owned recovery only. DurablePlanning supplies a whitelist remapped
-   * against fresh context and a revision above every previously exposed view.
-   * No HTTP route accepts an arbitrary draft, id or revision for this method. */
+  // Restore remapped conditions with a revision newer than every previous view.
   restoreDraft(owner: string, id: string, version: number, seed: unknown, context: PlanningContext,
     provenance: Record<string, string> = {}): PlanningView {
     this.#prune();
@@ -445,14 +437,11 @@ export class PlanningSessions {
   }
   #job(record: RecordState) {
     const draft = record.view.draft;
-      // A walk is an activity with a flexible visit length, even when its many
-      // eligible outdoor rubrics have no individual duration estimate. This is a
-      // product scheduling estimate, not a claimed 2GIS opening-hours fact.
+      // Outdoor stops use an editable default when category durations are absent.
       const planDraft = structuredClone(draft);
       const visitPolicy = structuredClone(record.context.visit_policy);
       if (record.context.data_mode === 'live' && record.context.catalog.category_names) {
-        // Refresh product defaults even for a retained draft created before v6.
-        // The previous saved result remains an unchanged snapshot.
+        // Update old draft defaults without changing the saved result.
         for (const [id, name] of Object.entries(record.context.catalog.category_names)) {
           const estimate = agreedVisitMinutes(name);
           if (estimate !== undefined) visitPolicy.by_category[id] = estimate;
@@ -460,9 +449,7 @@ export class PlanningSessions {
         visitPolicy.version = VISIT_DURATION_POLICY;
       }
       const leaves = new Set(record.context.catalog.leaf_ids);
-      // Old saved drafts predate the dynamic walk policy. These 2GIS IDs are a
-      // curated compatibility subset, not a cached Places response; only IDs
-      // present in this draft's live regional catalog may be used.
+      // For legacy drafts, use only fallback IDs present in the current regional catalog.
       const legacyWalkIds = ['111526', '112594', '112668', '112720', '112900', '112901',
         '112905', '112906', '112907', '112912', '112918', '112926', '113289', '113292',
         '113468', '113471', '114018', '168', '24169', '24353'];
@@ -501,12 +488,10 @@ export class PlanningSessions {
         by_activity[activity.id] = activity.duration_minutes ?? WALK_STOP_MINUTES;
         if (routeWalk) {
           const window = minutes(day.window!.end) - minutes(day.window!.start);
-          // This is only the mathematical upper bound from visit duration. The
-          // solver still decides how many stops fit after real travel and buffers.
+          // Visit time gives an upper bound; the solver also accounts for travel.
           const cap = Math.floor(window / by_activity[activity.id]!);
           if (cap >= 2) max_stops_by_activity[activity.id] = Math.min(120, cap);
-          // A soft target, not a fabricated itinerary duration: the solver may
-          // return a shorter verified route and the UI must remain honest.
+          // A soft duration target may produce a shorter route.
           walk_travel_target_minutes_by_day[day.day_id] = Math.min(50, Math.max(15, Math.round(window * 0.3)));
         }
       }
@@ -601,8 +586,7 @@ export class PlanningSessions {
     if (record.inProgress || this.#activeOwners.has(owner)) reject('PLAN_IN_PROGRESS');
     if (this.#activeOwners.size >= 2) reject('PLANNER_BUSY', 429);
     if (record.view.result) {
-      // An explicit fresh user action invalidates the old result, not the
-      // confirmed conditions. A new revision also invalidates old callbacks.
+      // A new calculation clears the result and invalidates old callbacks, retaining confirmation.
       record.view.result = null; record.resultExpires = 0;
       record.view.version++; record.view.confirmed_version = record.view.version;
     }

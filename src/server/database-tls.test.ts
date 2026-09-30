@@ -37,8 +37,7 @@ it('requires verified TLS with the supplied CA and blocks URL overrides', () => 
   if (!ssl || typeof ssl !== 'object' || !ssl.checkServerIdentity) throw new Error('TLS identity check missing');
   const correct = { subjectaltname: 'IP Address:10.130.0.19' } as PeerCertificate;
   const incorrect = { subjectaltname: 'IP Address:10.130.0.20' } as PeerCertificate;
-  // pg passes a socket without a hostname for IP connections; ignore Node's
-  // default "localhost" and verify the URL host against the certificate SAN.
+  // Verify the URL host: pg omits the hostname when connecting to an IP.
   expect(ssl.checkServerIdentity('localhost', correct)).toBeUndefined();
   expect(ssl.checkServerIdentity('localhost', incorrect)).toMatchObject({ code: 'ERR_TLS_CERT_ALTNAME_INVALID' });
   for (const key of ['sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'ssl']) {

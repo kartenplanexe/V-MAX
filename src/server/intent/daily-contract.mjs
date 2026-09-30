@@ -29,8 +29,7 @@ export function buildDailyRequest(input) {
     response_format:{type:'json_schema',json_schema:{name:'leisure_intent_parser_v02',schema:wireSchema}}};
 }
 
-// One bounded correction attempt for mechanical violations of the same contract.
-// The original user input and full regional catalog remain authoritative.
+// One correction attempt uses the original request and regional catalog.
 export function buildDailyRepairRequest(input, errors, invalidResponse) {
   const request = buildDailyRequest(input);
   const hints = [];

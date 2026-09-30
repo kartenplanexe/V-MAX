@@ -1,15 +1,11 @@
-// 2GIS limits are per service. A key-specific denial can also be reported as
-// HTTP 200 with meta.code=403. Never rotate for malformed requests, timeouts
-// or arbitrary 5xx responses.
+// 2GIS can return access denial as HTTP 200 with meta.code=403.
 export type DgisService = 'categories' | 'places' | 'regions' | 'routing' | 'public_transport';
 
 export function shouldTryDgisBackup(httpStatus: number, body: unknown): boolean {
   const value = body && typeof body === 'object' ? body as Record<string, unknown> : {};
   const meta = value.meta && typeof value.meta === 'object' ? value.meta as Record<string, unknown> : {};
   const code = typeof meta.code === 'number' ? meta.code : httpStatus;
-  // 402 = quota/payment and 403 = key-specific access denial. Trying the
-  // independently configured backup once is safe even when 2GIS omits the
-  // human-readable error detail; a repeated denial is returned as a failure.
+  // Retry a backup only for quota (402) or key-access (403) denial.
   return [402, 403, 429].includes(code) || [402, 403, 429].includes(httpStatus);
 }
 

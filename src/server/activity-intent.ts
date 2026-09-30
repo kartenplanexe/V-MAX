@@ -1,7 +1,4 @@
-/** A versioned, conservative product interpretation of an activity, not a
- * place recommendation. The LLM quote is accepted only after the intent guard
- * has proved that it occurs in the user's text. Unknown wording stays a visit.
- */
+// Classify an activity after validating its evidence against the user text.
 export const ACTIVITY_INTENT_POLICY = 'activity-intent.v1';
 export type ActivityIntentKind = 'route_walk' | 'area_walk' | 'place_visit';
 
@@ -18,8 +15,7 @@ export function classifyActivityIntent(activity: ActivityEvidence): ActivityInte
   const evidence = activity.evidence?.trim() ?? '';
   const named = (activity.namedTypes ?? []).join(' ');
   const walkInLabel = walking.test(label);
-  // A broad evidence quote may mention several activities. It cannot turn a
-  // cafe or museum label into a walk merely because the same sentence has one.
+  // A quote containing several activities must not turn a cafe or museum into a walk.
   const walkInQuote = walking.test(evidence) && outdoor.test(`${label} ${named}`) && !nonWalkDestination.test(label);
   if (!walkInLabel && !walkInQuote) return 'place_visit';
   return singleArea.test(`${label} ${evidence}`) ? 'area_walk' : 'route_walk';

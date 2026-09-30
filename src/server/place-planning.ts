@@ -60,8 +60,7 @@ export function safePlanningDiagnostic(value: unknown) {
   const preview = result.candidate_preview && typeof result.candidate_preview === 'object'
     ? result.candidate_preview as Record<string, unknown> : {};
   const previewGroups = Array.isArray(preview.groups) ? preview.groups : null;
-  // Positional aggregates let us locate a dropped request stage without logging
-  // user text, category IDs, activity IDs, place names, or coordinates.
+  // Use aggregate counts to diagnose lost stages without storing user or place data.
   const activity_funnel = groups.slice(0, 50).map((group, index) => {
     const day = days.find(item => item?.day_id === group?.day_id);
     const count = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
@@ -134,10 +133,7 @@ function directMeters(a: Coordinates, b: Coordinates) {
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
   return 2 * 6371000 * Math.asin(Math.sqrt(Math.min(1, h)));
 }
-/** Reject inconsistent provider geometry and enforce physically plausible
- * upper-speed bounds for every supported mode. This is a conservative product
- * check, not a replacement for the provider's dated travel-time observation.
- */
+// Reject inconsistent geometry and implausible speed estimates.
 export function conservativeTravelSeconds(pair: RoutePair, row: Measurement): number | null {
   if (!row || !Number.isFinite(row.durationSeconds) || !Number.isFinite(row.distanceMeters) ||
       row.durationSeconds < 0 || row.distanceMeters < 0) return null;
@@ -167,10 +163,7 @@ function batches(queries: Query[], maxBatch = 50) {
   });
 }
 
-/** Internal orchestration only: caller owns confirmed intent/catalog/policies.
- * Does not read .env, call LLM, persist provider data, expose HTTP or deploy.
- * The same-request shortlist is explicit; no claim of an optimum over a city.
- */
+// Retrieve candidates and run the planner for confirmed conditions.
 export async function planPlacesWithDgis(client: DgisClient, input: Record<string, unknown>, options: {
   retrieval: { radiusMeters?: number; pageSize?: number; maxPages?: number; maxRequests?: number };
   maxRoutePairs?: number;
@@ -242,8 +235,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
     const pending: Query[] = [], indices: number[] = [];
     queries.forEach((query, index) => {
       const previous = cache.get(queryKey(query));
-      // A failed exact tuple is never automatically retried. Positive cached
-      // matrix samples can serve recovery, but final checks re-observe the route.
+      // Reuse successful matrix samples, but measure final route legs again.
       if (previous && (reuse || previous.value === null)) output[index] = previous.value;
       else { pending.push(query); indices.push(index); }
     });
@@ -299,8 +291,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
       routing_policy: { ...z.record(z.string(), z.unknown()).parse(input.routing_policy ?? {}),
         ...(options.routingMode === 'external' ? { strategy: 'progressive', external_compact: true } : options.routingStrategy ? { strategy: options.routingStrategy } : {}),
         max_route_pair_calculations: maxPairs, max_routing_http_calls: maxHttp }, places: [], route_legs: [] };
-    // The replacement roster needs fresh place facts. The initial structural
-    // preflight deliberately contains no places, so check it after retrieval.
+    // Validate replacement choices after retrieving their current place facts.
     const { replacement: _replacement, ...preflightBase } = base as Record<string, unknown>;
     const preflight = await run(preflightBase, 'prepare-routes');
     if (preflight.status !== 'AVAILABLE') return { ...preflight, routing: metadata() };
@@ -376,8 +367,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
     const matrixSource = source(); // Do not refresh older measurements merely because a later HTTP batch completed.
     const measurements = await measure(queries, reserve);
     incompleteMatrix = measurements.some(row => row === null);
-    // Spend only the residual allowance after fair candidate allocation and two
-    // complete check rounds. Cycle activity groups, then edges, at each anchor.
+    // Distribute remaining quota after candidate allocation and both check rounds.
     const pool = z.array(Candidate).parse(prepared.job.candidate_pool);
     if (hasTransit) pipelineStage = 'TRANSIT_SAMPLING';
     const transitGroups = new Map<string, RoutePair[]>();
@@ -462,8 +452,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
           const values = observed.filter((_, index) => edgeKey(queries[index]!.pair) === edgeKey(pair));
           const measurement = measuredLeg(pair, values);
           if (!measurement || measurement.minutes > 1440) continue;
-          // A reused observation retains its original timestamp. The oldest
-          // member of the dated sample bundle determines the leg's freshness.
+          // The oldest sample determines the leg’s freshness.
           const sources = queries.filter(query => edgeKey(query.pair) === edgeKey(pair))
             .map(query => cache.get(queryKey(query))!.source).sort((a, b) => a.fetched_at.localeCompare(b.fetched_at));
           additions.push({ ...pair, safe_minutes: measurement.minutes,

@@ -503,8 +503,7 @@ export class MaxChatController {
       if (update.kind === 'callback' && update.callbackId) {
         try { await this.deps.transport.answer(update.callbackId); }
         catch (error) {
-          // A callback acknowledgement is best-effort: MAX may reject an empty
-          // answer, but the user's navigation action must still be processed.
+          // Process the action even if MAX rejects the callback acknowledgement.
           this.deps.onCallbackDiagnostic?.(error instanceof Error ? error.message : 'UNKNOWN');
         }
       }
@@ -705,8 +704,7 @@ export class MaxChatController {
         : await this.deps.planning.start(owner, { event_id: requestId, user_text: text, locality_token: localityToken,
           ...(localityQuery ? { locality_query: localityQuery } : {}) });
     } catch (error) {
-      // A failed city-selected parse must not leave the chat waiting for another
-      // city. Preserve only a short-lived, explicit retry of the same request.
+      // After a parse failure, offer a retry instead of waiting for another city.
       if (error instanceof InitialIntentError && ['INTENT_INVALID_RESPONSE', 'INTENT_NEEDS_CLARIFICATION',
         'INTENT_PROVIDER_FAILED'].includes(error.code)) {
         await this.setPending(owner, { kind: 'intent_retry', requestText: text, localityToken,

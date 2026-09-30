@@ -1,5 +1,4 @@
-// Inventory the exact lockfile, including optional platforms and build tools.
-// License identifiers are upstream metadata, not a grant for external API data.
+// Dependency inventory from the lockfile, including optional platforms.
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';

@@ -234,8 +234,7 @@ def prepare(job, *, enforce_option_limit=True):
     multi_stop = policy.get("max_stops_by_activity", {})
     if not isinstance(multi_stop, dict) or any(not isinstance(key, str) or not key for key in multi_stop):
         raise ValueError("multi-stop policy required")
-    # A bound derived from the day window is not a product cap of two/three
-    # stops. The solver's actual limit is feasibility within that window.
+    # The time window bounds the stop count; the solver also accounts for travel.
     for value in multi_stop.values(): integer(value, "maximum stops", 2, MAX_OPTIONS_PER_DAY)
     if set(multi_stop) - set(activity_durations):
         raise ValueError("multi-stop activity duration required")
@@ -350,18 +349,14 @@ def prepare(job, *, enforce_option_limit=True):
                 if not fresh(place.get("source"), now): reasons.append("STALE_OR_UNKNOWN_SOURCE")
                 if target is not None and place.get('venue_source') and not fresh(place['venue_source'], now):
                     reasons.append('STALE_OR_UNKNOWN_SOURCE')
-                # Category matches are OR alternatives. A place may carry several matching
-                # rubrics; one known visit estimate is enough to schedule it. Unknown
-                # secondary rubrics must not veto a known applicable estimate.
+                # Rubrics are OR alternatives; one known visit estimate is enough.
                 category_duration = max((durations.get(c, 0) for c in matching), default=0) if target is None else 0
-                # The activity estimate is a floor, not permission to shorten
-                # an hour-long park visit into a 25-minute waypoint.
+                # The activity estimate is a minimum visit duration.
                 duration = max(category_duration, activity_durations.get(activity["id"], 0))
                 if target is None and activity.get("duration_minutes") is not None:
                     duration = integer(activity["duration_minutes"], "user visit duration", 1, 1440)
                 elif target is None and job.get('routing_policy', {}).get('external_compact'):
-                    # Flexible product estimate for an outdoor stop. Never change
-                    # an explicit user duration or claim this is provider evidence.
+                    # Explicit user durations take precedence over outdoor defaults.
                     kind = activity.get('intent_kind')
                     if kind in ('route_walk', 'area_walk') or activity['id'] in multi_stop:
                         duration = EXTERNAL_VISIT_POLICY['walk_stop_minutes']
@@ -372,9 +367,7 @@ def prepare(job, *, enforce_option_limit=True):
                     duration, windows, event_reasons, event_warnings = event_window(place, target, day, locality, timezone, start, end)
                     reasons.extend(event_reasons); warnings.extend(event_warnings)
                 elif raw_windows is None:
-                    # Only for a walkable outdoor rubric explicitly allowed by
-                    # the server: a tentative stop is possible, not a claim
-                    # that the place is open. Keep the warning through output.
+                    # Outdoor stops with unknown hours retain their availability warning.
                     if activity["id"] in activity_durations and matching & tentative_schedule_categories and duration <= end - start:
                         windows.append((start, end - duration))
                         warnings.append("OPENING_HOURS_UNVERIFIED")
@@ -409,9 +402,7 @@ def prepare(job, *, enforce_option_limit=True):
                 price = place.get("price") or {}
                 if expected is not None and average_bill_per_person and price.get("basis") == "unknown" and price.get("estimate_kind") == "average_bill":
                     warnings.append("AVERAGE_CHECK_BASIS_ASSUMED_PER_PERSON")
-                # A verified ceiling is sufficient in estimate mode too. Use it
-                # conservatively when no estimate exists; keep expected unknown
-                # in the result rather than relabeling that ceiling an average.
+                # Use a known ceiling when the estimate is absent; leave the expected price unknown.
                 charged = upper if budget_policy == "upper_bound" else expected if expected is not None else upper
                 if budget_limit is not None and charged is None:
                     reasons.append("PRICE_UPPER_UNKNOWN" if budget_policy == "upper_bound" else "PRICE_ESTIMATE_UNKNOWN")
@@ -562,16 +553,14 @@ def select_places(job, *, time_limit_seconds=3.0):
             costs = [o.charged * chosen[i] for i, o in enumerate(options) if group is None or o.day_id == group]
             costs += [(cost or 0) * take for did, _, _, take, _, cost in arcs if group is None or did == group]
             model.add(sum(costs) <= p["budget_limit"])
-    # True lexicographic stages: no arbitrary coefficient trades hard constraints
-    # or one requested activity against rating, distance, or provider rank.
+    # Lexicographic objectives keep coverage ahead of ratings and distance.
     objectives = [sum(covered)]
     if complete_walks:
         objectives.append(sum(complete_walks))
     objectives.append(sum(o.preference * chosen[i] for i, o in enumerate(options)))
     if p["multi_stop"]:
         walk_options = [(i, o) for i, o in enumerate(options) if o.activity_id in p["multi_stop"]]
-        # A tiny rating difference must not end an otherwise useful walk. Weak
-        # stops may help hard coverage, but never win just by their number.
+        # Ignore tiny rating differences when they would shorten a useful walk.
         objectives.append(sum(chosen[i] for i, o in walk_options if o.quality >= WALK_QUALITY_POLICY['acceptable_rating']))
         objectives.append(-sum(chosen[i] for i, o in walk_options if o.quality < WALK_QUALITY_POLICY['acceptable_rating']))
     if p["walk_targets"]:
@@ -642,15 +631,13 @@ def _output(p, selected):
         travel += returned["safe_minutes"]
         transport_costs.append(returned["cost_upper_minor"])
         if "source" in returned: sources.append(returned["source"])
-        # An empty day has no priced itinerary. Zero route cost alone is not a
-        # zero-ruble estimate for a plan that contains no place at all.
+        # An empty day has no price estimate.
         if indices:
             expected.extend(transport_costs); uppers.extend(transport_costs)
         if any(c is None for c in transport_costs): warnings.add("TRANSPORT_COST_UNKNOWN")
         ids_selected = {v["activity_id"] for v in visits}
         missing = [a["id"] for a in day["activities"] if a["id"] not in ids_selected]
-        # One waypoint is not a walking route. Fewer than the theoretical
-        # maximum is normal when travel or opening hours consume the window.
+        # A single waypoint does not satisfy a walking route.
         short_walk = any(0 < sum(v["activity_id"] == aid for v in visits) < WALK_QUALITY_POLICY["minimum_waypoints"]
                          for aid in p["multi_stop"] if aid in {a["id"] for a in day["activities"]})
         if short_walk: warnings.add("WALK_WAYPOINTS_INCOMPLETE")

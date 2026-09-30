@@ -1,7 +1,7 @@
 {
   "schema_version": "v-max.data-api.v1",
   "solution_name": "Планировщик городского досуга в MAX",
-  "schema_status": "Project-defined check manifest covering the fields required on case page 10. The supplied organizer documents do not publish an executable DATA-API schema; verify compatibility with the submission portal before upload.",
+  "schema_status": "Project schema covering case page 10; no executable organizer schema was supplied.",
   "base_url": "https://bbapc7qgk242slpm2df5.containers.yandexcloud.net",
   "base_url_override_environment": "V_MAX_TEST_BASE_URL",
   "openapi_file": "openapi.yaml",
@@ -10,30 +10,30 @@
   "revision": {
     "status": "source_archive",
     "commit": null,
-    "note": "The submitted source is the accompanying Git archive. Its SHA-256 checksum and local commit are printed on the first slide of the presentation."
+    "note": "See the submitted archive checksum and commit on presentation slide 1."
   },
   "execution": {
     "automatic_runner": false,
-    "instructions": "Execute checks in order with the test MAX user, or import OpenAPI into a compatible HTTP client. Placeholder substitution and JSON Pointer extraction below describe the procedure; this file does not pretend to be an organizer-provided runner.",
-    "substitution": "A placeholder occupying an entire JSON value preserves the source type: versions, latitude and longitude must be numbers, not strings. Schema references resolve against openapi.yaml components.",
+    "instructions": "Run checks in order in an HTTP client. See docs/testing.md for authorization and variable substitution.",
+    "substitution": "Preserve variable types; resolve schema references against openapi.yaml.",
     "offline_contract_command": "node --import tsx scripts/api-contract.mts",
     "offline_http_test_command": "npm exec -- vitest run src/server/submission-api-contract.test.ts",
-    "live_policy": "Use a dedicated authorized MAX test account. Explicitly initiated requests/plan may spend provider quota. Never log or publish initData, tokens or raw provider data; do not send valid synthetic webhook events to production."
+    "live_policy": "Live searches and planning consume API quota. Keep credentials private; do not replay synthetic webhook events."
   },
   "roles": {
     "anonymous": "No credentials.",
-    "max_user": "Ordinary user of the supplied MAX bot. Team supplies a usable test account/access procedure privately; no admin access is needed."
+    "max_user": "Ordinary MAX account; see docs/testing.md. No admin role required."
   },
   "variables": {
     "MAX_TEST_INIT_DATA": {
-      "source": "Fresh signed launch data from a mini-app opened by the test MAX user; transmitted privately/in memory, not stored in this repository.",
+      "source": "Fresh MAX launch header; see docs/testing.md.",
       "secret": true
     },
     "LOCALITY_TOKEN": {
       "source_check": "localities",
       "json_pointer": "/choices/0/token",
       "secret": true,
-      "precondition": "Tester verifies that the chosen locality is Москва; do not blindly accept a different first result."
+      "precondition": "Verify that the selected result is Москва."
     },
     "DRAFT_ID": {
       "source_check": "create-draft",
@@ -45,17 +45,37 @@
     "SAVED_REVISION": {
       "source_check": "read-saved",
       "json_pointer": "/revision",
-      "precondition": "Saved IDs are stable: use DRAFT_ID for read/restore. Re-read the revision after any later edit; do not substitute PlanningView.version without checking the saved response."
+      "precondition": "Use DRAFT_ID; re-read the saved revision after any edit."
     },
     "RESTORE_LOCALITY_TOKEN": {
       "source_check": "refresh-saved-locality",
       "json_pointer": "/choices/0/token",
       "secret": true,
-      "precondition": "Explicitly verify/select Москва again. Do not reuse an expired provider token or infer a locality from stored provider IDs."
+      "precondition": "Select Москва again using a fresh locality token."
     },
     "DAY_ID": {
       "source_check": "create-draft",
       "json_pointer": "/view/draft/days/0/day_id"
+    },
+    "EVENT_SEARCH_ID": {
+      "source_check": "events-search",
+      "json_pointer": "/search_id"
+    },
+    "EVENT_CHOICE_ID": {
+      "source_check": "events-search",
+      "json_pointer": "/cards/0/choice_id",
+      "precondition": "Choose a card for the selected day. If cards is empty, record the event scenario as blocked, not passed."
+    },
+    "OCCURRENCE_CHOICE_ID": {
+      "source_check": "events-availability",
+      "json_pointer": "/choices/0/occurrence_choice_id",
+      "precondition": "Choose an occurrence within the day window. Empty choices block selection; inspect unresolved."
+    },
+    "EVENT_VISIT_MINUTES": {
+      "source": "For duration_required=true choose 5..720 minutes fitting the visit window. Otherwise omit visit_duration_minutes from the request body."
+    },
+    "SELECTED_ACTIVITY_ID": {
+      "source": "events-select response: ID of the newly appended event activity in draft.days for DAY_ID."
     },
     "ADDRESS_LAT": {
       "source_check": "addresses",
@@ -474,10 +494,10 @@
           "$ref": "#/components/schemas/PlanningView"
         },
         "semantic_checks": [
-          "Inspect result.status and per-day missing_activity_ids. A partial route must be labeled LIMITED, with omitted wishes identified.",
-          "When search_scope is present, verify radius_meters and coverage survive the server/public result projection. PARTIAL and BOUNDED_RESULTS must not be described as an exhaustive city-wide search.",
-          "Validate walking and eating activities, their explicit order, opening hours, visit slots and travel inside the confirmed window.",
-          "UNAVAILABLE/ERROR is a valid response shape but fails this positive live acceptance scenario; do not replace it with fixture data."
+          "Inspect result.status and missing_activity_ids; partial coverage must be visible.",
+          "Check search_scope.radius_meters and coverage against confirmed conditions.",
+          "Check walking before eating. In external mode travel is estimated; verified mode also checks timed legs.",
+          "UNAVAILABLE or ERROR does not pass the positive route scenario."
         ]
       }
     },
@@ -503,6 +523,198 @@
         "schema": {
           "$ref": "#/components/schemas/PlanningView"
         }
+      }
+    },
+    {
+      "id": "events-search",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/drafts/{id}/events/search",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "base_version": "${DRAFT_VERSION}",
+          "event_id": "${EVENT_ID}",
+          "day_id": "${DAY_ID}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/EventSearchPreview"
+        },
+        "semantic_checks": [
+          "Check coverage and cards. If no usable event is available, stop this event chain and record the limitation."
+        ]
+      }
+    },
+    {
+      "id": "events-availability",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/drafts/{id}/events/availability",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "base_version": "${DRAFT_VERSION}",
+          "event_id": "${EVENT_ID}",
+          "search_id": "${EVENT_SEARCH_ID}",
+          "choice_id": "${EVENT_CHOICE_ID}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/EventAvailabilityPreview"
+        },
+        "semantic_checks": [
+          "Select a current occurrence fitting the day. If duration_required=false, omit visit_duration_minutes in the next request."
+        ]
+      }
+    },
+    {
+      "id": "events-select",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/drafts/{id}/events/select",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "base_version": "${DRAFT_VERSION}",
+          "event_id": "${EVENT_ID}",
+          "search_id": "${EVENT_SEARCH_ID}",
+          "occurrence_choice_id": "${OCCURRENCE_CHOICE_ID}",
+          "day_id": "${DAY_ID}",
+          "visit_duration_minutes": "${EVENT_VISIT_MINUTES}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningView"
+        },
+        "semantic_checks": [
+          "The event is appended; existing wishes remain. Confirmation and result are cleared."
+        ]
+      }
+    },
+    {
+      "id": "events-recheck",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/drafts/{id}/events/recheck",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "base_version": "${DRAFT_VERSION}",
+          "event_id": "${EVENT_ID}",
+          "day_id": "${DAY_ID}",
+          "activity_id": "${SELECTED_ACTIVITY_ID}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningView"
+        },
+        "semantic_checks": [
+          "The selected event identity and schedule remain; changed source facts require review."
+        ]
+      }
+    },
+    {
+      "id": "confirm-event-plan",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/drafts/{id}/confirm",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "base_version": "${DRAFT_VERSION}",
+          "event_id": "${EVENT_ID}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningView"
+        }
+      }
+    },
+    {
+      "id": "calculate-event-plan",
+      "required": true,
+      "method": "POST",
+      "path": "/api/planning/drafts/{id}/plan",
+      "role": "max_user",
+      "parameters": {
+        "path": {
+          "id": "${DRAFT_ID}"
+        },
+        "headers": {
+          "X-Max-Init-Data": "${MAX_TEST_INIT_DATA}"
+        },
+        "body": {
+          "base_version": "${DRAFT_VERSION}",
+          "event_id": "${EVENT_ID}"
+        }
+      },
+      "expected": {
+        "status_codes": [
+          200
+        ],
+        "content_type": "application/json",
+        "schema": {
+          "$ref": "#/components/schemas/PlanningView"
+        },
+        "semantic_checks": [
+          "The chosen event must fit its schedule and appear in the result. Missing activities must be identified."
+        ]
       }
     },
     {
@@ -576,7 +788,7 @@
           "$ref": "#/components/schemas/PlanningView"
         },
         "semantic_checks": [
-          "Only shared.search_radius_meters and provenance change; confirmation/result are invalidated. Reconfirm before calculating. The next result.search_scope.radius_meters must equal 1000; no candidate outside that radius may be included. Saved/reopened/shared conditions retain the explicit radius."
+          "Radius becomes 1000 m and persists on reopen/share. Reconfirm; the next search must respect that radius."
         ]
       }
     },
@@ -633,8 +845,8 @@
           "$ref": "#/components/schemas/SavedConditionsView"
         },
         "semantic_checks": [
-          "Read the latest user edits without an LLM call; this response must not contain the previous provider itinerary, catalog, prices or schedule facts.",
-          "The response is saved user conditions. Provider address choices can be absent with POINT_RECONFIRM_REQUIRED; a saved user geolocation is historical, not current."
+          "Returns current user conditions without an LLM call or provider observations.",
+          "POINT_RECONFIRM_REQUIRED requests address reselection; stored geolocation is the previous selected point."
         ]
       }
     },
@@ -703,9 +915,9 @@
           "$ref": "#/components/schemas/PlanningView"
         },
         "semantic_checks": [
-          "ID stays equal to DRAFT_ID, phase is DRAFT, confirmed_version and result are null. The prior provider itinerary must not reappear.",
-          "Review current dates, missing points and other issues. Restore alone must not confirm the conditions or calculate a route.",
-          "If fresh context cannot preserve named types, exclusions or hard conditions, 422 is the safe refusal; record the acceptance limitation rather than widening the request."
+          "ID stays DRAFT_ID; phase=DRAFT, confirmed_version=null, result=null.",
+          "Review dates and missing fields before confirming and calculating.",
+          "Incompatible remapping returns 422 without widening the request."
         ]
       }
     },
@@ -729,7 +941,7 @@
           "$ref": "#/components/schemas/SavedRouteList"
         },
         "semantic_checks": [
-          "Only this user’s nonexpired conditions appear. Pagination must not duplicate routes; reading does not extend expiry."
+          "Only owned routes; no duplicate pages or TTL extension on read."
         ]
       }
     },
@@ -807,7 +1019,7 @@
           "$ref": "#/components/schemas/ManualOptions"
         },
         "semantic_checks": [
-          "Reading choices does not edit, confirm, plan or call a model. Categories belong to this draft’s regional catalog."
+          "Returns regional categories without editing the draft or calling the model."
         ]
       }
     },
@@ -853,7 +1065,7 @@
           "$ref": "#/components/schemas/PlanningView"
         },
         "semantic_checks": [
-          "Creation succeeds without calling an LLM; the new draft is unconfirmed, requires a start point and has no calculated result."
+          "Creates an unconfirmed draft without LLM; start and calculation remain required."
         ]
       }
     },
@@ -931,7 +1143,7 @@
           "$ref": "#/components/schemas/SharePreview"
         },
         "semantic_checks": [
-          "Shared conditions contain no private start/destination or free-text address queries. Opening does not import, calculate, confirm or send messages."
+          "Preview excludes private points and addresses; opening has no side effects."
         ]
       }
     },
@@ -987,23 +1199,19 @@
           "$ref": "#/components/schemas/RouteDeleted"
         },
         "semantic_checks": [
-          "Delete only the synthetic route created in this sequence. Other saved routes survive; replay is idempotent."
+          "Deletes the selected test route only; replay is idempotent."
         ]
       }
     }
   ],
   "follow_up_checks": [
-    "After edit-window, confirm and calculate again with fresh versions/event IDs; the short-window case must expose unmet wishes, not silently call the result complete.",
-    "For a checked partial request, verify that activities, dates, time and order survive alongside draft.clarifications. Confirm/plan must remain blocked until explicit version-bound resolution. Edit one relevant field, resolve only that question and verify no new LLM calls. Pending questions must survive own save/reopen/process restart; sharing must fail without exposing their quotes.",
-    "For an unexpired result, explicitly POST /plan with refresh:true, the current base_version and a new event_id. Conditions must remain identical and the version must advance. Replay that exact action: no further provider work or version change. A new event using the old version must fail with STALE_VERSION. Routing service denial must produce ERROR / ROUTING_PROVIDER_UNAVAILABLE, not claim the wishes are impossible; retry after service recovery without another LLM call.",
-    "Repeat read-saved and restore-saved after draft/provider expiration and a process restart. Latest edits must survive; categories/addresses/itineraries must not be reused as durable provider facts. Check stale revision 409 and foreign/expired saved ID 404.",
-    "Use MAX chat /routes and the mini-app to reopen a saved route, inspect saved conditions and explicitly refresh context before confirmation/calculation. API read/restore does not replace this user interaction.",
-    "Run the same request with an unsigned header and another user: 401/404 without leaking route contents.",
-    "For a fresh calculated route, preview a chosen stop via alternatives/preview using its current day/activity/place IDs. Preview must preserve the current plan. Apply an offered alternative_id explicitly; the returned plan must equal the preview. Empty alternatives need an explicit reason and are not a successful positive replacement check.",
-    "Create another share of a fresh calculated route. Open its MAX deep link as a second authorized test user, choose a fresh verified city and import explicitly. The recipient draft is unconfirmed, isolated from the sender and requires omitted start/finish points. Revoke the original share; future resolution fails while an already imported independent copy remains.",
-    "Repeat manual creation with LLM credentials absent in an isolated deployment. Geography remains required; never replace failed live geography with invented categories.",
-    "In Нижний Новгород or Казань, use events/search for a chosen day, events/availability for an opaque choice, then events/select for the chosen occurrence. For a visit window explicitly enter a duration; fixed sessions must retain their exact schedule. Preserve food/order and confirm before calculation. A missing desired event or PARTIAL search is not proof of city-wide absence.",
-    "After event preview expiry, restoration or changed date, events/recheck must obtain fresh source facts before confirmation. A moved venue/changed occurrence must require a reviewed choice, never silently become a POI. Check unsigned/foreign/stale selections, receipt replay and source-free saved conditions.",
-    "Check mobile and web MAX manually. API contract tests do not establish usability or live route quality."
+    "After editing, reconfirm and recalculate with the latest version and a new event_id.",
+    "Replay an action: no duplicate provider call; conflicting payload returns 409.",
+    "Reopen after restart: saved conditions survive, expired facts require refresh.",
+    "A foreign user gets 404; unsigned requests get 401.",
+    "In verified mode, preview/apply a replacement; preview must leave the current plan unchanged.",
+    "Import a share as a second user; revoke it and verify the imported copy remains independent.",
+    "In an isolated deployment without Yandex keys, create a plan through the manual form.",
+    "Check changed/expired event choices and mobile MAX as described in docs/testing.md."
   ]
 }

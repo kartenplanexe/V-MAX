@@ -50,8 +50,7 @@ export function projectSharedResult(raw: unknown, originalExpiry: number, now: n
     const ids = new Set(day.visits.map(visit => visit.place_id));
     const rawSegments = (day as typeof day & SegmentedDay).travel_segments;
     const allSegments = rawSegments?.map(segment => Segment.parse(segment));
-    // The schedule also depends on the hidden start/finish legs. Redaction must
-    // never extend the freshness of the remaining displayed itinerary.
+    // Hiding start/finish legs must not extend the result’s freshness.
     for (const segment of allSegments ?? []) deadlines.push(Date.parse(segment.source.valid_until));
     const segments = allSegments?.filter(segment => includePrivatePoints || ids.has(segment.from_id) && ids.has(segment.to_id));
     return { day_id: day.day_id, date: day.date, status: day.status, missing_activity_ids: [...day.missing_activity_ids],

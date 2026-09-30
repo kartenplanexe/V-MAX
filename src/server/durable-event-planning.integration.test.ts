@@ -18,8 +18,7 @@ const run = it.skipIf(!process.env.TEST_DATABASE_URL);
 async function fixture(withFood = false, paid = false) {
   let time = Date.parse('2026-09-27T09:00:00Z'), calls = 0, providerFails = false;
   const owner = `synthetic-event-${randomUUID()}`;
-  // This suite advances its clock and purges records. Keep its lifecycle
-  // separate from other integration suites with an earlier synthetic clock.
+  // Use an isolated schema because this suite advances the cleanup clock.
   const schema = `events_${randomUUID().replaceAll('-', '')}`;
   const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
   await admin.query(`CREATE SCHEMA ${schema}`);

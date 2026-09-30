@@ -1,6 +1,4 @@
-/** Narrow consistency checks on already validated evidence. These do not claim
- * general language understanding: conflicting evidence becomes a form question.
- */
+// Conflicting scalar evidence becomes a form question.
 export function relativeDateDays(evidence: string | null | undefined): number | null {
   if (!evidence) return null;
   const values = [...evidence.matchAll(/(?<!\p{L})(послезавтра|после\s+завтра|завтра|сегодня|через\s+(\d+)\s+д(?:ень|ня|ней))(?!\p{L})/giu)];

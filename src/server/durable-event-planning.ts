@@ -24,8 +24,7 @@ function parse<S extends z.ZodType>(schema: S, raw: unknown): z.output<S> {
 }
 const noPlan = async (): Promise<never> => reject('EVENT_SERVICE_CANNOT_CALCULATE', 500);
 
-/** Explicit event selection only. Every source observation is short-lived;
- * durable own snapshots contain the chosen identity and user duration only. */
+// Persist selected event IDs and duration; source observations expire separately.
 export class DurableEventPlanning {
   constructor(readonly options: { database: PlanningDatabase; client: KudagoClient }) {}
   private now() { return this.options.database.now(); }

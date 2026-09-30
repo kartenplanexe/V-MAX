@@ -1,61 +1,172 @@
 {
   "schema_version": "v-max.acceptance-scenarios.v1",
   "data_mode": "test",
-  "description": "Synthetic acceptance inputs, not recorded user requests or provider responses. Resolve relative dates when running. Success requires semantic review of the route, not HTTP 200 alone.",
+  "description": "Synthetic inputs for manual acceptance checks. Relative dates refer to the day of testing.",
   "city_query": "Москва",
   "start_address_query": "Тверская улица, 1",
   "cases": [
     {
       "id": "walk",
       "request_text": "хочу погулять",
-      "steps": ["Create a new route in MAX", "Choose the intended city", "Review or specify date/window", "Select a start point", "Confirm and calculate"],
-      "expected": ["Walking intent is retained", "A route is more than a single unrelated indoor visit", "Insufficient or unverified data is shown explicitly"]
+      "steps": [
+        "Create a new route in MAX",
+        "Choose the intended city",
+        "Review or specify date/window",
+        "Select a start point",
+        "Confirm and calculate"
+      ],
+      "expected": [
+        "Walking intent is retained",
+        "A route is more than a single unrelated indoor visit",
+        "Insufficient or unverified data is shown explicitly"
+      ]
     },
     {
       "id": "walk-then-eat",
       "request_text": "хочу погулять, а потом поесть",
       "explicit_api_request": "Завтра в Москве с 14:00 до 19:00 хочу погулять, а потом поесть, пешком, без ограничения бюджета",
-      "expected": ["Both activities survive parsing and confirmation", "Walking precedes eating", "Missing eating cannot be reported as a complete route"]
+      "expected": [
+        "Both activities survive parsing and confirmation",
+        "Walking precedes eating",
+        "Missing eating cannot be reported as a complete route"
+      ]
     },
     {
       "id": "insufficient-time",
       "request_text": "Завтра в Москве с 14:00 до 14:30 хочу музей, затем погулять и поесть, пешком",
-      "expected": ["No visit or travel is scheduled outside the confirmed window", "Unmet activities are listed", "Partial or unavailable outcome is distinguished from a provider failure"]
+      "expected": [
+        "No visit or travel is scheduled outside the confirmed window",
+        "Unmet activities are listed",
+        "Partial or unavailable outcome is distinguished from a provider failure"
+      ]
     },
     {
       "id": "budget-evidence",
       "request_text": "Завтра в Москве с 14:00 до 19:00 хочу погулять и поесть, бюджет до 1500 рублей на человека, нас двое, пешком",
-      "expected": ["Budget basis, number of people and evidence limitations remain visible", "Average check alone is not presented as a guaranteed maximum price"]
+      "expected": [
+        "Budget basis, number of people and evidence limitations remain visible",
+        "Average check alone is not presented as a guaranteed maximum price"
+      ]
     },
     {
       "id": "manual-without-llm",
-      "steps": ["Choose manual planning", "Choose a verified city", "Select actual categories, dates, windows and order", "Choose a start point", "Review, confirm and calculate"],
-      "expected": ["The flow remains available when LLM credentials are absent or the text parser fails", "No invented category or provider-free live route is substituted when geography is unavailable", "The same constraints and explicit confirmation apply as for free text"]
+      "steps": [
+        "Choose manual planning",
+        "Choose a verified city",
+        "Select actual categories, dates, windows and order",
+        "Choose a start point",
+        "Review, confirm and calculate"
+      ],
+      "expected": [
+        "The flow remains available when LLM credentials are absent or the text parser fails",
+        "No invented category or provider-free live route is substituted when geography is unavailable",
+        "The same constraints and explicit confirmation apply as for free text"
+      ]
     },
     {
       "id": "replace-stop",
-      "steps": ["Calculate a fresh route", "Request a replacement for one stop", "Inspect the offered itinerary and time/cost difference", "Apply explicitly", "Repeat the same apply request"],
-      "expected": ["Preview leaves the current route intact", "Other stops and hard constraints are preserved", "Applied result equals the preview without another provider calculation", "Stale or expired previews cannot overwrite an edited route"]
+      "steps": [
+        "Calculate a fresh route",
+        "Request a replacement for one stop",
+        "Inspect the offered itinerary and time/cost difference",
+        "Apply explicitly",
+        "Repeat the same apply request"
+      ],
+      "expected": [
+        "Preview leaves the current route intact",
+        "Other stops and hard constraints are preserved",
+        "Applied result equals the preview without another provider calculation",
+        "Stale or expired previews cannot overwrite an edited route"
+      ],
+      "routing_mode": "verified"
     },
     {
       "id": "share-route",
-      "steps": ["Create a share without private points", "Open the MAX link as another authorized test user", "Review before importing", "Choose a verified city and import", "Revoke the original share"],
-      "expected": ["Private points and address queries are excluded by default", "Opening alone does not import or send messages", "Import creates independent unconfirmed conditions and requires missing points", "Expired facts are never revived", "Revocation prevents future resolution and leaves an existing independent recipient copy intact"]
+      "steps": [
+        "Create a share without private points",
+        "Open the MAX link as another authorized test user",
+        "Review before importing",
+        "Choose a verified city and import",
+        "Revoke the original share"
+      ],
+      "expected": [
+        "Private points and address queries are excluded by default",
+        "Opening alone does not import or send messages",
+        "Import creates independent unconfirmed conditions and requires missing points",
+        "Expired facts are never revived",
+        "Revocation prevents future resolution and leaves an existing independent recipient copy intact"
+      ]
     },
     {
       "id": "delete-saved-route",
-      "steps": ["Create two synthetic test routes", "Open My routes", "Cancel deletion once", "Confirm deletion of one named route", "Reopen the other"],
-      "expected": ["Cancel preserves both", "Only the explicitly selected owned route is deleted", "Shares of the deleted route stop resolving", "A stale revision or foreign route cannot be deleted", "Deletion replay is idempotent"]
+      "steps": [
+        "Create two synthetic test routes",
+        "Open My routes",
+        "Cancel deletion once",
+        "Confirm deletion of one named route",
+        "Reopen the other"
+      ],
+      "expected": [
+        "Cancel preserves both",
+        "Only the explicitly selected owned route is deleted",
+        "Shares of the deleted route stop resolving",
+        "A stale revision or foreign route cannot be deleted",
+        "Deletion replay is idempotent"
+      ]
     },
     {
       "id": "public-transport",
-      "steps": ["When the live capability is enabled, select public transport and an unspecified or unlimited budget", "Choose dated activities and public start/finish points", "Confirm and calculate", "Inspect transit stages and actual departure times"],
-      "expected": ["Each selected leg is rechecked at its planned departure", "Waiting is included once, not added twice", "Mixed vehicle types retain their own line numbers", "Unknown fares are not zero; an unsupported finite total budget requires input", "A second unstable time check does not return the earlier itinerary", "Synthetic provider tests do not prove live key entitlement"]
+      "steps": [
+        "When the live capability is enabled, select public transport and an unspecified or unlimited budget",
+        "Choose dated activities and public start/finish points",
+        "Confirm and calculate",
+        "Inspect transit stages and actual departure times"
+      ],
+      "expected": [
+        "Each selected leg is rechecked at its planned departure",
+        "Waiting is included once, not added twice",
+        "Mixed vehicle types retain their own line numbers",
+        "Unknown fares are not zero; an unsupported finite total budget requires input",
+        "A second unstable time check does not return the earlier itinerary",
+        "Synthetic provider tests do not prove live key entitlement"
+      ],
+      "routing_mode": "verified"
     },
     {
       "id": "saved-route",
-      "steps": ["Finish a route", "Change time, budget or a user-selected map/geolocation start point", "Open another route", "Reopen the first via Мои маршруты after provider facts and the draft expire", "Read GET /api/planning/saved/{id}", "Choose a fresh verified locality and restore with the latest saved revision", "Review issues and dates, confirm explicitly, then calculate"],
-      "expected": ["The latest user conditions survive expiration and process restart without an LLM call on read", "An expired provider itinerary is not presented as current", "Saved map/geolocation coordinates are labeled as a past selected point, not current location", "Provider address choices require reselection when they were not user map/geolocation points", "Restore creates an unconfirmed draft without a previous provider result", "Ambiguous category remapping or missing hard conditions require input rather than silent widening", "Another MAX user receives 404 without saved contents", "An action with a stale saved revision returns 409 and does not overwrite newer conditions"]
+      "steps": [
+        "Finish a route",
+        "Change time, budget or a user-selected map/geolocation start point",
+        "Open another route",
+        "Reopen the first via Мои маршруты after provider facts and the draft expire",
+        "Read GET /api/planning/saved/{id}",
+        "Choose a fresh verified locality and restore with the latest saved revision",
+        "Review issues and dates, confirm explicitly, then calculate"
+      ],
+      "expected": [
+        "The latest user conditions survive expiration and process restart without an LLM call on read",
+        "An expired provider itinerary is not presented as current",
+        "Saved map/geolocation coordinates are labeled as a past selected point, not current location",
+        "Provider address choices require reselection when they were not user map/geolocation points",
+        "Restore creates an unconfirmed draft without a previous provider result",
+        "Ambiguous category remapping or missing hard conditions require input rather than silent widening",
+        "Another MAX user receives 404 without saved contents",
+        "An action with a stale saved revision returns 409 and does not overwrite newer conditions"
+      ]
+    },
+    {
+      "id": "public-transport-external",
+      "routing_mode": "external",
+      "steps": [
+        "Select public transport and unlimited budget",
+        "Confirm and calculate",
+        "Open all stops in 2GIS"
+      ],
+      "expected": [
+        "Travel is estimated, without transit lines or measured departure times",
+        "The 2GIS link includes every selected stop",
+        "A finite transport budget requires clarification"
+      ]
     }
   ],
   "offline_fixtures": [
@@ -64,8 +175,7 @@
     "planner/src/vmax_planner/demo.py"
   ],
   "limitations": [
-    "Live provider coverage and MAX authorization are not supplied by these fixtures.",
-    "No test credentials, personal data or provider snapshots are embedded.",
-    "Live checks must record failures honestly; deterministic fixtures cannot substitute for the MAX demonstration."
+    "Fixtures do not provide live API access or MAX authorization.",
+    "No credentials or user records are included."
   ]
 }

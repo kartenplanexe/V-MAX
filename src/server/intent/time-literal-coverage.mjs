@@ -1,5 +1,4 @@
-// Completeness tripwire, not a natural-language time parser. Never supplies or
-// changes a window, polarity or day scope. Unrepresented context needs review.
+// Check literal time coverage without changing the parsed window.
 export const timeLiteralCoverageVersion = 'time-literal-coverage.v1';
 const hour = '(?:[01]?\\d|2[0-3])';
 const clock = `${hour}(?::[0-5]\\d)?`;
@@ -9,8 +8,7 @@ const valueOf = token => token.includes(':') ? token.padStart(5, '0') : `${token
 
 function literals(text) {
   const found = new Map();
-  // «6 вечера» may normalize to 18:00. Day-part scope across clauses is NLP,
-  // so this literal-only guard abstains for 1..12 when a day part is present.
+  // Skip ambiguous 1..12 clock values when a day part is present.
   const dayPart = /(?<!\p{L})(?:утр[ао]|утром|дня|дн[её]м|вечер[ао]м?|ноч[иь]|ночью)(?!\p{L})/iu.test(text);
   const add = (token, index) => {
     const hours = Number(token.split(':')[0]);

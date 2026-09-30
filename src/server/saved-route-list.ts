@@ -39,8 +39,7 @@ export class SavedRouteLibrary {
         plan: async () => { throw Error('Deletion cannot invoke the planner'); } });
       try { sessions.remove(owner, id); }
       catch (error) { if (!(error instanceof PlanningSessionError) || error.code !== 'DRAFT_NOT_FOUND') throw error; }
-      // Every authored edit persists its saved revision under this same owner lock.
-      // Expiring provider facts alone must not make a freshly listed own snapshot undeletable.
+      // Saved revisions follow user edits, not provider-data expiry.
       if (parsed.data.base_revision !== saved!.revision) throw new PlanningSessionError('SAVED_CONDITIONS_STALE');
       const acquired = await client.query('SELECT pg_try_advisory_lock(hashtextextended($1, 782003)) AS acquired', [owner]);
       if (!acquired.rows[0]?.acquired) throw new PlanningSessionError('OPERATION_IN_PROGRESS');

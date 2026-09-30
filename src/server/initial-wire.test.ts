@@ -3,8 +3,7 @@ import { parseInitialIntent } from './intent-start.js';
 import { intentFixture } from './intent-start.fixture.js';
 import { YandexIntentClient } from './yandex-intent.js';
 
-// Authored provider-boundary JSON. This exercises the real adapter and guard,
-// not the quality of Alice; live acceptance is measured separately.
+// Synthetic provider responses exercise the adapter and validation.
 function fixture(count = 1) {
   const f = intentFixture(count);
   f.context.catalog.rows.push(['300', 'Места', [], { type: 'general_rubric' }], ['901', 'Сельхозкорма', []]);

@@ -5,9 +5,7 @@ import { DgisRequestBudgetError } from './dgis.js';
 export type RoutingLimits = { minute: number; day: number; month: number;
   initialDay: string; initialDayUsed: number; initialMonth: string; initialMonthUsed: number };
 
-/** Provider subscription periods, Moscow midnight; monthly cycle begins on the 20th.
- * Keys share ONE subscription allowance. No key, owner, coordinate or payload is stored.
- */
+// Shared subscription limits: Moscow midnight, monthly reset on the 20th.
 export function quotaPeriods(at: Date) {
   const local = new Date(at.getTime() + 3 * 3600_000), day = local.toISOString().slice(0, 10);
   if (local.getUTCDate() < 20) local.setUTCMonth(local.getUTCMonth() - 1);
@@ -28,8 +26,7 @@ export class RoutingQuota {
     try {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 782010))', [scope]);
-      // Get the clock after acquiring the lock; production uses the database clock
-      // to keep multiple containers on the same period/window.
+      // Read the database clock after acquiring the lock to align concurrent containers.
       const at = this.options.now?.() ?? new Date((await client.query('SELECT clock_timestamp() AS now')).rows[0].now);
       const periods = quotaPeriods(at);
       for (const [kind, period, used] of [

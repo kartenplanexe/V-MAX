@@ -81,8 +81,7 @@ it.skipIf(!database)('keeps the user-authored route index separate from expiring
 
 it.skipIf(!database)('purges expired own snapshots in an isolated schema without changing longer-lived valid rows', async () => {
   const schema = 'saved_purge_' + randomUUID().replaceAll('-', ''), instant = new Date('2026-09-24T09:00:00Z');
-  // purge is deliberately global. Give this clock-driven test its own schema so
-  // a future synthetic clock can never delete another concurrently running test.
+  // Isolate the schema because purge uses a global, simulated clock.
   await database!.pool.query(`CREATE SCHEMA ${schema}`);
   const isolatedUrl = new URL(url!); isolatedUrl.searchParams.set('options', `-c search_path=${schema}`);
   const isolated = PlanningDatabase.connect(isolatedUrl.toString(), undefined, { now: () => instant });

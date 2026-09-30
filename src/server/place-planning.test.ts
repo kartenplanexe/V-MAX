@@ -315,8 +315,7 @@ describe.skipIf(!existsSync(defaultPlannerPython()))('confirmed JSON -> 2GIS HTT
     Object.assign(input.visit_policy, { by_activity: { culture: 25 }, max_stops_by_activity: { culture: 19 } });
     const result = await planPlacesWithDgis(f.client(), input, options) as Record<string, any>;
     expect(result.status).toBe('AVAILABLE');
-    // Six hour-long visits plus measured travel fit; eight do not. The separate
-    // Python budget fixture still fits eight genuinely short waypoints.
+    // Six hour-long visits fit with travel; eight do not.
     expect(result.days[0].visits).toHaveLength(6);
     expect(result.days[0].visits.every((visit: any) => visit.duration_minutes === 60)).toBe(true);
     expect(new Set(result.days[0].visits.map((visit: any) => visit.place_id)).size).toBe(6);

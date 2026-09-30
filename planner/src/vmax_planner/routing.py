@@ -44,8 +44,7 @@ def compact_external_pool(p, ranked_groups, walk_scores=None):
     def allowance(a, b):
         return ceil(distance(a, b) * policy['detour_factor'] / policy['meters_per_minute']) + policy['transition_buffer']
     def prune(states):
-        # Preserve different stop counts, so an extra walk stop cannot crowd out
-        # the shorter prefix needed for food. Keep different last places too.
+        # Keep shorter prefixes and different endpoints so later activities still fit.
         best = {}
         for state in states:
             path, cursor, point, spent, covered, preference = state
@@ -87,8 +86,7 @@ def compact_external_pool(p, ranked_groups, walk_scores=None):
                 def candidates(point, same_activity):
                     key = (point, same_activity)
                     if key not in choice_cache:
-                        # Filter all pairs before truncation: otherwise a dense first
-                        # page crowds out eligible alternatives farther along the walk.
+                        # Apply spacing before truncation to avoid keeping only the nearest cluster.
                         spaced = [o for o in choices if all(distance(pid, o.place_id) >=
                             policy['same_activity_min_meters'] for pid in same_activity)]
                         rankings = [sorted(spaced, key=lambda o: (distance(point, o.place_id), -o.preference, -o.quality, o.place_id)),
@@ -165,13 +163,9 @@ def departure_utc(day, minutes, timezone):
 def _shortlist(ranked, limit, origin, places, spread):
     if not spread or len(ranked) <= limit or limit == 1:
         return ranked[:limit]
-    # A walking route needs alternatives across the local search area. Taking
-    # only the nearest provider results makes a two-stop route collapse into
-    # two adjacent POIs. Eligibility has already run; no distant place outside
-    # the confirmed search radius can enter this pool.
+    # Sample across the eligible radius instead of taking only the nearest POIs.
     by_distance = sorted(ranked, key=lambda o: (direct_meters(origin, places[o.place_id]["point"]), o.place_id))
-    # Keep nearby alternatives as well as the spread: a distant stratum may be
-    # separated by a river or inaccessible even though its direct distance fits.
+    # Keep nearby options too: distant points may be inaccessible across a river.
     chosen = ranked[:(limit + 1) // 2]
     spread_count = limit - len(chosen)
     for index in range(1, spread_count + 1):
@@ -305,8 +299,7 @@ def prepare_routes(job):
             return None
         return selected, pairs, selected_legs, usage
 
-    # Never purchase alternatives for one activity at the expense of dropping
-    # another requested activity. The minimum is represented before expansion.
+    # Allocate one candidate per activity before buying alternatives.
     counts = [int(bool(ranked)) for _, _, ranked in ranked_groups]
     if p['replacement'] is not None:
         counts = [sum(slot['activity_id'] == aid for slot in p['replacement'][did])
@@ -408,8 +401,7 @@ def recover_routes(envelope):
                 if progressive and count >= 2 and option.quality < 350:
                     continue
                 for position in range(len(visits) + 1):
-                    # Preserve every hard precedence relation with the existing
-                    # prefix/suffix. The complete solver checks it again later.
+                    # Preserve precedence against both the prefix and suffix.
                     if any((visit["activity_id"], aid) in full["precedence"][did] and index >= position
                            or (aid, visit["activity_id"]) in full["precedence"][did] and index < position
                            for index, visit in enumerate(visits)):
@@ -420,9 +412,7 @@ def recover_routes(envelope):
                     if key in attempted:
                         continue
                     if progressive:
-                        # Optimistic feasibility only: zero NEW travel never certifies
-                        # a route. It avoids buying an insertion that cannot fit even
-                        # before measuring its two new edges. Existing travel is kept.
+                        # Reject insertions that cannot fit even with zero new travel time.
                         sequence = visits[:position] + [{"activity_id": aid, "place_id": option.place_id}] + visits[position:]
                         minute, previous, feasible = clock(day["window"]["start"]), "@origin", True
                         for visit in sequence:

@@ -1,8 +1,7 @@
 import { InitialIntentError } from './intent-start.js';
 import { initialWireAdapter } from './intent/initial-wire.mjs';
 
-// Reviewed 2026-09-24: https://aistudio.yandex.ru/ru/docs/ai-studio/pricing
-// Conservative reservation: full 65,536 input + 4,096 output; NOT a billing guarantee.
+// Reserve 65,536 input + 4,096 output tokens. Pricing: https://aistudio.yandex.ru/ru/docs/ai-studio/pricing
 const callReserveRub = 65_536 * 0.1 / 1000 + 4096 * 0.2 / 1000;
 
 export class YandexIntentClient {

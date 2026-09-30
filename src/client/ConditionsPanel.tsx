@@ -78,8 +78,7 @@ export function ConditionsPanel({ draft, view, busy, dirty, mapsAvailable, patch
     const target = field?.closest<HTMLElement>('[data-section]');
     if (!field || !target) return;
     setExpanded(target.dataset.section as ConditionSectionId); validationPending.current = true;
-    // Native form validation cannot focus a field in a collapsed details element.
-    // Reveal its section first, then retain the browser's real validity feedback.
+    // Expand details first so native validation can focus the invalid field.
     requestAnimationFrame(() => { validationPending.current = false; if (!field.isConnected) return;
       field.focus(); showingValidity.current = true;
       try { field.reportValidity(); } finally { showingValidity.current = false; }

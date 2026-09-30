@@ -1,5 +1,4 @@
-// Deploy the live product to the existing MAX mini-app URL. Run from the owner's
-// terminal: this script needs their authenticated yc/docker CLI, not secret values.
+// Deploy to the existing container using authenticated yc and Docker CLIs.
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { dirname, resolve } from 'node:path';
@@ -26,9 +25,7 @@ const publicEnvironment = {
   MAX_WEBHOOK_ASYNC: 'yandex',
   PLANNING_ROUTING_MODE: 'external', DGIS_MAPGL_ALLOW_SHARED_DEMO_KEY: 'false',
   DGIS_ROUTING_LIMIT_MINUTE: '5', DGIS_ROUTING_LIMIT_DAY: '50', DGIS_ROUTING_LIMIT_MONTH: '1000',
-  // Provider reset/restoration + empty application logs since 2026-09-28T21:00Z.
-  // Monthly figure is the owner's last observed usage, not a live balance.
-  // INSERT ON CONFLICT never overwrites an existing durable counter.
+  // Seed usage from 2026-09-29; existing database counters are not overwritten.
   DGIS_ROUTING_INITIAL_DAY: '2026-09-29', DGIS_ROUTING_INITIAL_DAY_USED: '0',
   DGIS_ROUTING_INITIAL_MONTH: '2026-09-20', DGIS_ROUTING_INITIAL_MONTH_USED: '462',
 };
@@ -52,8 +49,7 @@ function run(program, args, { json = false, stream = false, timeout = 90_000, sh
     env: { ...process.env, YC_CLI_INITIALIZATION_SILENCE: 'true' },
   });
   if (child.error || child.status !== 0) {
-    // For deploy, arguments contain only IDs, key names and public env values, not payloads.
-    // Show one redacted error line so that a rejected revision can be diagnosed.
+    // CLI arguments contain resource IDs, not secret payloads.
     const diagnostic = showError ? safeCliError(child.stderr) : '';
     throw new Error(`${program} ${args.slice(0, 4).join(' ')}: ошибка/таймаут (код ${child.status ?? 'start'}).${diagnostic ? ` Причина: ${diagnostic}` : ''}`);
   }
@@ -79,8 +75,7 @@ const activeRevision = () => {
 function checkExistingConfiguration(revision) {
   const env = revision.image?.environment ?? revision.environment ?? {};
   if (typeof env !== 'object' || Array.isArray(env)) throw new Error('Неизвестный формат переменных активной ревизии. Ничего не меняем.');
-  // A previous placeholder may have put a now-secret key directly in env.
-  // Replace those keys with Lockbox mappings; never print or forward old values.
+  // Replace legacy inline secrets with Lockbox references.
   const extraEnv = Object.keys(env).filter(key =>
     !(key in publicEnvironment) && !secretKeys.includes(key) &&
     !retainedEnvironmentKeys.has(key) && !ignoredOldEnvironmentKeys.has(key));

@@ -1,5 +1,4 @@
--- Additive migration 001; rerunnable. Rollback the application, retain these tables.
--- Dropping them destroys drafts and quota/idempotency receipts and is not an automatic rollback.
+-- Migration 001. Rerunnable; retain tables when rolling back the application.
 CREATE TABLE IF NOT EXISTS planning_owners (
   owner text PRIMARY KEY CHECK (length(owner) <= 200),
   state jsonb NOT NULL,
@@ -12,17 +11,14 @@ CREATE TABLE IF NOT EXISTS planning_daily_usage (
   calls integer NOT NULL CHECK (calls > 0),
   PRIMARY KEY(day, kind)
 );
--- User-authored route index and bot navigation. No 2GIS place payloads or route results.
--- The short-lived planning_owners checkpoint remains on its separate 30-minute TTL.
+-- Route index and bot navigation; separate from expiring checkpoints.
 CREATE TABLE IF NOT EXISTS bot_navigation (
   owner text PRIMARY KEY CHECK (length(owner) <= 200),
   state jsonb NOT NULL,
   expires_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS bot_navigation_expiry ON bot_navigation(expires_at);
--- Additive migration 002. Own user conditions have their own 30-day TTL. This
--- table never contains provider locality/category IDs, geocoder facts or results.
--- There is deliberately no FK to the short-lived planning_owners checkpoint.
+-- Migration 002. User conditions have a 30-day TTL and no FK to temporary checkpoints.
 CREATE TABLE IF NOT EXISTS saved_user_conditions (
   owner text NOT NULL CHECK (length(owner) <= 200),
   draft_id text NOT NULL CHECK (length(draft_id) BETWEEN 1 AND 128),
@@ -32,20 +28,16 @@ CREATE TABLE IF NOT EXISTS saved_user_conditions (
   PRIMARY KEY(owner, draft_id)
 );
 CREATE INDEX IF NOT EXISTS saved_user_conditions_expiry ON saved_user_conditions(expires_at);
--- Compact result snapshots are retained until user deletion. Expiry remains the
--- temporary interaction lease; retained rows are excluded from TTL cleanup.
--- Additive/rerunnable. On rollback retain both columns and data.
+-- Retained results survive TTL cleanup until user deletion.
 ALTER TABLE planning_owners ADD COLUMN IF NOT EXISTS retained boolean NOT NULL DEFAULT false;
 ALTER TABLE saved_user_conditions ADD COLUMN IF NOT EXISTS retained boolean NOT NULL DEFAULT false;
--- Preserve still-present results from the previous release; already purged
--- snapshots cannot be reconstructed without an explicit new lookup.
+-- Preserve existing snapshots; previously purged results cannot be recovered here.
 UPDATE planning_owners SET retained=true WHERE NOT retained
   AND jsonb_path_exists(state, '$.checkpoint.records[*] ? (@.view.result.status == "PLACES_FOUND")');
 UPDATE saved_user_conditions s SET retained=true WHERE NOT s.retained AND EXISTS (
   SELECT 1 FROM planning_owners p, jsonb_array_elements(p.state->'checkpoint'->'records') r
   WHERE p.owner=s.owner AND r->'view'->>'id'=s.draft_id AND r->'view'->'result'->>'status'='PLACES_FOUND');
--- Additive migration 003. Sharing owns conditions; provider preview has a separate
--- original expiry. Retain tables on app rollback; never recreate provider facts.
+-- Migration 003. Shared conditions and expiring provider previews.
 CREATE TABLE IF NOT EXISTS planning_share_links (
   id text PRIMARY KEY,
   token text NOT NULL UNIQUE,
@@ -80,8 +72,7 @@ CREATE TABLE IF NOT EXISTS planning_share_imports (
   PRIMARY KEY(owner, event_id)
 );
 CREATE INDEX IF NOT EXISTS planning_share_imports_expiry ON planning_share_imports(expires_at);
--- Additive migration 004. Event search facts expire independently of replay
--- receipts. Only explicit user event identities enter saved_user_conditions.
+-- Migration 004. Event observations expire independently of action receipts.
 CREATE TABLE IF NOT EXISTS planning_event_previews (
   id uuid PRIMARY KEY,
   owner text NOT NULL,

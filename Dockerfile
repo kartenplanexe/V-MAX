@@ -3,8 +3,7 @@ FROM node:24.15.0-bookworm-slim AS dependencies
 
 WORKDIR /app
 COPY package.json package-lock.json ./
-# npm can report success after a failed optional native download. Do not cache
-# that incomplete dependency layer as a usable build environment.
+# Check native build tools before caching the dependency layer.
 RUN npm ci \
     && node --input-type=module -e "await import('vite')" \
     && ./node_modules/.bin/tsc --version

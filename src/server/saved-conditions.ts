@@ -11,8 +11,7 @@ const semanticPolicy = JSON.parse(fs.readFileSync(new URL('./intent/semantic-pol
   families: { id: string; rubrics: string }[];
 };
 const fold = (value: string) => value.trim().toLocaleLowerCase('ru-RU').replace(/ё/gu, 'е');
-// Own bounded type lexicon, not a cached provider catalog. Inflection changes
-// one named type into that same type only; it never adds a related venue type.
+// Inflection mapping preserves the named type without adding related venue types.
 const typeForms: Record<string, readonly string[]> = {
   'музеи': ['музей', 'музея', 'музее', 'музею', 'музеем', 'музеев', 'музеях'],
   'парки': ['парк', 'парка', 'парке', 'парку', 'парком', 'парков', 'парках'],

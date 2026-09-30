@@ -24,10 +24,7 @@ export type BotNavigation = { welcomed: boolean; mode: 'idle' | 'awaiting_reques
   resultMessageIds?: string[]; resultDraftId?: string };
 const emptyNavigation = (): BotNavigation => ({ welcomed: false, mode: 'idle', routes: [] });
 
-/** One short-lived owner actor per DB connection. Session advisory locks, NOT open SQL transactions
- * during HTTP calls. try-lock returns immediately; disconnect releases the lock. Requires direct
- * PostgreSQL/session pooling (transaction-mode PgBouncer is deliberately unsupported).
- */
+// Session advisory locks span HTTP calls; SQL transactions do not. Requires session pooling.
 export class PlanningDatabase {
   readonly now: () => Date;
   constructor(readonly pool: Pool, options: { now?: () => Date } = {}) { this.now = options.now ?? (() => new Date()); }
@@ -67,14 +64,12 @@ export class PlanningDatabase {
       };
       return await work(state, save, client);
     } finally {
-      // This leased connection owns no other work. Clear both owner and capacity locks,
-      // including a capacity lock whose individual release failed earlier.
+      // Release all locks on this leased connection, including any failed individual release.
       if (locked) { try { await client.query('SELECT pg_advisory_unlock_all()'); } catch { broken = true; } }
       client.release(broken);
     }
   }
-  /** Only short local writes belong here. The caller already owns the owner lock;
-   * no provider or LLM awaits may run inside this SQL transaction. */
+  // Short writes only; caller holds the owner lock. No HTTP awaits inside the transaction.
   async transaction<T>(client: PoolClient, work: () => Promise<T>): Promise<T> {
     await client.query('BEGIN');
     try { const value = await work(); await client.query('COMMIT'); return value; }
@@ -88,8 +83,7 @@ export class PlanningDatabase {
       conditions: row.conditions, expires_at: new Date(row.expires_at).toISOString() }) : null;
   }
   async saveSaved(client: PoolClient, owner: string, input: SavedConditionsView) {
-    // The whitelist is enforced again at the persistence boundary, independently
-    // of the projection caller. Unknown provider-shaped fields are rejected.
+    // Validate saved fields again at the persistence boundary.
     const saved = SavedConditionsViewSchema.parse(input), json = JSON.stringify(saved.conditions);
     if (Buffer.byteLength(json) > 256 * 1024) throw new PlanningSessionError('SESSION_CAPACITY', 429);
     await client.query(`INSERT INTO saved_user_conditions(owner,draft_id,revision,conditions,expires_at)
@@ -125,8 +119,7 @@ export class PlanningDatabase {
     await client.query(`INSERT INTO planning_daily_usage(day,kind,calls) VALUES (CURRENT_DATE,$1,1)
       ON CONFLICT(day,kind) DO UPDATE SET calls=planning_daily_usage.calls+1`, [kind]);
   }
-  /** Whole chat updates use their own session lock. Internal owner/navigation
-   * operations use other connections/namespaces; no transaction spans HTTP. */
+  // Chat locks use a separate namespace; no SQL transaction spans HTTP.
   async withChatUpdate<T>(owner: string, work: () => Promise<T>): Promise<T> {
     const client = await this.pool.connect(); let broken = false;
     try {

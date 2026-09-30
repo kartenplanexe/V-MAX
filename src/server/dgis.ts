@@ -72,8 +72,7 @@ export class DgisRoutingUnavailableError extends DgisProviderError {
   }
 }
 
-/** Owned by one operation, not by the shared client. Awaited before
- * every physical HTTP attempt, including denied-key fallback attempts. */
+// Called before each HTTP attempt, including backup-key attempts.
 export interface DgisRequestBudget { consume(): void | Promise<void> }
 export class DgisRequestBudgetError extends Error {
   constructor(readonly code: 'HTTP_BUDGET_EXHAUSTED' | 'PAIR_BUDGET_EXHAUSTED' | 'DEADLINE_EXCEEDED' | 'SUBSCRIPTION_QUOTA_EXHAUSTED' = 'HTTP_BUDGET_EXHAUSTED') {
@@ -218,8 +217,7 @@ export class DgisClient {
         schemaPath = `result.items.*${path ? '.' + path : ''}`;
       }
     }
-    // Keep valid rows without treating filtered rows as a short/exhausted page.
-    // Only schema paths/counts leave the validation boundary for rejected rows.
+    // Rejected rows do not prove that the page is exhausted.
     return { items, total: parsed.data.result?.total ?? null, rawItemCount: rawItems.length,
       rejectedItems: rawItems.length - items.length, schemaPath,
       schemaFailure: schemaPath ? `SCHEMA_${schemaPath.replace(/[^A-Za-z0-9]/gu, '_').toUpperCase()}` : null };
@@ -287,9 +285,7 @@ export class DgisClient {
       geometry: normalizeRouteGeometry(route, { from: input.from, to: input.to, distanceMeters: route.total_distance }) };
   }
 
-  /** Directed pairs, billed per pair, not per HTTP request. No route storage.
-   * utc is the planned departure (seconds), never implicitly today's traffic.
-   */
+  // Billed per directed pair. utc is the planned departure in seconds.
   async buildRoutePairs(input: {
     pairs: [Coordinates, Coordinates][];
     transport: 'walking' | 'driving' | 'bicycle';

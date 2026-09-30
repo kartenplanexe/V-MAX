@@ -26,8 +26,7 @@ function source(url: string, context: EventNormalizationContext) {
 
 function dateEntry(raw: unknown, eventId: number, venueId: number | null): EventCard['schedule']['entries'][number] {
   const parsed = DateInput.safeParse(raw), date = parsed.success ? parsed.data : null;
-  // Stable when provider dates are reordered. Bound/type/venue changes require a
-  // new explicit choice. Unknown recurrence entries are never selectable.
+  // Date reordering preserves identity; changed time or venue requires a new choice.
   const occurrence_key = createHash('sha256').update(JSON.stringify(['kudago-occurrence.v1', String(eventId), venueId,
     date?.is_startless ? null : date?.start ?? null, date?.is_endless ? null : date?.end ?? null,
     date?.is_continuous ?? null, date?.is_endless ?? null, date?.is_startless ?? null, date?.use_place_schedule ?? null,

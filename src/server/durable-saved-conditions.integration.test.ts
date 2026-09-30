@@ -205,8 +205,7 @@ run('retains only address input for a provider point and clears obsolete queries
     const manual = await f.planning.getSaved(f.owner, view.id);
     expect(manual.conditions.queries.origin).toBeUndefined();
     expect(manual.conditions.points.origin).toMatchObject({ lat: 55.752, lon: 37.622, source: 'user_map' });
-    // An old address-selection delivery returns the latest view, but cannot
-    // recapture its obsolete query as a new own-condition mutation.
+    // Replaying an old address action must not overwrite the latest saved query.
     await f.planning.edit(f.owner, view.id, addressEvent);
     expect(await f.planning.getSaved(f.owner, view.id)).toEqual(manual);
   } finally { await f.cleanup(); }

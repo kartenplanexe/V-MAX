@@ -38,9 +38,7 @@ export function planningPoolConfig(connectionString: string, ca?: string): PoolC
     if ([...url.searchParams.keys()].some(key => key.toLowerCase().startsWith('ssl'))) {
       throw new Error('Remove SSL URL parameters; configure PostgreSQL TLS through the CA setting');
     }
-    // pg upgrades an already-connected socket to TLS. For an IP address it does not
-    // set servername, so Node would validate the certificate against "localhost".
-    // Keep CA verification and verify the actual host from DATABASE_URL instead.
+    // For IP connections pg omits servername; verify the URL host instead of localhost.
     const hostname = url.hostname.startsWith('[') ? url.hostname.slice(1, -1) : url.hostname;
     ssl = { ca, rejectUnauthorized: true,
       checkServerIdentity: (_servername, certificate) => checkServerIdentity(hostname, certificate) };

@@ -6,8 +6,7 @@ export function placesStaleAt(plan: PlanningView['result']): string {
   return new Date(observed.length && observed.every(Number.isFinite) ? Math.min(...observed) + 30 * 60_000 : 0).toISOString();
 }
 
-// Older checkpoints may not carry the aggregate deadline. Visible sources may
-// shorten it; neither a new render nor a longer draft TTL renews provider data.
+// Older checkpoints lack an aggregate deadline; derive it from source timestamps.
 export function resultValidUntil(view: Pick<PlanningView, 'expires_at' | 'result'>): string {
   const deadlines = [Date.parse(view.expires_at)];
   const plan = view.result;

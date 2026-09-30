@@ -8,9 +8,7 @@ export function reviewDailyResponse(raw,input,options={}) {
   const original=validateDailyProposal(raw,input,options);
   let checked=original;
   const repairs=[];
-  // An anchor unused by every day has no effect on the meaning of dates. Drop
-  // it for any number of independently dated days; mixed representations still
-  // fail validation and require the bounded model correction.
+  // Remove unused anchors; mixed date representations still require validation.
   if(original.errors.includes('ANCHOR_WITHOUT_OFFSETS')&&raw.action==='new_request'&&raw.days.length>0&&
     raw.date_anchor&&raw.days.every(day=>day.date?.kind!=='anchor_offset')) {
     const copy=structuredClone(raw);
@@ -18,9 +16,7 @@ export function reviewDailyResponse(raw,input,options={}) {
     copy.date_anchor=null;
     checked=validateDailyProposal(copy,input,options);
   }
-  // A single explicit «завтра» has a deterministic date regardless of whether
-  // the model redundantly used an anchor and offset=1. Repair only date fields;
-  // all category/evidence/intent checks still run on the complete proposal.
+  // Normalize a single tomorrow reference; then validate the complete proposal.
   const tomorrow=typeof input.user_text==='string'
     ? /(?<![\p{L}\p{N}])завтра(?![\p{L}\p{N}])/iu.exec(input.user_text)?.[0] : null;
   const dateErrors=['NONCONTIGUOUS_OFFSETS','ANCHOR_WITHOUT_OFFSETS'];

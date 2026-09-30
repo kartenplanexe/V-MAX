@@ -12,8 +12,7 @@ const Area = z.object({ south: z.number(), north: z.number(), west: z.number(), 
 const sameTarget = (a: z.infer<typeof SelectedEventTargetSchema>, b: z.infer<typeof SelectedEventTargetSchema>) =>
   a.provider === b.provider && a.event_id === b.event_id && a.occurrence_key === b.occurrence_key && a.visit_duration_minutes === b.visit_duration_minutes;
 
-/** Rechecks only the user's explicit event identities. No free-text discovery,
- * POI substitutions, stored facts or LLM calls occur during calculation. */
+// Recheck selected event IDs; do not substitute other events or POIs.
 export function createResolvePlanEvents(client: KudagoClient): ResolvePlanEvents {
   return async (input, options) => {
     const draft = FormDraft.parse(input.intent), evidence = z.array(Evidence).max(120).parse(input.event_evidence ?? []);

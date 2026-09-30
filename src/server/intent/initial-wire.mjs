@@ -1,5 +1,4 @@
-// A provider-specific initial extraction format. Downstream v0.2 validation
-// remains authoritative; this adapter supplies only mechanical IDs/references.
+// Add mechanical IDs to the provider response before v0.2 validation.
 import fs from 'node:fs';
 import AjvModule from 'ajv/dist/2020.js';
 import formatsModule from 'ajv-formats';

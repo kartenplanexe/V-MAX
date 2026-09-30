@@ -24,8 +24,7 @@ function fixture() {
     price: { expected_minor: 0, upper_minor: 0, basis: 'whole_party', estimate_kind: 'verified_admission' },
     normalization_warnings: ['EVENT_BOOKING_NOT_VERIFIED'] });
   const resolveEvents: ResolvePlanEvents = async (_input, { requestBudget }) => {
-    // Two synthetic provider boundaries; the actual selection/routing below
-    // runs through the production adapter and real Python process.
+    // Synthetic HTTP sources feed the real Python planner.
     requestBudget.consume(); requestBudget.consume();
     return { candidates: [candidate], issues: [] };
   };

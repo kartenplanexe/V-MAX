@@ -275,8 +275,7 @@ def test_ambiguous_or_offset_changing_sessions_are_not_compressed_into_local_min
 def test_impossible_hard_order_and_finish_cannot_move_the_event_or_erase_the_gap(job):
     _, event = selected_event(job)
     job['intent']['days'][0]['order'] = [['food', 'culture']]
-    # First possible cafe visit lasts until 13:15 including travel+arrival buffer;
-    # the fixed event starts at13:00, so covering both is impossible.
+    # Cafe ends at 13:15; the fixed event starts at 13:00.
     job['visit_policy']['by_category']['cafe'] = 60
     result = select_places(job)
     assert result['status'] == 'LIMITED'

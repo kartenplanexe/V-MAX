@@ -2,13 +2,13 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Планировщик городского досуга в MAX",
-    "version": "2026-09-27",
-    "description": "Actual HTTP contract of the working tree. Not a release-readiness or live-quality claim. Generated from shared Zod schemas where available; timestamps/prices/travel times are explicit fields. Dates and time windows are also semantically checked in runtime. No credentials are embedded. JSON notation is used as the YAML 1.2 subset to avoid an extra runtime dependency."
+    "version": "2026-09-30",
+    "description": "V-MAX HTTP API. Generated from shared schemas; dates and constraints receive additional runtime validation."
   },
   "servers": [
     {
       "url": "https://bbapc7qgk242slpm2df5.containers.yandexcloud.net",
-      "description": "Existing configured HTTPS deployment; availability and parity with this working tree require a separate release check."
+      "description": "Team deployment."
     },
     {
       "url": "http://127.0.0.1:3000",
@@ -131,7 +131,7 @@
         "operationId": "validateMaxLaunch",
         "summary": "Validate MAX launch data without creating a separate login session",
         "security": [],
-        "description": "No password login and no bearer token are issued. Planning calls must still send X-Max-Init-Data. Credentials and user details must not be included in public evidence.",
+        "description": "Validates launch data. Subsequent calls still require X-Max-Init-Data; no bearer token is issued.",
         "requestBody": {
           "required": true,
           "content": {
@@ -233,7 +233,7 @@
             "MaxInitData": []
           }
         ],
-        "description": "Returns view:null when no route is active. An expired draft can instead return saved user conditions with expiredRoute (the previous route title, not an ID). Legacy records may return expiredRoute without saved. Saved conditions are not a live itinerary or confirmation. Successful initial/manual/shared creation attempts to activate the new draft; the saved library remains authoritative if navigation activation fails. Missing runtime configuration returns 503 before authentication.",
+        "description": "Returns the active view or view:null. An expired draft may include saved conditions and expiredRoute (a title). Missing runtime configuration returns 503 before authentication.",
         "responses": {
           "200": {
             "description": "Current route, no active route, or saved conditions requiring a fresh draft.",
@@ -379,7 +379,7 @@
             "description": "Opaque saved-conditions identifier. Ownership is checked before the action body."
           }
         ],
-        "description": "Explicit action with a fresh verified locality token and the latest saved revision. The server obtains fresh geography/category context, without reinterpreting the original request with an LLM or reusing the expired itinerary. A new successful action keeps the saved ID and returns an unconfirmed PlanningView with a newer version; inspect issues, review missing/reconfirmation fields, then confirm and calculate separately. A replay of a successful event returns the current view while it remains available, so it may reflect later edits/confirmation/calculation. Body limit: 32 KiB. INVALID_ACTION is 400, unknown/foreign/expired saved conditions are SAVED_CONDITIONS_NOT_FOUND (404), stale revision is SAVED_CONDITIONS_STALE (409), conflicting replay is EVENT_CONFLICT (409). A remap that cannot preserve conditions returns its first reconfirmation issue code with 422. Failed replay preserves the recorded error status (503 only when that status is absent); pending replay returns RESTORE_INTERRUPTED with 503. Neither repeats the context call. Do not retry them silently.",
+        "description": "Requires a fresh locality token and saved revision. Returns an unconfirmed draft with the same ID, a newer version and fresh context, without LLM parsing. Review issues before confirming. Replay returns the current view or recorded failure; interrupted work returns 503. Invalid action: 400; missing/foreign/expired record: 404; stale revision or conflicting replay: 409; incompatible remapping: 422. Body limit: 32 KiB.",
         "requestBody": {
           "required": true,
           "content": {
@@ -807,7 +807,7 @@
             "MaxInitData": []
           }
         ],
-        "description": "May call paid providers. Body limit: 24 KiB. Reusing an event_id with different content returns EVENT_CONFLICT; a failed/unknown provider outcome is not silently retried. A structurally and semantically checked partial draft can retain clarifications with exact user quotes. Every unresolved question blocks confirm/plan. Review the corresponding field, then explicitly PATCH resolve_clarification for that question at the current version; unsupported or incomplete field values cannot be acknowledged. activity_choice selects trusted catalog types for an existing activity without losing its ID, requirements or order. No clarification action reparses the request with an LLM.",
+        "description": "Parses text using paid providers. Unresolved clarifications block confirmation and planning; edit the field, then PATCH resolve_clarification. activity_choice retains activity identity and order. Reusing event_id with different content returns EVENT_CONFLICT. Body limit: 24 KiB.",
         "requestBody": {
           "required": true,
           "content": {

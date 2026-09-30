@@ -5,8 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { defaultPlannerPython, runPythonPlanner } from './planner-process.js';
 
 const python = defaultPlannerPython();
-// Node-only installs remain supported; planner CI/local setup must also run
-// the separately documented Python suite. With uv sync these are real E2E tests.
+// Python-dependent tests require uv sync; Node-only runs skip them.
 describe.skipIf(!existsSync(python))('TypeScript -> Python -> OR-Tools', () => {
   it('passes the actual JSON protocol to the solver and gets a verified plan', async () => {
     const input = execFileSync(python, [resolve('planner/run.py'), '--demo-input'], { encoding: 'utf8', windowsHide: true });

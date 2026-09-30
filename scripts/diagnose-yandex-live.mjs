@@ -1,5 +1,4 @@
-// Read-only, bounded diagnostics for one Serverless Container revision.
-// Only public metadata and short redacted log messages are printed.
+// Read container metadata and redacted logs.
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { dirname, resolve } from 'node:path';
@@ -43,8 +42,7 @@ function formatEntry(entry) {
   const message = entry.message ?? payload.message ?? payload.msg ?? payload.error?.message ?? '';
   const prefix = `${String(entry.timestamp ?? '')} ${String(entry.level ?? '')}`;
   if (message === 'Planning database initialization failed') {
-    // Yandex puts fields other than msg/level into json_payload. Print only allowlisted
-    // diagnostic values; never echo an arbitrary PostgreSQL error or secret payload.
+    // Additional Yandex log fields live in json_payload; expose only allowed fields.
     const phase = ['migration', 'cleanup'].includes(payload.phase) ? payload.phase : 'UNKNOWN';
     const code = typeof payload.code === 'string' && /^[A-Z0-9_]{1,40}$/.test(payload.code)
       ? payload.code : 'UNKNOWN';

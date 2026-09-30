@@ -75,8 +75,7 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
         day.time_updates.some(update => update.op === 'set' && ['start', 'end'].includes(update.field)) &&
         !projectedDays[index]?.window ? [projectedDays[index]] : []);
       if (unrepresented.length) {
-        // A valid user constraint can exceed the current form's window model.
-        // Do not discard it or ask the model to change it merely to fit defaults.
+        // Keep unsupported time constraints for user review instead of changing their meaning.
         (result.guard.reasons as string[]).push(...new Set(['TIME_WINDOW_UNREPRESENTABLE',
           ...unrepresented.flatMap(day => day?.issues ?? [])]));
         result.guard.proposal = null; result.guard.status = 'needs_clarification';

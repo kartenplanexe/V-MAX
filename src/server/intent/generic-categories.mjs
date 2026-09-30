@@ -7,8 +7,7 @@ const families = new Map(policy.families.filter(f => ['walk', 'food'].includes(f
   .map(f => [f.id, new Set(f.rubrics.split('|').map(fold))]));
 const natureRubrics = new Set('природные достопримечательности|заповедники|лесопарки|ботанические сады|ботанический сад|водопады|родники|скалы|пляжи|вершины гор'.split('|').map(fold));
 
-/** Only broad action-only clauses; named types, constraints, negatives and
- * mixed evidence stay with the full-catalog mapper. Never creates an activity. */
+// Map broad action clauses here; send named or constrained types to the full mapper.
 export function resolveGenericCategories(proposal, catalog) {
   const result = structuredClone(proposal), pending = [];
   for (const day of result.days) for (const activity of day.activity_edits) {

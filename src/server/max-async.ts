@@ -7,8 +7,7 @@ export function validMaxWorkerSecret(actual: unknown, token: string) {
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
-/** The managed service owns the invocation after 202. Never detach an in-process
- * promise after the webhook response: a serverless instance may be frozen then. */
+// Transfer ownership to the managed queue before replying; serverless may freeze afterward.
 export function yandexMaxDispatcher(baseUrl: string, token: string, http: typeof fetch = fetch) {
   const base = new URL(baseUrl);
   if (base.protocol !== 'https:' || !/^[a-z0-9]+\.containers\.yandexcloud\.net$/.test(base.hostname) ||

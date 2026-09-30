@@ -12,9 +12,7 @@ export function defaultPlannerPython(directory = resolve('planner')) {
   return resolve(directory, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
 }
 
-/** Internal, server-owned input only. Not an HTTP endpoint or an auth boundary.
- * The child receives no API keys, has no networking code, and never writes jobs.
- */
+// Run the planner with server-owned input and no API credentials.
 export async function runPythonPlanner(job: unknown, options: {
   plannerDirectory?: string;
   pythonExecutable?: string;

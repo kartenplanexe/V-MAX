@@ -29,8 +29,7 @@ export class DurablePlanning {
   private sessions(state: OwnerState, save: () => Promise<void>, reservePlan?: () => Promise<void>) {
     const sessions = new PlanningSessions({ checkpoint: state.checkpoint, plan: this.options.plan, now: () => this.now(),
       beforePlan: async () => { await reservePlan?.(); state.checkpoint = sessions.checkpoint(); await save(); } });
-    // Receipts can outlive individual drafts. Every subsequent save, including a
-    // failed start/restore or an off-topic greeting, must use the pruned context.
+    // Prune expired drafts before saving receipts that may outlive them.
     state.checkpoint = sessions.checkpoint();
     return sessions;
   }
@@ -140,8 +139,7 @@ export class DurablePlanning {
   async getSaved(owner: string, id: string): Promise<SavedConditionsView> {
     return this.options.database.withOwner(owner, async (state, save, client) => {
       const sessions = this.sessions(state, save), view = this.maybeView(sessions, owner, id);
-      // A read may invalidate an expired result and advance the ephemeral revision.
-      // Persist that revision atomically, but never refresh the own-condition TTL.
+      // Persist the new revision without extending saved-condition retention.
       const saved = await this.persist(owner, state, save, client, sessions, view)
         ?? await this.options.database.loadSaved(client, owner, id);
       if (!saved) throw new PlanningSessionError('SAVED_CONDITIONS_NOT_FOUND', 404);
@@ -180,9 +178,7 @@ export class DurablePlanning {
           remapped.draft, context.planning, remapped.provenance);
         state.receipts[key]!.status = 'done';
         await this.persist(owner, state, save, client, sessions, view, false, undefined, 'draft');
-        // Session issues derive from the restored draft on every read/replay.
-        // Remapper blockers were rejected above; unresolved points/dates remain
-        // concrete draft constraints, so no response-only issue is appended.
+        // The restored draft supplies its own validation issues.
         return view;
       } catch (error) {
         const failure = error instanceof PlanningSessionError ? error : error instanceof InitialIntentError

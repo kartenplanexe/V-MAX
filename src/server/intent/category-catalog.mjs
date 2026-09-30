@@ -45,10 +45,7 @@ export function projectResponse(response, regionId) {
     total:body.result.total,items:body.result.items.map(item=>projectItem(item,regionId))};
 }
 
-// Production reads the provider's complete root page, including its embedded
-// child rubrics, in one request. It does not persist or reuse the result across
-// user requests. The deeper per-parent verification below remains for bounded
-// offline evaluation, where completeness must be independently cross-checked.
+// Read root and embedded rubrics in one request. Recursive traversal supports offline checks.
 export async function collectEmbeddedCatalog({regionId,fetchRoot}) {
   const summary={complete:false,region_id:regionId,http_calls:0,
     completeness_scope:'Categories API /list embedded root tree, requested region only',

@@ -1,5 +1,4 @@
-/** Narrow evidence check, not a monetary intent parser. Unknown wording asks
- * for a typed answer instead of authorizing unlimited spending. */
+// Check quoted budget evidence; ambiguous input requires a form answer.
 export const budgetAssertionVersion = 'budget-assertion.v2';
 const explicitUnlimited = [
   /^(?:(?:мой|наш|общий)\s+)?бюджет\s*(?:—|-|:)?\s*(?:не\s+ограничен|неограниченный|без\s+(?:ограничений|лимита)|любой|не\s+важен)$/iu,
