@@ -53,11 +53,13 @@ LLM разбирает запрос, но не придумывает места
 ### 1. Получите исходный код
 
 ```sh
-git clone https://github.com/kartenplanexe/V-MAX.git
+git clone --branch main https://github.com/kartenplanexe/V-MAX.git
 cd V-MAX
 ```
 
-Для проверки конкурсной версии переключитесь на commit, указанный на первом слайде презентации: `git checkout <commit>`. Если получили ZIP, распакуйте его и откройте терминал в каталоге с `compose.yaml`.
+Команда скачивает актуальную версию из ветки `main`. [Последний коммит](https://github.com/kartenplanexe/V-MAX/commit/main).
+
+Если получили ZIP, распакуйте его и откройте терминал в каталоге с `compose.yaml`.
 
 ### 2. Заполните настройки
 
