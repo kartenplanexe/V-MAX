@@ -41,7 +41,7 @@ describe('2GIS dated routing pairs wire contract', () => {
     [row(), { ...row(b, c), duration: -1 }],
     { type: 'result', status: 'OK', result: [row()] },
   ].map(response => [response]))('rejects a mismatched or invalid response', async (response) => {
-    // Wrap parameter data: the schema must reject every malformed batch.
+
     const instance = client(async () => Response.json(response));
     await expect(instance.buildRoutePairs(request)).rejects.toThrow('2GIS');
   });

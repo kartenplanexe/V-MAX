@@ -12,7 +12,6 @@ export function defaultPlannerPython(directory = resolve('planner')) {
   return resolve(directory, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
 }
 
-// Run the planner with server-owned input and no API credentials.
 export async function runPythonPlanner(job: unknown, options: {
   plannerDirectory?: string;
   pythonExecutable?: string;
@@ -23,7 +22,7 @@ export async function runPythonPlanner(job: unknown, options: {
   const input = JSON.stringify(job);
   if (!input || Buffer.byteLength(input) > MAX_BYTES) throw new Error('Planner input exceeds the size limit.');
   const env: NodeJS.ProcessEnv = { PYTHONIOENCODING: 'utf-8', PYTHONDONTWRITEBYTECODE: '1' };
-  // Preserve only OS runtime paths, not MAX/2GIS/Yandex secrets or PYTHONPATH.
+
   for (const name of ['SystemRoot', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'PATH', 'Path', 'LANG']) {
     if (process.env[name]) env[name] = process.env[name];
   }
@@ -45,7 +44,7 @@ export async function runPythonPlanner(job: unknown, options: {
       if (bytes > MAX_BYTES) return fail('Planner output exceeds the size limit.');
       chunks.push(chunk);
     });
-    child.stderr.resume(); // No raw provider/OS diagnostics in application responses.
+    child.stderr.resume();
     child.stdin.on('error', () => fail('Planner input channel closed.'));
     child.on('close', code => {
       if (settled) return;

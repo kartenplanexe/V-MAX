@@ -81,7 +81,7 @@ it.skipIf(!database)('keeps the user-authored route index separate from expiring
 
 it.skipIf(!database)('purges expired own snapshots in an isolated schema without changing longer-lived valid rows', async () => {
   const schema = 'saved_purge_' + randomUUID().replaceAll('-', ''), instant = new Date('2026-09-24T09:00:00Z');
-  // Isolate the schema because purge uses a global, simulated clock.
+
   await database!.pool.query(`CREATE SCHEMA ${schema}`);
   const isolatedUrl = new URL(url!); isolatedUrl.searchParams.set('options', `-c search_path=${schema}`);
   const isolated = PlanningDatabase.connect(isolatedUrl.toString(), undefined, { now: () => instant });
@@ -94,7 +94,7 @@ it.skipIf(!database)('purges expired own snapshots in an isolated schema without
     expect((await isolated.pool.query('SELECT draft_id FROM saved_user_conditions')).rows).toEqual([{ draft_id: 'valid' }]);
   } finally {
     await isolated.pool.end();
-    // schema is a generated identifier created by this test; no user schema is targeted.
+
     await database!.pool.query(`DROP SCHEMA ${schema} CASCADE`);
   }
 });

@@ -266,7 +266,7 @@ export function PlannerForm() {
   async function reloadSavedState() {
     const token = session?.token || launchToken;
     if (!token) return;
-    // Preserve local edits until the state read succeeds.
+
     const value = await request<Omit<Bootstrap, 'token'>>('/api/planning/bootstrap', token);
     setSession({ ...value, token }); setDraft(value.view ? structuredClone(value.view.draft) : null);
     setDetailsOpen(false); setPointEditor(null); setEventPanel(null); setAlternative(null);

@@ -1,4 +1,3 @@
-// Read container metadata and redacted logs.
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { dirname, resolve } from 'node:path';
@@ -42,7 +41,7 @@ function formatEntry(entry) {
   const message = entry.message ?? payload.message ?? payload.msg ?? payload.error?.message ?? '';
   const prefix = `${String(entry.timestamp ?? '')} ${String(entry.level ?? '')}`;
   if (message === 'Planning database initialization failed') {
-    // Additional Yandex log fields live in json_payload; expose only allowed fields.
+
     const phase = ['migration', 'cleanup'].includes(payload.phase) ? payload.phase : 'UNKNOWN';
     const code = typeof payload.code === 'string' && /^[A-Z0-9_]{1,40}$/.test(payload.code)
       ? payload.code : 'UNKNOWN';
@@ -57,7 +56,7 @@ function maxLaunchDiagnostic(entry) {
   const payload = rawPayload && typeof rawPayload === 'object' && !Array.isArray(rawPayload) ? rawPayload : {};
   let parsedMessage = {};
   if (typeof entry.message === 'string' && entry.message.startsWith('{')) {
-    try { parsedMessage = JSON.parse(entry.message); } catch { /* Unstructured log entry. */ }
+    try { parsedMessage = JSON.parse(entry.message); } catch {                               }
   }
   const message = payload.msg ?? payload.message ?? parsedMessage.msg ?? parsedMessage.message ?? entry.message;
   if (message !== 'MAX planner launch validation failed') return null;

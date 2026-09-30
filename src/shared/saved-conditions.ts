@@ -28,7 +28,6 @@ const EventActivity = z.object({ id: Id, label: z.literal('Выбранное с
   target: SelectedEventTargetSchema, semantic_key: z.literal('selected_event') }).strict();
 const Activity = z.union([PlaceActivity, EventActivity]);
 
-/** Durable own conditions only. Provider context and observations never belong here. */
 const SavedUserConditionsV1Base = z.object({
   schema_version: z.literal('saved-user-conditions.v1'),
   clarifications: z.array(InputClarification).max(100).optional(),

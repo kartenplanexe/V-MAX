@@ -2,14 +2,12 @@ from test_selection import job
 from vmax_planner.selection import select_places, validate_selection
 from vmax_planner.routing import prepare_routes, route_checks
 
-
 def pt(job):
     job['intent']['shared']['mobility'] = ['public_transport']
     job['intent']['shared']['budget'] = {'kind': 'unlimited'}
     for index, place in enumerate(job['places']):
         place['point']['lon'] += (index + 1) / 1000
     return job
-
 
 def test_public_transport_minimum_graph_accounts_one_http_per_dated_pair(job):
     pt(job)
@@ -23,7 +21,6 @@ def test_public_transport_minimum_graph_accounts_one_http_per_dated_pair(job):
     assert all(group['selected'] >= 1 for group in result['shortlist']['groups'])
     assert result['routing_budget']['http_calls'] == 7
     assert all(len(pair['sample_utc']) == 1 for pair in result['pairs'])
-
 
 def test_public_transport_preserves_unknown_fare_and_emits_actual_departure_checks(job):
     pt(job)
@@ -39,6 +36,6 @@ def test_public_transport_preserves_unknown_fare_and_emits_actual_departure_chec
     checks = route_checks({'job': planned, 'result': result})['checks']
     assert all(row['mode'] == 'public_transport' for row in checks)
     assert checks[1]['departure_utc'] > checks[0]['departure_utc']
-    # A hard budget cannot silently charge zero for the same unknown fare.
+
     planned['intent']['shared']['budget'] = {'kind': 'limit', 'amount_rub': 5000, 'basis': 'whole_party', 'period': 'whole_trip'}
     assert prepare_routes({k: v for k, v in planned.items() if k != 'candidate_pool'})['issues'] == ['TRANSPORT_COST_POLICY_REQUIRED']

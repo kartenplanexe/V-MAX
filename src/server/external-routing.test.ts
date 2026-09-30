@@ -50,7 +50,7 @@ it.skipIf(!existsSync(defaultPlannerPython()))('the confirmed walk policy reserv
     f.input.intent.days[0]!.window.end = end;
     f.input.intent.days[0]!.activities[0]!.label = 'прогулка';
     f.input.visit_policy.by_category['200'] = 60;
-    // Two spaced outdoor points, explicitly synthetic; not real museum data.
+
     f.items[1]!.point = { lat: 55.7555, lon: 37.621 };
     const sessions = new PlanningSessions({ now: demoNow, plan: async job =>
       planPlacesWithDgis(f.client(async (url, init) => {
@@ -96,7 +96,7 @@ it.skipIf(!existsSync(defaultPlannerPython()))('a four-hour general walk retriev
   const f = planningFixture();
   f.input.intent.days[0]!.window.end = '20:00';
   f.input.intent.days[0]!.activities[0]!.label = 'прогулка';
-  // The initial matcher chose only plaques; a free walk permits related outdoor types.
+
   f.input.intent.days[0]!.activities[0]!.categories.include_any = ['100'];
   f.input.catalog.leaf_ids.push('300', '400');
   f.input.visit_policy.by_category['200'] = 60;

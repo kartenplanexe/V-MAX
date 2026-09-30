@@ -1,4 +1,3 @@
-// Product type preference, not a provider rating or a claim about a specific POI.
 export const WALK_DISCOVERY_POLICY = 'walk-discovery.v1';
 const scenic = new Set(['парки', 'парки культуры и отдыха', 'скверы', 'набережные',
   'смотровые площадки', 'природные достопримечательности', 'сады / цветники',

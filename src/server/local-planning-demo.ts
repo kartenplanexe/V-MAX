@@ -9,7 +9,6 @@ import { InitialIntentError } from './intent-start.js';
 import { InitialRequests, registerInitialRequestRoutes } from './initial-requests.js';
 import type { PlanningAuthenticator } from './planning-routes.js';
 
-/** Offline, loopback-only UI harness. Does NOT load .env or call external APIs. */
 export function createLocalPlanningDemo(options: { now?: () => Date } = {}) {
   if (process.env.NODE_ENV === 'production') throw new Error('Local demo is unavailable in production');
   const app = Fastify({ bodyLimit: 32 * 1024, logger: false });
@@ -27,7 +26,7 @@ export function createLocalPlanningDemo(options: { now?: () => Date } = {}) {
   examples.push(evening);
   const sessions = new PlanningSessions({ plan: job => {
     const fixture = planningFixture();
-    // The demo's opening hours cover every day; they are deliberately synthetic.
+
     for (const item of fixture.items) Object.assign(item.schedule, Object.fromEntries(
       ['Mon', 'Tue', 'Wed', 'Thu', 'Sat', 'Sun'].map(day => [day, structuredClone(item.schedule.Fri)])));
     return planPlacesWithDgis(fixture.client(), job, {

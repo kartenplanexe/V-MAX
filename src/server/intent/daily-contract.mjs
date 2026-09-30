@@ -1,4 +1,3 @@
-// Frozen v0.8 contract port. Pure validation: no network, credentials or draft writes.
 import fs from 'node:fs';
 import AjvModule from 'ajv/dist/2020.js';
 import formatsModule from 'ajv-formats';
@@ -8,7 +7,7 @@ const addFormats = formatsModule.default ?? formatsModule;
 export const schema = JSON.parse(fs.readFileSync(new URL('./intent-parser-response-v0.2.schema.json',import.meta.url),'utf8'));
 const ajv = new Ajv({strict:true,allErrors:true}); addFormats(ajv);
 const shape = ajv.compile(schema);
-// All unions already consist of closed objects, so no v0.1 branch distribution.
+
 export const wireSchema = structuredClone(schema);
 function adapt(node) {
   if (!node || typeof node!=='object') return;
@@ -21,7 +20,7 @@ function adapt(node) {
 adapt(wireSchema);
 
 export function buildDailyRequest(input) {
-  // Allowlist: never include evaluation expectations or guard authorization.
+
   const {mode,now,locality_context,draft,pending_question,catalog,user_text}=input;
   return {model:'gpt://<folder-id>/aliceai-llm-flash',temperature:0,max_tokens:4096,stream:false,
     messages:[{role:'system',content:fs.readFileSync(new URL('./intent-parser-system-v0.8.md',import.meta.url),'utf8')},
@@ -29,7 +28,6 @@ export function buildDailyRequest(input) {
     response_format:{type:'json_schema',json_schema:{name:'leisure_intent_parser_v02',schema:wireSchema}}};
 }
 
-// One correction attempt uses the original request and regional catalog.
 export function buildDailyRepairRequest(input, errors, invalidResponse) {
   const request = buildDailyRequest(input);
   const hints = [];

@@ -16,7 +16,7 @@ import { intentFixture } from './intent-start.fixture.js';
 const root = new URL('../../', import.meta.url);
 const openapi = JSON.parse(readFileSync(new URL('openapi.yaml', root), 'utf8'));
 const manifest = JSON.parse(readFileSync(new URL('DATA-API.yaml', root), 'utf8'));
-// JSON notation is YAML 1.2: no extra parser or network access is needed for these artifacts.
+
 function localRefs(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(localRefs);
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) =>
@@ -90,7 +90,7 @@ it('documents real saved-condition projection/remap outputs and both expired boo
   validateResponse('/api/planning/saved/{id}/restore', 'post', 200, restored);
   expect(restored).toMatchObject({ phase: 'DRAFT', confirmed_version: null, result: null });
   expect(restored.issues.some(issue => issue.code === 'ORIGIN_REQUIRED')).toBe(true);
-  // SQL ownership/CAS/expiry and stable-ID behavior are covered by the durable integration tests.
+
 });
 
 it('validates actual draft HTTP success/error responses against the submitted OpenAPI schemas offline', async () => {
@@ -105,7 +105,7 @@ it('validates actual draft HTTP success/error responses against the submitted Op
   params.set('hash', hash);
   const headers = { 'x-max-init-data': String(params) };
   const app = Fastify();
-  // Tripwires ensure unauthenticated saved routes never reach the storage/coordinator boundary.
+
   const httpService = Object.assign(sessions, {
     getSaved: () => { throw new Error('Unauthenticated request reached saved storage'); },
     restore: async () => { throw new Error('Unauthenticated request reached saved restore'); },
@@ -138,7 +138,7 @@ it('validates actual draft HTTP success/error responses against the submitted Op
     expect(planned.statusCode).toBe(200); validateResponse(contractPath + '/plan', 'post', 200, planned.json());
     expect(planned.json().result.days.some((d: { visits: unknown[] }) => d.visits.length > 0)).toBe(true);
     expect(planned.json().result.data_mode).toBe('test');
-    // Catch accidental stripping at the actual Python -> PlanningView -> HTTP boundary.
+
     expect(planned.json().result.search_scope).toMatchObject({ radius_meters: 5000 });
     expect(['PARTIAL', 'BOUNDED_RESULTS']).toContain(planned.json().result.search_scope.coverage);
     const refresh = { base_version: planned.json().version, event_id: 'contract-explicit-refresh', refresh: true };

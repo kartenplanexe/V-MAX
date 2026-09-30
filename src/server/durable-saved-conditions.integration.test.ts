@@ -154,7 +154,7 @@ run('rolls back the edited checkpoint when saving own conditions fails', async (
   const f = await fixture(), constraint = 'synthetic_saved_failure_' + randomUUID().replaceAll('-', '');
   try {
     const view = await f.create();
-    // A real SQL constraint failure exercises the atomic boundary, not a mocked repository.
+
     await f.database.pool.query(`ALTER TABLE saved_user_conditions ADD CONSTRAINT ${constraint}
       CHECK (owner <> '${f.owner}' OR (conditions->'shared'->'party'->>'total')::integer <> 99) NOT VALID`);
     await expect(f.planning.edit(f.owner, view.id, { event_id: randomUUID(), base_version: view.version,
@@ -205,7 +205,7 @@ run('retains only address input for a provider point and clears obsolete queries
     const manual = await f.planning.getSaved(f.owner, view.id);
     expect(manual.conditions.queries.origin).toBeUndefined();
     expect(manual.conditions.points.origin).toMatchObject({ lat: 55.752, lon: 37.622, source: 'user_map' });
-    // Replaying an old address action must not overwrite the latest saved query.
+
     await f.planning.edit(f.owner, view.id, addressEvent);
     expect(await f.planning.getSaved(f.owner, view.id)).toEqual(manual);
   } finally { await f.cleanup(); }

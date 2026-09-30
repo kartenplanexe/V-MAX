@@ -20,7 +20,6 @@ function rowView(row: { draft_id: string; revision: number; conditions: unknown;
     conditions: row.conditions, expires_at: new Date(row.expires_at).toISOString() });
 }
 
-/** Existing own snapshots + ephemeral headers. This service never invokes a provider. */
 export class SavedRouteLibrary {
   constructor(readonly database: PlanningDatabase) {}
   remove(owner: string, id: string, input: unknown): Promise<{ deleted: true }> {
@@ -39,7 +38,7 @@ export class SavedRouteLibrary {
         plan: async () => { throw Error('Deletion cannot invoke the planner'); } });
       try { sessions.remove(owner, id); }
       catch (error) { if (!(error instanceof PlanningSessionError) || error.code !== 'DRAFT_NOT_FOUND') throw error; }
-      // Saved revisions follow user edits, not provider-data expiry.
+
       if (parsed.data.base_revision !== saved!.revision) throw new PlanningSessionError('SAVED_CONDITIONS_STALE');
       const acquired = await client.query('SELECT pg_try_advisory_lock(hashtextextended($1, 782003)) AS acquired', [owner]);
       if (!acquired.rows[0]?.acquired) throw new PlanningSessionError('OPERATION_IN_PROGRESS');

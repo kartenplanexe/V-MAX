@@ -1,4 +1,3 @@
-/** Product defaults agreed with the owner; never provider session durations. */
 export const VISIT_DURATION_POLICY = 'visit-duration-estimates.v7';
 export const WALK_STOP_MINUTES = 5;
 const food = new Set(['кафе', 'кофейни', 'рестораны', 'столовые', 'быстрое питание',

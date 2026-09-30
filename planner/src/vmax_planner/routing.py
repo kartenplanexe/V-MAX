@@ -1,4 +1,3 @@
-"""Eligibility first, bounded routing graph second; no network in Python."""
 from datetime import datetime, timedelta
 from math import ceil
 from zoneinfo import ZoneInfo
@@ -8,12 +7,10 @@ from .replacement import slot_index
 
 ROUTING_POLICY = "dated-routing.v3"
 
-# A compact suggestion, NOT measured travel or a verified itinerary.
 EXTERNAL_COMPACT_POLICY = {"version": "external-compact.v5", "max_stops": 6,
                            "detour_factor": 1.5, "meters_per_minute": 60, "transition_buffer": 5,
                            "beam_width": 96, "alternatives_per_order": 12,
                            "same_activity_min_meters": 400, "event_order_limit": 8}
-
 
 def compact_external_pool(p, ranked_groups, walk_scores=None):
     policy = EXTERNAL_COMPACT_POLICY
@@ -44,7 +41,7 @@ def compact_external_pool(p, ranked_groups, walk_scores=None):
     def allowance(a, b):
         return ceil(distance(a, b) * policy['detour_factor'] / policy['meters_per_minute']) + policy['transition_buffer']
     def prune(states):
-        # Keep shorter prefixes and different endpoints so later activities still fit.
+
         best = {}
         for state in states:
             path, cursor, point, spent, covered, preference = state
@@ -67,7 +64,7 @@ def compact_external_pool(p, ranked_groups, walk_scores=None):
     for day in p['days']:
         begin, end = clock(day['window']['start']), clock(day['window']['end'])
         if p['destination']: points['@destination'] = p['destination']
-        # Topological order is independent of whether an earlier activity fits.
+
         ordered, done = [], set()
         pending = list(day['activities'])
         while pending:
@@ -77,7 +74,7 @@ def compact_external_pool(p, ranked_groups, walk_scores=None):
             ordered.append(activity); done.add(activity['id']); pending.remove(activity)
         groups = {aid: rows for did, aid, rows in ranked_groups if did == day['day_id']}
         def plan_order(activity_order):
-            # path, end minute, last place, charged cost, covered activities, preference
+
             states = [((), begin, '@origin', 0, frozenset(), 0)]
             for activity in activity_order:
                 aid = activity['id']
@@ -86,7 +83,7 @@ def compact_external_pool(p, ranked_groups, walk_scores=None):
                 def candidates(point, same_activity):
                     key = (point, same_activity)
                     if key not in choice_cache:
-                        # Apply spacing before truncation to avoid keeping only the nearest cluster.
+
                         spaced = [o for o in choices if all(distance(pid, o.place_id) >=
                             policy['same_activity_min_meters'] for pid in same_activity)]
                         rankings = [sorted(spaced, key=lambda o: (distance(point, o.place_id), -o.preference, -o.quality, o.place_id)),
@@ -153,19 +150,17 @@ def compact_external_pool(p, ranked_groups, walk_scores=None):
         trip_spent += selected[3]
     return pool
 
-
 def departure_utc(day, minutes, timezone):
-    # Includes 24:00 at the next midnight. Host OS timezone is irrelevant.
+
     local = datetime.fromisoformat(day["date"]).replace(tzinfo=ZoneInfo(timezone)) + timedelta(minutes=minutes)
     return int(local.timestamp())
-
 
 def _shortlist(ranked, limit, origin, places, spread):
     if not spread or len(ranked) <= limit or limit == 1:
         return ranked[:limit]
-    # Sample across the eligible radius instead of taking only the nearest POIs.
+
     by_distance = sorted(ranked, key=lambda o: (direct_meters(origin, places[o.place_id]["point"]), o.place_id))
-    # Keep nearby options too: distant points may be inaccessible across a river.
+
     chosen = ranked[:(limit + 1) // 2]
     spread_count = limit - len(chosen)
     for index in range(1, spread_count + 1):
@@ -177,9 +172,8 @@ def _shortlist(ranked, limit, origin, places, spread):
         if candidate not in chosen: chosen.append(candidate)
     return chosen
 
-
 def _route_graph(p, selected):
-    """Dated directed edges and a conservative bound on final verification."""
+
     mode = p["intent"]["shared"]["mobility"][0]
     origin = p["intent"]["points"]["origin"]
     pairs, maximum_selected_legs = [], 0
@@ -206,7 +200,7 @@ def _route_graph(p, selected):
             if groups and p['destination'] is not None:
                 edges.update((o.place_id, '@destination') for o in groups[-1])
         start, end = clock(day["window"]["start"]), clock(day["window"]["end"])
-        # Three traffic-statistics samples for a car; not a proven upper bound.
+
         samples = sorted({start, (start + end) // 2, end - 1}) if mode == "driving" else [start]
         for before, after in sorted(edges):
             pairs.append({"day_id": did, "from_id": before, "to_id": after,
@@ -218,9 +212,8 @@ def _route_graph(p, selected):
                               for minute in [(start + end) // 2, end - 1]]} if mode == 'public_transport' else {})})
     return pairs, maximum_selected_legs
 
-
 def _routing_usage(pairs, maximum_selected_legs):
-    # Matches coordinate deduplication: PT is one HTTP per pair, other modes batch50.
+
     batches = {}
     for pair in pairs:
         a, b = pair["from_point"], pair["to_point"]
@@ -232,7 +225,6 @@ def _routing_usage(pairs, maximum_selected_legs):
             "http_calls": sum(len(pairs) if mode == 'public_transport' else (len(pairs) + 49) // 50
                               for (_, mode), pairs in batches.items()) + reserve,
             "reserved_verification_legs": reserve}
-
 
 def prepare_routes(job):
     if "candidate_pool" in job: raise ValueError("shortlist must be built by the server")
@@ -299,7 +291,6 @@ def prepare_routes(job):
             return None
         return selected, pairs, selected_legs, usage
 
-    # Allocate one candidate per activity before buying alternatives.
     counts = [int(bool(ranked)) for _, _, ranked in ranked_groups]
     if p['replacement'] is not None:
         counts = [sum(slot['activity_id'] == aid for slot in p['replacement'][did])
@@ -325,7 +316,7 @@ def prepare_routes(job):
               for (did, aid, ranked), count in zip(ranked_groups, counts, strict=True)]
     pool = [{"day_id": o.day_id, "activity_id": o.activity_id, "place_id": o.place_id} for o in selected]
     narrowed = job | {"candidate_pool": pool}
-    # Solver cap is still enforced after bounded shortlisting.
+
     checked = prepare(narrowed)
     if checked["issues"]:
         return {"schema_version": POLICY_VERSION, "status": "NEEDS_INPUT", "issues": checked["issues"], "days": []}
@@ -334,9 +325,8 @@ def prepare_routes(job):
             "method": "eligibility_then_fair_budgeted_expansion", "global_optimality_claimed": False},
             "routing_budget": usage, "maximum_selected_legs": maximum_selected_legs}
 
-
 def route_checks(envelope):
-    """Independently validate the solved plan, then emit exact departure instants."""
+
     job, result = envelope["job"], envelope["result"]
     validate_selection(job, result)
     p = prepare(job)
@@ -352,14 +342,8 @@ def route_checks(envelope):
             checks.append(leg | {"departure_utc": departure_utc(day, minute, p["intent"]["locality"]["timezone"])})
     return {"schema_version": POLICY_VERSION, "status": "AVAILABLE", "checks": checks}
 
-
 def recover_routes(envelope):
-    """Propose one measured insertion from the same-request eligible reservoir.
 
-    This internal operation never fabricates a leg or relaxes an activity. The
-    adapter owns physical request budgets and must measure every returned pair
-    before admitting the candidate, then run the normal solver and validator.
-    """
     job, result = envelope["job"], envelope["result"]
     if "candidate_pool" not in job:
         raise ValueError("recovery requires a server shortlist")
@@ -401,7 +385,7 @@ def recover_routes(envelope):
                 if progressive and count >= 2 and option.quality < 350:
                     continue
                 for position in range(len(visits) + 1):
-                    # Preserve precedence against both the prefix and suffix.
+
                     if any((visit["activity_id"], aid) in full["precedence"][did] and index >= position
                            or (aid, visit["activity_id"]) in full["precedence"][did] and index < position
                            for index, visit in enumerate(visits)):
@@ -412,7 +396,7 @@ def recover_routes(envelope):
                     if key in attempted:
                         continue
                     if progressive:
-                        # Reject insertions that cannot fit even with zero new travel time.
+
                         sequence = visits[:position] + [{"activity_id": aid, "place_id": option.place_id}] + visits[position:]
                         minute, previous, feasible = clock(day["window"]["start"]), "@origin", True
                         for visit in sequence:

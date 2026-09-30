@@ -7,7 +7,6 @@ from vmax_planner.demo import demo_job
 from vmax_planner.routing import departure_utc, prepare_routes, route_checks
 from vmax_planner.selection import select_places
 
-
 def test_prepare_routes_excludes_closed_places_before_requesting_edges():
     job = demo_job()
     job["places"][1]["opening_intervals"] = {"2026-09-25": []}
@@ -17,7 +16,6 @@ def test_prepare_routes_excludes_closed_places_before_requesting_edges():
         ("@origin", "museum-near"), ("@origin", "cafe"), ("museum-near", "cafe")}
     assert all(p["mode"] == "walking" and len(p["sample_utc"]) == 1 for p in result["pairs"])
     assert result["maximum_selected_legs"] == 2
-
 
 def test_shortlist_is_deterministic_and_explicit_and_not_an_eligibility_override():
     job = demo_job()
@@ -30,7 +28,6 @@ def test_shortlist_is_deterministic_and_explicit_and_not_an_eligibility_override
     narrowed["places"][0]["opening_intervals"] = {}
     with pytest.raises(ValueError, match="ineligible"):
         select_places(narrowed)
-
 
 def test_route_walk_shortlist_includes_local_distance_strata():
     job = demo_job()
@@ -49,7 +46,6 @@ def test_route_walk_shortlist_includes_local_distance_strata():
     assert "museum-near" in chosen
     assert "museum-far" in chosen
 
-
 def test_can_reduce_large_eligible_pool_before_solver_cap():
     job = demo_job()
     template = job["places"][0]
@@ -61,7 +57,6 @@ def test_can_reduce_large_eligible_pool_before_solver_cap():
     assert len(prepared["job"]["candidate_pool"]) > 5
     assert any(row["activity_id"] == "food" for row in prepared["job"]["candidate_pool"])
 
-
 @pytest.mark.parametrize("zone,minute,expected", [
     ("Europe/Moscow", 960, "2026-09-25T13:00:00+00:00"),
     ("Asia/Vladivostok", 960, "2026-09-25T06:00:00+00:00"),
@@ -70,7 +65,6 @@ def test_can_reduce_large_eligible_pool_before_solver_cap():
 def test_departure_uses_locality_timezone_and_supports_24h(zone, minute, expected):
     value = departure_utc({"date": "2026-09-25"}, minute, zone)
     assert datetime.fromtimestamp(value, timezone.utc).isoformat() == expected
-
 
 def test_day_specific_edges_and_driving_samples():
     job = demo_job()
@@ -87,7 +81,6 @@ def test_day_specific_edges_and_driving_samples():
     assert len(first["sample_utc"]) == 3
     assert second["sample_utc"][0] - first["sample_utc"][0] == 86400
 
-
 def test_rechecks_use_actual_departures_and_include_explicit_return_only():
     job = demo_job()
     result = select_places(job)
@@ -102,7 +95,6 @@ def test_rechecks_use_actual_departures_and_include_explicit_return_only():
     assert checks[-1]["to_id"] == "@destination"
     assert checks[-1]["departure_utc"] - checks[0]["departure_utc"] == 135 * 60
 
-
 def test_recheck_rejects_tampered_result_and_stale_data():
     job = demo_job()
     result = select_places(job)
@@ -111,7 +103,6 @@ def test_recheck_rejects_tampered_result_and_stale_data():
     with pytest.raises(ValueError): route_checks({"job": job, "result": changed})
     job["as_of"] = "2026-09-24T11:00:00Z"
     with pytest.raises(ValueError): route_checks({"job": job, "result": result})
-
 
 @pytest.mark.parametrize("mode", ["unsupported_mode", "teleport"])
 def test_unsupported_transport_does_not_fall_back_to_walking(mode):

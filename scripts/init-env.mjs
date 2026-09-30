@@ -12,7 +12,7 @@ try {
   console.log('.env.local already exists; it was not changed.');
   process.exit(0);
 } catch {
-  // The local file does not exist yet.
+
 }
 
 await copyFile(examplePath, localPath, constants.COPYFILE_EXCL);

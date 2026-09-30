@@ -34,7 +34,7 @@ it('previews one fresh verified replacement, preserves neighbors, and applies ex
   expect(f.sessions.get('owner', f.view.id)).toEqual(f.view);
   expect(await f.sessions.previewAlternative('owner', f.view.id, f.body)).toEqual(preview);
   expect(f.calls()).toBe(2);
-  // A second process sees the same saved preview; no raw facts or route matrix in checkpoint.
+
   const checkpoint = f.sessions.checkpoint();
   expect(JSON.stringify(checkpoint)).not.toMatch(/provider_batches|opening_intervals|candidate_pool|route_legs/);
   const second = new PlanningSessions({ ...f.options, checkpoint });

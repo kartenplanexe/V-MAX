@@ -14,10 +14,8 @@ from vmax_planner.routing import prepare_routes, route_checks
 from vmax_planner.cli import project_batches
 from vmax_planner.events import event_candidate_id
 
-
 def epoch(value):
     return int(datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp())
-
 
 def selected_event(job, only=False):
     day = job['intent']['days'][0]
@@ -46,7 +44,6 @@ def selected_event(job, only=False):
                                     'to_id': event['id'] if old['to_id'] == 'museum-near' else old['to_id']})
     return activity, event
 
-
 def solve_prepared(job):
     prepared = prepare_routes(job)
     assert prepared['status'] == 'AVAILABLE'
@@ -56,7 +53,6 @@ def solve_prepared(job):
     result = select_places(planned)
     validate_selection(planned, result)
     return planned, result
-
 
 def test_selected_event_then_food_uses_real_routing_and_exact_session_without_fake_rubrics(job):
     _, event = selected_event(job)
@@ -72,7 +68,6 @@ def test_selected_event_then_food_uses_real_routing_and_exact_session_without_fa
     checks = route_checks({'job': planned, 'result': result})['checks']
     assert checks[1]['departure_utc'] == epoch('2026-09-25T11:00:00Z')
 
-
 def test_event_only_is_available_without_any_poi_or_category_leaf(job):
     _, event = selected_event(job, only=True)
     job['places'] = [event]
@@ -81,7 +76,6 @@ def test_event_only_is_available_without_any_poi_or_category_leaf(job):
     _, result = solve_prepared(job)
     assert result['status'] == 'AVAILABLE'
     assert result['total_budget_upper_minor'] == 0
-
 
 def test_paid_city_subdomain_event_charges_each_person_and_respects_budget(job):
     _, event = selected_event(job, only=True)
@@ -92,7 +86,6 @@ def test_paid_city_subdomain_event_charges_each_person_and_respects_budget(job):
     assert result['total_budget_upper_minor'] == 120000
     job['intent']['shared']['budget']['amount_rub'] = 1000
     assert select_places(job)['status'] == 'UNAVAILABLE'
-
 
 def test_external_event_can_move_before_free_order_food_without_changing_its_session(job):
     activity, event = selected_event(job)
@@ -109,7 +102,6 @@ def test_external_event_can_move_before_free_order_food_without_changing_its_ses
     assert all(r['place_id'] != event['id'] for r in conflict['candidate_pool'])
     assert {'day_id': 'd1', 'activity_id': activity['id'], 'reason': 'COMBINATION_NOT_FOUND'} in conflict['selection_gaps']
 
-
 def test_external_does_not_drop_selected_event_for_two_optional_places(job):
     _, event = selected_event(job)
     day = job['intent']['days'][0]
@@ -122,7 +114,6 @@ def test_external_does_not_drop_selected_event_for_two_optional_places(job):
     job['routing_policy'] = {'strategy': 'progressive', 'external_compact': True}
     pool = prepare_routes(job)['preview_job']['candidate_pool']
     assert [r['place_id'] for r in pool] == [event['id']]
-
 
 def test_fixed_session_rounds_outward_and_cannot_shift_or_shorten(job):
     _, event = selected_event(job, only=True)
@@ -141,7 +132,6 @@ def test_fixed_session_rounds_outward_and_cannot_shift_or_shorten(job):
     with pytest.raises(ValueError):
         select_places(job)
 
-
 def test_visit_window_uses_explicit_duration_and_fits_whole_visit(job):
     activity, event = selected_event(job, only=True)
     activity['target']['visit_duration_minutes'] = 45
@@ -154,7 +144,6 @@ def test_visit_window_uses_explicit_duration_and_fits_whole_visit(job):
     assert 'EVENT_VISIT_DURATION_ESTIMATED' in result['warnings']
     event['schedule']['windows_utc'][0]['end_utc'] = event['schedule']['windows_utc'][0]['start_utc'] + 30 * 60
     assert select_places(job)['status'] == 'UNAVAILABLE'
-
 
 @pytest.mark.parametrize('change', ['missing', 'other_occurrence', 'stale', 'wrong_day', 'wrong_city'])
 def test_selected_event_missing_or_changed_is_never_replaced_by_a_museum(job, change):
@@ -175,7 +164,6 @@ def test_selected_event_missing_or_changed_is_never_replaced_by_a_museum(job, ch
     assert result['days'][0]['missing_activity_ids'] == ['culture']
     assert any(code.startswith('EVENT_') for code in result['issues'])
 
-
 def test_age_is_checked_per_candidate_and_unknown_poi_age_is_an_explicit_gap(job):
     _, event = selected_event(job)
     job['intent']['shared']['party'] = {'total': 2, 'child_ages': [7]}
@@ -192,7 +180,6 @@ def test_age_is_checked_per_candidate_and_unknown_poi_age_is_an_explicit_gap(job
     result = select_places(job)
     assert any('AGE_RESTRICTION' in row['reasons'] for row in result['excluded'])
 
-
 def test_paid_unknown_price_never_becomes_free_even_in_estimated_budget(job):
     _, event = selected_event(job, only=True)
     event['price'] = {'expected_minor': None, 'upper_minor': None, 'basis': 'unknown', 'estimate_kind': 'unknown'}
@@ -206,7 +193,6 @@ def test_paid_unknown_price_never_becomes_free_even_in_estimated_budget(job):
     assert result['status'] == 'AVAILABLE'
     assert result['total_expected_cost_minor'] is None
 
-
 def test_event_replacement_requires_explicit_selection_but_other_stop_keeps_event_pinned(job):
     _, event = selected_event(job)
     job['replacement'] = {'version': 'stop-replacement.v1',
@@ -218,7 +204,6 @@ def test_event_replacement_requires_explicit_selection_but_other_stop_keeps_even
     _, result = solve_prepared(job)
     assert [v['place_id'] for v in result['days'][0]['visits']] == [event['id'], 'cafe-alternative']
 
-
 def test_cli_combines_events_and_provider_batches_without_projecting_events_as_2gis(job):
     _, event = selected_event(job, only=True)
     job.pop('places')
@@ -229,7 +214,6 @@ def test_cli_combines_events_and_provider_batches_without_projecting_events_as_2
     assert 'event_candidates' not in projected
     assert select_places(projected)['status'] == 'AVAILABLE'
 
-
 def test_event_activity_rejects_poi_fields_and_unknown_target_branches(job):
     activity, _ = selected_event(job)
     activity['categories'] = {'state': 'matched', 'include_any': ['museum'], 'exclude': [], 'region_id': '32', 'catalog_version': 'test-catalog'}
@@ -239,7 +223,6 @@ def test_event_activity_rejects_poi_fields_and_unknown_target_branches(job):
     activity['target']['kind'] = 'unrecognized'
     with pytest.raises(ValueError):
         select_places(job)
-
 
 def test_event_and_venue_sources_limit_validation_and_changed_coordinates_require_new_edges(job):
     _, event = selected_event(job, only=True)
@@ -254,7 +237,6 @@ def test_event_and_venue_sources_limit_validation_and_changed_coordinates_requir
     assert select_places(job)['status'] == 'UNAVAILABLE'
     event['source']['valid_until'] = '2026-09-24T09:06:00Z'
     with pytest.raises(ValueError): select_places(job)
-
 
 @pytest.mark.parametrize('day_date,begin,end', [
     ('2026-10-25', '2026-10-25T00:30:00Z', '2026-10-25T01:30:00Z'),
@@ -271,11 +253,10 @@ def test_ambiguous_or_offset_changing_sessions_are_not_compressed_into_local_min
     assert result['status'] == 'UNAVAILABLE'
     assert 'EVENT_LOCAL_TIME_UNSUPPORTED' in result['issues']
 
-
 def test_impossible_hard_order_and_finish_cannot_move_the_event_or_erase_the_gap(job):
     _, event = selected_event(job)
     job['intent']['days'][0]['order'] = [['food', 'culture']]
-    # Cafe ends at 13:15; the fixed event starts at 13:00.
+
     job['visit_policy']['by_category']['cafe'] = 60
     result = select_places(job)
     assert result['status'] == 'LIMITED'
@@ -287,7 +268,6 @@ def test_impossible_hard_order_and_finish_cannot_move_the_event_or_erase_the_gap
     job['intent']['points']['destination'] = deepcopy(job['intent']['points']['origin'])
     job['route_legs'] = [leg for leg in job['route_legs'] if leg['to_id'] != '@destination']
     assert select_places(job)['status'] == 'UNAVAILABLE'
-
 
 def test_event_unknown_hard_requirement_and_overlong_user_estimate_are_not_ignored(job):
     activity, event = selected_event(job, only=True)
@@ -301,14 +281,12 @@ def test_event_unknown_hard_requirement_and_overlong_user_estimate_are_not_ignor
     event['duration'] = {'minutes': 120, 'basis': 'user_estimate'}
     assert select_places(job)['status'] == 'UNAVAILABLE'
 
-
 def test_canonical_event_cannot_be_downgraded_to_a_place_or_forge_binding(job):
     _, event = selected_event(job, only=True)
     event.pop('kind')
     with pytest.raises(ValueError): select_places(job)
     event['kind'] = 'event'; event['activity_id'] = 'food'
     with pytest.raises(ValueError): select_places(job)
-
 
 def test_selected_event_json_reaches_real_cli_solver_and_malformed_input_is_not_echoed(job):
     _, event = selected_event(job, only=True)
@@ -325,7 +303,6 @@ def test_selected_event_json_reaches_real_cli_solver_and_malformed_input_is_not_
     assert failure.returncode == 2
     assert json.loads(failure.stdout)['issues'] == ['INVALID_PLANNING_INPUT']
     assert 'never-echo-this-field' not in failure.stdout + failure.stderr
-
 
 def test_event_and_food_keep_party_cost_and_whole_trip_budget_across_days(job):
     _, event = selected_event(job)

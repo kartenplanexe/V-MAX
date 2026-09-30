@@ -54,7 +54,6 @@ function canonical(value: unknown): string {
 }
 const fingerprint = (operation: string, value: unknown) => createHash('sha256').update(operation + canonical(value)).digest('hex');
 
-// In-memory session logic; DurablePlanning provides persistence and cross-process locking.
 export class PlanningSessions {
   readonly #records = new Map<string, RecordState>();
   readonly #activeOwners = new Set<string>();
@@ -74,8 +73,8 @@ export class PlanningSessions {
         if (r.view.result?.status === 'PLACES_FOUND') r.retained = true;
         const evidence = z.record(z.string(), EventEvidenceSchema.extend({ target_hash: z.string() })).safeParse(r.eventChecks ?? {});
         r.eventChecks = evidence.success ? evidence.data : {};
-        delete r.view.event_previews; // Public displays are always derived from still-valid bound evidence.
-        // A durable pending receipt means the previous process died. Never repeat provider work implicitly.
+        delete r.view.event_previews;
+
         if (r.inProgress) {
           r.failures.set(r.inProgress, new PlanningSessionError('PLAN_INTERRUPTED', 503)); r.inProgress = null;
           if (r.view.phase === 'PLANNING') r.view.phase = 'CONFIRMED';
@@ -85,14 +84,14 @@ export class PlanningSessions {
       this.#prune();
     }
   }
-  /** Persist only under the store's owner lock; contains personal draft state, never API credentials. */
+
   checkpoint(): PlanningCheckpoint {
     this.#prune();
-    // Reject checkpoints with unknown unresolved fields rather than silently dropping them.
+
     const version = [...this.#records.values()].some(r => r.view.draft.clarifications?.length) ? 2 : 1;
     return structuredClone({ version, records: [...this.#records.values()].map(r => ({ ...r,
       events: [...r.events], failures: [...r.failures].map(([key, e]) => [key, { code: e.code, status: e.status }] as [string, { code: string; status: number }]) })),
-      attempts: [] }); // Retained for compatibility with existing version-1 checkpoints.
+      attempts: [] });
   }
   #prune() {
     const now = this.#now().getTime();
@@ -135,7 +134,7 @@ export class PlanningSessions {
     }
     if (budget?.kind === 'limit' && budget.enforcement === 'estimated' && budget.price_basis_assumption !== 'per_person') add('BUDGET_PRICE_BASIS_REQUIRED', 'shared.budget');
     if (budget?.kind === 'limit' && draft.shared.mobility?.[0] !== 'walking') add('TRANSPORT_COST_POLICY_REQUIRED', 'shared.budget');
-    // Unknown age restrictions require review.
+
     let parts: Intl.DateTimeFormatPart[];
     try { parts = new Intl.DateTimeFormat('en-GB', { timeZone: draft.locality.timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(this.#now()); }
     catch { return [{ code: 'TIMEZONE_REQUIRED', field: 'locality' }]; }
@@ -209,7 +208,7 @@ export class PlanningSessions {
     if (area && (point.lat < area.south || point.lat > area.north || point.lon < area.west || point.lon > area.east))
       reject('EVENT_OUTSIDE_LOCALITY', 422);
   }
-  // EventPlanning resolves opaque choices before supplying source facts.
+
   selectEvent(owner: string, id: string, input: unknown): PlanningView {
     const record = this.#record(owner, id), body = parse(SelectEventInput, input);
     const hash = this.#event(record, 'selectEvent', body, body);
@@ -253,7 +252,7 @@ export class PlanningSessions {
   create(owner: string, seed: unknown, context: PlanningContext, provenance: Record<string, string> = {}): PlanningView {
     return this.#create(owner, randomUUID(), 0, seed, context, provenance);
   }
-  // Restore remapped conditions with a revision newer than every previous view.
+
   restoreDraft(owner: string, id: string, version: number, seed: unknown, context: PlanningContext,
     provenance: Record<string, string> = {}): PlanningView {
     this.#prune();
@@ -342,7 +341,7 @@ export class PlanningSessions {
         case 'window':
           for (const dayId of change.day_ids) {
             const day = getDay(dayId); day.window = { start: change.start, end: change.end };
-            // Explicitly replacing both boundaries replaces the old inferred duration too.
+
             if (day.duration_constraint_minutes != null) day.duration_constraint_minutes = minutes(change.end) - minutes(change.start);
             provenance[`days.${dayId}.window`] = 'user_form';
             provenance[`days.${dayId}.window.start`] = 'user_form'; provenance[`days.${dayId}.window.end`] = 'user_form';
@@ -414,7 +413,7 @@ export class PlanningSessions {
     if (draft.days.reduce((sum, day) => sum + day.activities.length, 0) > 120) reject('TOO_MANY_ACTIVITIES', 422);
     if (body.changes.some(change => change.op === 'activities' && change.additions.some(a => a.choice.kind === 'walk')) && draft.shared.mobility?.[0] !== 'walking')
       reject('WALK_ROUTE_REQUIRES_WALKING', 422);
-    record.view.draft = parse(FormDraft, draft); // The entire change set commits only after validation.
+    record.view.draft = parse(FormDraft, draft);
     record.view.provenance = provenance; record.view.version++; record.view.confirmed_version = null;
     record.view.result = null; record.view.phase = 'DRAFT'; record.events.set(body.event_id, hash);
     for (const [key] of Object.entries(record.eventChecks ?? {})) {
@@ -437,11 +436,11 @@ export class PlanningSessions {
   }
   #job(record: RecordState) {
     const draft = record.view.draft;
-      // Outdoor stops use an editable default when category durations are absent.
+
       const planDraft = structuredClone(draft);
       const visitPolicy = structuredClone(record.context.visit_policy);
       if (record.context.data_mode === 'live' && record.context.catalog.category_names) {
-        // Update old draft defaults without changing the saved result.
+
         for (const [id, name] of Object.entries(record.context.catalog.category_names)) {
           const estimate = agreedVisitMinutes(name);
           if (estimate !== undefined) visitPolicy.by_category[id] = estimate;
@@ -449,7 +448,7 @@ export class PlanningSessions {
         visitPolicy.version = VISIT_DURATION_POLICY;
       }
       const leaves = new Set(record.context.catalog.leaf_ids);
-      // For legacy drafts, use only fallback IDs present in the current regional catalog.
+
       const legacyWalkIds = ['111526', '112594', '112668', '112720', '112900', '112901',
         '112905', '112906', '112907', '112912', '112918', '112926', '113289', '113292',
         '113468', '113471', '114018', '168', '24169', '24353'];
@@ -488,10 +487,10 @@ export class PlanningSessions {
         by_activity[activity.id] = activity.duration_minutes ?? WALK_STOP_MINUTES;
         if (routeWalk) {
           const window = minutes(day.window!.end) - minutes(day.window!.start);
-          // Visit time gives an upper bound; the solver also accounts for travel.
+
           const cap = Math.floor(window / by_activity[activity.id]!);
           if (cap >= 2) max_stops_by_activity[activity.id] = Math.min(120, cap);
-          // A soft duration target may produce a shorter route.
+
           walk_travel_target_minutes_by_day[day.day_id] = Math.min(50, Math.max(15, Math.round(window * 0.3)));
         }
       }
@@ -586,11 +585,11 @@ export class PlanningSessions {
     if (record.inProgress || this.#activeOwners.has(owner)) reject('PLAN_IN_PROGRESS');
     if (this.#activeOwners.size >= 2) reject('PLANNER_BUSY', 429);
     if (record.view.result) {
-      // A new calculation clears the result and invalidates old callbacks, retaining confirmation.
+
       record.view.result = null; record.resultExpires = 0;
       record.view.version++; record.view.confirmed_version = record.view.version;
     }
-    // No awaits before lock/revision capture: single-process atomicity only.
+
     this.#activeOwners.add(owner);
     record.inProgress = body.event_id; record.events.set(body.event_id, hash); record.view.phase = 'PLANNING';
     delete record.alternative;

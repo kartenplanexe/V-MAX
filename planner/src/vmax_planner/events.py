@@ -1,4 +1,3 @@
-"""Selected source-neutral events. No discovery, provider requests or POI rubrics."""
 from datetime import date, datetime, timezone as utc_timezone
 import hashlib
 import json
@@ -6,23 +5,19 @@ import math
 import re
 from urllib.parse import urlsplit
 
-
 def _int(value, minimum, maximum):
     if type(value) is not int or not minimum <= value <= maximum:
         raise ValueError('invalid event integer')
     return value
-
 
 def _text(value, maximum=128):
     if not isinstance(value, str) or not value.strip() or len(value) > maximum:
         raise ValueError('invalid event string')
     return value
 
-
 def _keys(value, required, optional=()):
     if not isinstance(value, dict) or not set(required) <= set(value) or set(value) - set(required) - set(optional):
         raise ValueError('invalid event object fields')
-
 
 def _ref(value):
     _keys(value, ('provider', 'event_id', 'occurrence_key'))
@@ -31,11 +26,9 @@ def _ref(value):
             not isinstance(value['occurrence_key'], str) or not re.fullmatch(r'[a-f0-9]{64}', value['occurrence_key']):
         raise ValueError('invalid event reference')
 
-
 def event_candidate_id(ref, day_id, activity_id):
     payload = json.dumps([ref['event_id'], ref['occurrence_key'], day_id, activity_id], ensure_ascii=False, separators=(',', ':'))
     return 'event:kudago:' + hashlib.sha256(payload.encode('utf-8')).hexdigest()
-
 
 def event_target(activity):
     if 'target' not in activity:
@@ -52,7 +45,6 @@ def event_target(activity):
         _int(target['visit_duration_minutes'], 5, 720)
     return target
 
-
 def _source(source):
     _keys(source, ('provider', 'url', 'fetched_at', 'valid_until', 'data_mode'))
     if source['provider'] != 'kudago' or source['data_mode'] not in ('live', 'test'):
@@ -65,7 +57,6 @@ def _source(source):
     if any(value.tzinfo is None for value in times) or times[1] <= times[0]:
         raise ValueError('invalid event source dates')
     return times
-
 
 def validate_event_candidate(value):
     _keys(value, ('kind', 'id', 'name', 'location_label', 'locality_id', 'region_id', 'date', 'event_ref',
@@ -111,12 +102,11 @@ def validate_event_candidate(value):
     if not (price == {'expected_minor': 0, 'upper_minor': 0, 'basis': 'whole_party', 'estimate_kind': 'verified_admission'} or
             price == {'expected_minor': None, 'upper_minor': None, 'basis': 'unknown', 'estimate_kind': 'unknown'} or paid):
         raise ValueError('event price does not match admission evidence')
-    # bool is not an authoritative zero price, despite Python equality rules.
+
     if any(type(price[k]) is bool for k in ('expected_minor', 'upper_minor')): raise ValueError('invalid event price')
     if not isinstance(value['normalization_warnings'], list) or len(value['normalization_warnings']) > 30 or \
             any(not isinstance(w, str) or len(w) > 80 for w in value['normalization_warnings']):
         raise ValueError('invalid event warnings')
-
 
 def _local(epoch, timezone):
     try: result = datetime.fromtimestamp(epoch, utc_timezone.utc).astimezone(timezone)
@@ -126,9 +116,8 @@ def _local(epoch, timezone):
                if naive.replace(tzinfo=timezone, fold=fold).astimezone(utc_timezone.utc).astimezone(timezone).replace(tzinfo=None) == naive}
     return result, len(matches) == 1
 
-
 def event_window(candidate, target, day, locality, timezone, start, end):
-    """Return legal start-minute domains; fixed sessions have a singleton domain."""
+
     reasons, warnings, windows = [], ['EVENT_BOOKING_NOT_VERIFIED'], []
     ref = candidate['event_ref']
     if any(ref[k] != target[k] for k in ref): reasons.append('EVENT_SELECTION_CHANGED')
@@ -160,7 +149,6 @@ def event_window(candidate, target, day, locality, timezone, start, end):
             if opening <= closing: windows.append((opening, closing))
     if not windows: reasons.append('EVENT_NO_VISIT_WINDOW')
     return duration, windows, reasons, warnings
-
 
 def event_display(candidate):
     if candidate.get('kind') != 'event': return {}

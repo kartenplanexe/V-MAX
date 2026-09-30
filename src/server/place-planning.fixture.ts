@@ -1,4 +1,3 @@
-/** Synthetic HTTP fixture used by offline tests/demo only. No real 2GIS payload. */
 import { DgisClient } from './dgis.js';
 
 export const demoNow = () => new Date('2026-09-24T09:30:00Z');

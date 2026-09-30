@@ -8,11 +8,9 @@ from vmax_planner.demo import demo_job
 
 RUNNER = Path(__file__).resolve().parents[1] / "run.py"
 
-
 def invoke(*args, data=None):
     return subprocess.run([sys.executable, str(RUNNER), *args], input=data, capture_output=True, text=True,
                           encoding="utf-8", timeout=20)
-
 
 def test_demo_runs_real_solver_and_labels_synthetic_sources():
     process = invoke("--demo")
@@ -21,8 +19,7 @@ def test_demo_runs_real_solver_and_labels_synthetic_sources():
     assert result["status"] == "AVAILABLE" and result["data_mode"] == "test"
     assert [v["place_id"] for v in result["days"][0]["visits"]] == ["museum-near", "cafe"]
     assert result["total_budget_upper_minor"] == 100000
-    assert result["days"][0]["ends_at"] == 1095  # 18:15, no automatic return to start.
-
+    assert result["days"][0]["ends_at"] == 1095
 
 def test_json_stdin_protocol_and_demo_input_roundtrip():
     exported = invoke("--demo-input")
@@ -31,13 +28,11 @@ def test_json_stdin_protocol_and_demo_input_roundtrip():
     assert result.returncode == 0
     assert json.loads(result.stdout)["status"] == "AVAILABLE"
 
-
 def test_error_never_echoes_input():
     result = invoke(data='{"secret":"never-echo-me"}')
     assert result.returncode == 2
     assert json.loads(result.stdout)["issues"] == ["INVALID_PLANNING_INPUT"]
     assert "never-echo-me" not in result.stdout + result.stderr
-
 
 def test_provider_batch_projection_can_feed_solver_without_disk_persistence():
     job = demo_job()

@@ -1,4 +1,3 @@
-// User-operated deployment preparation. No LLM calls, image push, or revision switch.
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { parseEnv } from 'node:util';
@@ -17,13 +16,13 @@ function execute(bin, args, { input, interactive = false } = {}) {
   const result = spawnSync(bin, args, {
     cwd: root, encoding: 'utf8', timeout: interactive ? 180_000 : 60_000,
     maxBuffer: 2 * 1024 * 1024,
-    // SSH passphrase prompts go to the user's terminal. Secret stdout stays in memory.
+
     stdio: interactive ? ['inherit', 'pipe', 'inherit'] : ['pipe', 'pipe', 'pipe'],
     ...(input !== undefined ? { input } : {}),
     env: { ...process.env, YC_CLI_INITIALIZATION_SILENCE: 'true' },
   });
   if (result.error || result.status !== 0) {
-    // YC may include submitted payload in an error: deliberately do not echo output.
+
     throw new Error(`${bin}: команда не завершилась успешно (код ${result.status ?? 'timeout/start error'}). Содержимое ответа скрыто, чтобы не раскрыть секреты.`);
   }
   return result.stdout;
@@ -77,13 +76,13 @@ try {
       '--base-version-id', baseVersion, '--description', 'VM PostgreSQL TLS and live planner settings', '--payload', '-'], JSON.stringify(pairs));
     if (!version.id) throw new Error('Ответ add-version не содержит ID. Проверьте версии секрета перед повтором.');
     console.log(`LOCKBOX_VERSION_CREATED\nSecret ID: ${secretId}\nVersion ID: ${version.id}`);
-    // Exact existing runtime identity and exact secret only; no folder-wide role.
+
     execute('yc', ['lockbox', 'secret', 'add-access-binding', '--id', secretId,
       '--role', 'lockbox.payloadViewer', '--service-account-id', runtimeSa, '--folder-id', folderId]);
     console.log(`RUNTIME_SECRET_ACCESS_OK\nPrepared keys: ${pairs.map(pair => pair.key).join(', ')}\nПриложение не переключалось. Новая версия будет явно закреплена в следующей ревизии.`);
   }
 } catch (error) {
-  // Unexpected exceptions may contain source text; only messages we create are useful here.
+
   console.error(error instanceof Error && !['SyntaxError', 'TypeError'].includes(error.name)
     ? error.message : 'Не удалось разобрать конфигурацию/ответ. Значения скрыты.');
   process.exitCode = 1;

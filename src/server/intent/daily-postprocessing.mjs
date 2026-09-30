@@ -1,4 +1,3 @@
-// Pure research compatibility/safety layer. Legacy guard, prompts and live reports stay frozen.
 import {isDeepStrictEqual as equal} from 'node:util';
 import {validateDailyProposal} from './daily-contract.mjs';
 import {inspectSemanticCoverage} from './semantic-coverage.mjs';
@@ -8,7 +7,7 @@ export function reviewDailyResponse(raw,input,options={}) {
   const original=validateDailyProposal(raw,input,options);
   let checked=original;
   const repairs=[];
-  // Remove unused anchors; mixed date representations still require validation.
+
   if(original.errors.includes('ANCHOR_WITHOUT_OFFSETS')&&raw.action==='new_request'&&raw.days.length>0&&
     raw.date_anchor&&raw.days.every(day=>day.date?.kind!=='anchor_offset')) {
     const copy=structuredClone(raw);
@@ -16,7 +15,7 @@ export function reviewDailyResponse(raw,input,options={}) {
     copy.date_anchor=null;
     checked=validateDailyProposal(copy,input,options);
   }
-  // Normalize a single tomorrow reference; then validate the complete proposal.
+
   const tomorrow=typeof input.user_text==='string'
     ? /(?<![\p{L}\p{N}])завтра(?![\p{L}\p{N}])/iu.exec(input.user_text)?.[0] : null;
   const dateErrors=['NONCONTIGUOUS_OFFSETS','ANCHOR_WITHOUT_OFFSETS'];

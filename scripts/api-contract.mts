@@ -1,4 +1,3 @@
-/** Rebuild/check submission contracts offline. Does not import runtime config or read secrets. */
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
@@ -372,7 +371,6 @@ export function buildDataApi() {
   };
 }
 
-// JSON is a strict YAML 1.2 subset; it can also be checked without adding YAML parser dependencies.
 export const serializeContract = (value: unknown) => JSON.stringify(value, null, 2) + '\n';
 export async function updateContracts(write = false) {
   const root = fileURLToPath(new URL('../', import.meta.url));

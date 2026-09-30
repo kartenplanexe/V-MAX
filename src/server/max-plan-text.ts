@@ -26,12 +26,11 @@ export function eventVisitText(visit: Visit, timezone: string): string[] {
     try {
       const url = new URL(visit.source.url);
       if (kudagoEventUrl(url.href)) lines.push(`Событие на KudaGo: ${url.href}`);
-    } catch { /* Invalid source URLs are not public links. */ }
+    } catch {                                                 }
   }
   return lines;
 }
 
-/** UTC is explicit on an invalid locality timezone, never an OS-local fallback. */
 export function evidenceTime(instant: string | number, timezone: string): string | null {
   const date = new Date(instant);
   if (!Number.isFinite(date.getTime())) return null;
@@ -79,7 +78,6 @@ export function travelSegmentText(segment: Segment | undefined, timezone: string
   return lines;
 }
 
-/** MAX hard bound in UTF-16 units; split long lines, never discard a later stop. */
 export function splitMaxText(text: string): string[] {
   const output: string[] = []; let chunk = '';
   for (let line of text.split('\n')) {

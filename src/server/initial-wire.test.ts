@@ -3,7 +3,6 @@ import { parseInitialIntent } from './intent-start.js';
 import { intentFixture } from './intent-start.fixture.js';
 import { YandexIntentClient } from './yandex-intent.js';
 
-// Synthetic provider responses exercise the adapter and validation.
 function fixture(count = 1) {
   const f = intentFixture(count);
   f.context.catalog.rows.push(['300', 'Места', [], { type: 'general_rubric' }], ['901', 'Сельхозкорма', []]);
@@ -57,8 +56,8 @@ it('assigns IDs on the server and resolves exact names from the complete regiona
     }
     expect(body.response_format.json_schema.name).toBe('initial_categories_v1');
     const names = body.response_format.json_schema.schema.$defs.catalogName.enum;
-    expect(names).toContain('Сельхозкорма'); // No hardcoded leisure-only prefilter.
-    expect(names).not.toContain('Места'); // A section is not a concrete rubric.
+    expect(names).toContain('Сельхозкорма');
+    expect(names).not.toContain('Места');
   });
   expect(result.status).toBe('draft'); if (result.status !== 'draft') return;
   expect(result.draft.days[0]!.activities.map(a => [a.id, a.label, a.categories.include_any])).toEqual([

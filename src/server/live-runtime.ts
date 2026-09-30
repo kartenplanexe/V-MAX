@@ -42,7 +42,7 @@ export async function registerLiveRuntime(app: FastifyInstance) {
     pem: config.databaseCaPem, path: config.databaseCaPath,
     required: requireDatabaseTls(config.isProduction, config.databaseAllowLocalPlaintext, config.databaseUrl),
   }));
-  // Only additive schema changes. A DB error prevents startup; never fall back to in-memory state.
+
   let phase: 'migration' | 'cleanup' = 'migration';
   try {
     await database.migrate();
@@ -64,11 +64,11 @@ export async function registerLiveRuntime(app: FastifyInstance) {
   const routingQuota = new RoutingQuota(database.pool, config.routingQuota);
   const resolveEvents = createResolvePlanEvents(events);
   const planning = new DurablePlanning({ database, context: token => geography.context(token),
-    // Per-operation bounds and a shared durable subscription quota limit physical attempts.
+
     provider: request => new YandexIntentClient({ apiKey: config.yandexApiKey, folderId: config.yandexFolderId,
       maxCalls: 1, maxEstimatedRub: 7.38 }).generate(request),
     plan: async job => {
-      // This key accepts page_size=5 but rejects 20; five pages cover up to 25 items.
+
       const result = await planPlacesWithDgis(client, job, { retrieval: { pageSize: 5, maxPages: 5, maxRequests: 30 },
         maxRoutingHttpCalls: 30, maxRoutePairs: 10, routingStrategy: 'progressive',
         routingMode: config.planningRoutingMode,

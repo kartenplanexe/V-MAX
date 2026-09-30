@@ -12,7 +12,6 @@ coverage/
 .playwright-cli/
 output/
 
-# Python planner: reproducible environment, no local artifacts in Git.
 **/.venv/
 **/.uv-cache/
 **/.uv-python/

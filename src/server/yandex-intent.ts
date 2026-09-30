@@ -1,7 +1,6 @@
 import { InitialIntentError } from './intent-start.js';
 import { initialWireAdapter } from './intent/initial-wire.mjs';
 
-// Reserve 65,536 input + 4,096 output tokens. Pricing: https://aistudio.yandex.ru/ru/docs/ai-studio/pricing
 const callReserveRub = 65_536 * 0.1 / 1000 + 4096 * 0.2 / 1000;
 
 export class YandexIntentClient {
@@ -23,7 +22,7 @@ export class YandexIntentClient {
     const body = JSON.stringify({ messages: wire.messages, response_format: wire.response_format,
       model: `gpt://${this.options.folderId}/aliceai-llm-flash`, temperature: 0, max_tokens: 4096, stream: false, store: false });
     if (Buffer.byteLength(body) > 512 * 1024) throw new InitialIntentError('INTENT_INPUT_TOO_LARGE', 413);
-    // Reserve synchronously, including failed/time-out attempts: no optimistic refund or retry.
+
     this.#calls++; this.#reservedRub += callReserveRub;
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 30_000);
     try {

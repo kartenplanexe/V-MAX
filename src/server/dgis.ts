@@ -64,7 +64,6 @@ export class DgisProviderError extends Error {
   }
 }
 
-/** All configured keys for this routing service were denied. No provider text. */
 export class DgisRoutingUnavailableError extends DgisProviderError {
   constructor(readonly service: 'routing' | 'public_transport') {
     super('2GIS routing service keys are temporarily unavailable.');
@@ -72,7 +71,6 @@ export class DgisRoutingUnavailableError extends DgisProviderError {
   }
 }
 
-// Called before each HTTP attempt, including backup-key attempts.
 export interface DgisRequestBudget { consume(): void | Promise<void> }
 export class DgisRequestBudgetError extends Error {
   constructor(readonly code: 'HTTP_BUDGET_EXHAUSTED' | 'PAIR_BUDGET_EXHAUSTED' | 'DEADLINE_EXCEEDED' | 'SUBSCRIPTION_QUOTA_EXHAUSTED' = 'HTTP_BUDGET_EXHAUSTED') {
@@ -192,7 +190,7 @@ export class DgisClient {
       const error = meta.error && typeof meta.error === 'object' ? meta.error as Record<string, unknown> : {};
       const diagnostic = [error.message, meta.message, value.error, value.message]
         .filter(value => typeof value === 'string').join(' ').toLowerCase();
-      // Only predefined API parameter names may leave this function; never log provider prose or request URLs.
+
       const hints = ['rubric_id', 'region_id', 'page_size', 'radius', 'point', 'sort', 'fields', 'key', 'query', 'q']
         .filter(name => new RegExp(`(?:^|[^a-z_])${name}(?:$|[^a-z_])`, 'u').test(diagnostic));
       const errorType = typeof error.type === 'string' && /^[a-zA-Z]{1,40}$/u.test(error.type)
@@ -202,7 +200,7 @@ export class DgisClient {
     const parsed = PlacesResponseSchema.safeParse(body);
     if (!parsed.success) {
       const first = parsed.error.issues[0];
-      // Only a schema path is retained; never include values from the provider response.
+
       const path = first?.path.map(segment => typeof segment === 'number' ? '*' : String(segment)).join('.') || 'root';
       throw new DgisProviderError(`2GIS Places response schema failed at ${path}.`);
     }
@@ -217,7 +215,7 @@ export class DgisClient {
         schemaPath = `result.items.*${path ? '.' + path : ''}`;
       }
     }
-    // Rejected rows do not prove that the page is exhausted.
+
     return { items, total: parsed.data.result?.total ?? null, rawItemCount: rawItems.length,
       rejectedItems: rawItems.length - items.length, schemaPath,
       schemaFailure: schemaPath ? `SCHEMA_${schemaPath.replace(/[^A-Za-z0-9]/gu, '_').toUpperCase()}` : null };
@@ -257,7 +255,6 @@ export class DgisClient {
     return parsed.data;
   }
 
-  /** One final dated leg: its displayed path and measured time share one observation. */
   async buildRouteSegment(input: {
     from: Coordinates; to: Coordinates; transport: 'walking' | 'driving' | 'bicycle';
     departureUtc: number; requestBudget?: DgisRequestBudget;
@@ -285,7 +282,6 @@ export class DgisClient {
       geometry: normalizeRouteGeometry(route, { from: input.from, to: input.to, distanceMeters: route.total_distance }) };
   }
 
-  // Billed per directed pair. utc is the planned departure in seconds.
   async buildRoutePairs(input: {
     pairs: [Coordinates, Coordinates][];
     transport: 'walking' | 'driving' | 'bicycle';
@@ -324,7 +320,7 @@ export class DgisClient {
       }
       rows.set(key, row.status === 'OK' ? { durationSeconds: row.duration!, distanceMeters: row.distance! } : null);
     }
-    // Bind by coordinates, not response order. Failure is an absent edge, never zero minutes.
+
     return keys.map(key => rows.get(key)!);
   }
 
@@ -346,7 +342,7 @@ export class DgisClient {
     const send = async (key: string) => {
       const requestUrl = new URL(url);
       requestUrl.searchParams.set('key', key);
-      // Outside the fetch catch: a budget/deadline stop is not a provider failure.
+
       await requestBudget?.consume();
       let response: Response;
       try {

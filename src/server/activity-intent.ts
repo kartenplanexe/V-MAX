@@ -1,4 +1,3 @@
-// Classify an activity after validating its evidence against the user text.
 export const ACTIVITY_INTENT_POLICY = 'activity-intent.v1';
 export type ActivityIntentKind = 'route_walk' | 'area_walk' | 'place_visit';
 
@@ -15,7 +14,7 @@ export function classifyActivityIntent(activity: ActivityEvidence): ActivityInte
   const evidence = activity.evidence?.trim() ?? '';
   const named = (activity.namedTypes ?? []).join(' ');
   const walkInLabel = walking.test(label);
-  // A quote containing several activities must not turn a cafe or museum into a walk.
+
   const walkInQuote = walking.test(evidence) && outdoor.test(`${label} ${named}`) && !nonWalkDestination.test(label);
   if (!walkInLabel && !walkInQuote) return 'place_visit';
   return singleArea.test(`${label} ${evidence}`) ? 'area_walk' : 'route_walk';

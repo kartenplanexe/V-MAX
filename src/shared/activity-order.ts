@@ -1,4 +1,3 @@
-/** Preserve the existing precedence between surviving vertices of a dependency DAG. */
 export function orderWithoutActivity(order: [string, string][], removed: string): [string, string][] {
   const before = order.filter(edge => edge[1] === removed).map(edge => edge[0]);
   const after = order.filter(edge => edge[0] === removed).map(edge => edge[1]);

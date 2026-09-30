@@ -1,4 +1,3 @@
-"""Bounded JSON stdin/file -> JSON stdout protocol. No HTTP or persistence."""
 import argparse
 from decimal import InvalidOperation
 import json
@@ -13,9 +12,8 @@ from .events import validate_event_candidate
 
 MAX_BYTES = 8 * 1024 * 1024
 
-
 def project_batches(job):
-    """Optionally convert internal BFF batches to the solver's canonical places."""
+
     if 'event_candidates' in job:
         events = job['event_candidates']
         if not isinstance(events, list) or len(events) > 120: raise ValueError('invalid event candidates')
@@ -42,7 +40,6 @@ def project_batches(job):
     if rejected:
         projected['retrieval'] = {**job.get('retrieval', {}), 'coverage': 'PARTIAL', 'normalization_rejected': rejected}
     return projected
-
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Подбор мест: JSON → OR-Tools → проверенный план. Без API и LLM.")
@@ -71,6 +68,6 @@ def main(argv=None):
         print(json.dumps(result, ensure_ascii=False, allow_nan=False))
         return 0 if args.demo_input or result["status"] != "ERROR" else 3
     except (ValueError, KeyError, TypeError, AttributeError, InvalidOperation, OSError, RecursionError):
-        # Never echo a raw provider value, local path, secret, or input text.
+
         print(json.dumps({"schema_version": "place-selection.v1", "status": "ERROR", "issues": ["INVALID_PLANNING_INPUT"]}))
         return 2

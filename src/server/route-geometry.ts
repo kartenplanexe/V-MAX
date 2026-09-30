@@ -5,7 +5,6 @@ const NUMBER = '[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?';
 const POSITION = new RegExp(`^(${NUMBER})\\s+(${NUMBER})(?:\\s+(${NUMBER}))?$`, 'u');
 const MAX_POINTS = 10_000;
 
-/** Strictly parse documented WKT, preserving separate paths instead of bridging gaps. */
 export function parseRouteLine(input: string): RouteLine | null {
   if (input.length > 512_000) return null;
   const match = /^LINESTRING(?:\s+Z)?\s*\(([^()]+)\)$/iu.exec(input.trim());
@@ -46,7 +45,7 @@ export function normalizeRouteGeometry(value: unknown, input: {
   if (!Array.isArray(route.maneuvers) || route.maneuvers.length > 2000) return null;
   for (const maneuver of route.maneuvers) {
     const path = record(record(maneuver)?.outcoming_path);
-    if (!path) continue; // Terminal maneuver can have no outgoing path.
+    if (!path) continue;
     if (!Array.isArray(path.geometry) || path.geometry.length > 2000) return null;
     paths.push(...path.geometry);
   }
@@ -63,7 +62,7 @@ export function normalizeRouteGeometry(value: unknown, input: {
     for (let index = 1; index < line.length; index++) length += distance(line[index - 1]!, line[index]!);
     lines.push(line);
   }
-  // Allow provider snapping/rounding while rejecting an unrelated or incomplete path.
+
   if (distance([input.from.lon, input.from.lat], lines[0]![0]!) > 150 ||
       distance([input.to.lon, input.to.lat], lines.at(-1)!.at(-1)!) > 150 ||
       length < input.distanceMeters * 0.65 - 200 || length > input.distanceMeters * 1.35 + 200) return null;

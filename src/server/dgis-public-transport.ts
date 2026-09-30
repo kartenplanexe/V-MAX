@@ -21,7 +21,6 @@ export type TransitEvidence = { pedestrian: boolean; waitingSeconds: number | nu
     movingSeconds: number | null; waitingSeconds: number | null;
   }[] };
 
-/** Explicitly dated, scheduled public transport. Walking approaches are included. */
 export function publicTransportRequest(from: Coordinates, to: Coordinates, departureUtc: number) {
   return { source: { point: from }, target: { point: to }, start_time: departureUtc, enable_schedule: true,
     transport: ['pedestrian', 'metro', 'light_metro', 'suburban_train', 'aeroexpress', 'tram', 'bus', 'trolleybus',
@@ -29,7 +28,7 @@ export function publicTransportRequest(from: Coordinates, to: Coordinates, depar
     max_result_count: 3, locale: 'ru' };
 }
 export function normalizePublicTransport(value: unknown, input: { from: Coordinates; to: Coordinates }) {
-  if (value === null) return null; // Documented HTTP 204, represented by the transport layer.
+  if (value === null) return null;
   const routes = z.array(Route).max(30).parse(value);
   if (!routes.length) return null;
   const route = routes.toSorted((a, b) => a.total_duration - b.total_duration ||
@@ -54,7 +53,7 @@ export function normalizePublicTransport(value: unknown, input: { from: Coordina
         stop: movement.waypoint?.name?.slice(0, 300) ?? null,
         movingSeconds: movement.moving_duration ?? null, waitingSeconds: movement.waiting_duration ?? null };
     }) };
-  // Use one coherent geometry alternative per movement; never join route variants.
+
   const geometry = normalizeRouteGeometry({ maneuvers: route.movements.filter(movement =>
     movement.alternatives?.length || (movement.moving_duration ?? 0) > 0).map(movement => ({
       outcoming_path: { geometry: movement.alternatives?.[0]?.geometry } })) },

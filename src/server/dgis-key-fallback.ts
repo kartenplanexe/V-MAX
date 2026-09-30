@@ -1,11 +1,10 @@
-// 2GIS can return access denial as HTTP 200 with meta.code=403.
 export type DgisService = 'categories' | 'places' | 'regions' | 'routing' | 'public_transport';
 
 export function shouldTryDgisBackup(httpStatus: number, body: unknown): boolean {
   const value = body && typeof body === 'object' ? body as Record<string, unknown> : {};
   const meta = value.meta && typeof value.meta === 'object' ? value.meta as Record<string, unknown> : {};
   const code = typeof meta.code === 'number' ? meta.code : httpStatus;
-  // Retry a backup only for quota (402) or key-access (403) denial.
+
   return [402, 403, 429].includes(code) || [402, 403, 429].includes(httpStatus);
 }
 
@@ -29,7 +28,7 @@ export class DgisKeyFallback {
   backupAfterDenial(service: DgisService, attemptedKey: string): string | null {
     if (!this.keys.includes(attemptedKey)) return null;
     const denied = this.unavailableUntil.get(service) ?? new Map<string, number>();
-    // Recheck each key periodically: its service quota or access may be restored.
+
     denied.set(attemptedKey, this.now() + 10 * 60_000);
     this.unavailableUntil.set(service, denied);
     return this.current(service);

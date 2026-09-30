@@ -18,7 +18,7 @@ const run = it.skipIf(!process.env.TEST_DATABASE_URL);
 async function fixture(withFood = false, paid = false) {
   let time = Date.parse('2026-09-27T09:00:00Z'), calls = 0, providerFails = false;
   const owner = `synthetic-event-${randomUUID()}`;
-  // Use an isolated schema because this suite advances the cleanup clock.
+
   const schema = `events_${randomUUID().replaceAll('-', '')}`;
   const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
   await admin.query(`CREATE SCHEMA ${schema}`);
@@ -129,7 +129,7 @@ run('HTTP event selection survives SQL reload and composes a fixed session with 
     expect(visits.find((visit: { event?: unknown }) => visit.event)).toMatchObject({ starts_at: 780, ends_at: 840,
       price_expected_minor: 120000,
       event: { event_id: '123', schedule_kind: 'fixed', duration_basis: 'provider_session' } });
-    expect(f.calls()).toBe(5); // Search + selection facts + fresh event and venue before planning.
+    expect(f.calls()).toBe(5);
     expect(places.requests.some(request => request.url.searchParams.get('rubric_id') === '200')).toBe(true);
     expect(await post('/plan', body)).toEqual(result); expect(solves).toBe(1); expect(f.calls()).toBe(5);
     const reloaded = new DurablePlanning(options);

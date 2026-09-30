@@ -1,4 +1,3 @@
-/* MAX UI supplies platform typography; licensed MAX Sans is used when supplied by the host. */
 :root { font-synthesis: none; color-scheme: light dark; background: #F5F7FB; }
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }

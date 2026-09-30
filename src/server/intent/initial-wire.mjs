@@ -1,4 +1,3 @@
-// Add mechanical IDs to the provider response before v0.2 validation.
 import fs from 'node:fs';
 import AjvModule from 'ajv/dist/2020.js';
 import formatsModule from 'ajv-formats';
@@ -76,7 +75,7 @@ export function initialWireAdapter(request) {
     (repairErrors.length ? `\nПредыдущее предложение отклонено проверкой: ${repairErrors.join(', ')}. ` +
       'Заново проверь исходный текст, область каждого дня, буквальные цитаты и индексы порядка. before — занятие раньше, after — занятие позже. ' +
       'TIME_LITERAL_MISSING означает пропущенное цифровое время: проверь оба конца time.start/time.end; чужое или неоднозначное время сохрани в unresolved, не превращай занятость в свободное окно. Верни полный исправленный JSON.' : '');
-  const invalid = () => ({ action: 'new_request' }); // Existing SCHEMA guard + bounded repair.
+  const invalid = () => ({ action: 'new_request' });
   const id = index => `new:${index}`;
   return {
     messages: [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify({

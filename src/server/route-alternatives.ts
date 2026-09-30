@@ -3,7 +3,7 @@ import type { PublicPlan } from '../shared/planning-form.js';
 import type { AlternativeTarget } from '../shared/route-alternatives.js';
 
 type Plan = z.infer<typeof PublicPlan>;
-/** These identities restrict a NEW provider request; old facts are never copied. */
+
 export function replacementRoster(result: Plan, target: AlternativeTarget) {
   const matches = result.days.flatMap(day => day.visits.map(visit => ({ ...visit, day_id: day.day_id })))
     .filter(visit => visit.day_id === target.day_id && visit.activity_id === target.activity_id && visit.place_id === target.place_id);

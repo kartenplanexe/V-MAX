@@ -9,7 +9,7 @@ import { PublicPlan } from '../shared/planning-form.js';
 const options = { retrieval: { radiusMeters: 5000, maxPages: 1 }, now: demoNow, dataMode: 'test' as const };
 function transitFixture(duration: (departure: number, target: number, count: number) => number | null = () => 900) {
   const f = planningFixture(); f.input.intent.shared.mobility = ['public_transport'];
-  f.items.splice(1, 1); // One eligible candidate in each activity; no artificial routing ambiguity.
+  f.items.splice(1, 1);
   const departures: { utc: number; target: number }[] = [];
   const fetchImpl: typeof fetch = async (url, init) => {
     if (!init?.body) return f.defaultFetch(url, init);

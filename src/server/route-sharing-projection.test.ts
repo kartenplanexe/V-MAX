@@ -95,7 +95,7 @@ it('shares the selected event session through a whitelist without copying provid
     raw_diagnostics: 'private-provider-extension' }], days: [{ day_id: 'd', date: '2026-09-28', status: 'AVAILABLE', missing_activity_ids: [],
     visits: [{ activity_id: 'a', place_id: 'event123', name: 'Synthetic event', starts_at: 900, ends_at: 960,
       travel_before_minutes: 10, arrival_buffer_minutes: 5, price_expected_minor: 0, warnings: [], event, source }] }] };
-  // Strict event contracts reject new provider fields before projection.
+
   expect(projectSharedResult(plan, now + 300000, now, false).result).toBeNull();
   const { provider_extension: _providerExtension, ...publicEvent } = event;
   const accepted = { ...plan, event_gaps: plan.event_gaps.map(({ raw_diagnostics: _raw, ...gap }) => gap),

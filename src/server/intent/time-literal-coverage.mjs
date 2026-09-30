@@ -1,4 +1,3 @@
-// Check literal time coverage without changing the parsed window.
 export const timeLiteralCoverageVersion = 'time-literal-coverage.v1';
 const hour = '(?:[01]?\\d|2[0-3])';
 const clock = `${hour}(?::[0-5]\\d)?`;
@@ -8,7 +7,7 @@ const valueOf = token => token.includes(':') ? token.padStart(5, '0') : `${token
 
 function literals(text) {
   const found = new Map();
-  // Skip ambiguous 1..12 clock values when a day part is present.
+
   const dayPart = /(?<!\p{L})(?:утр[ао]|утром|дня|дн[её]м|вечер[ао]м?|ноч[иь]|ночью)(?!\p{L})/iu.test(text);
   const add = (token, index) => {
     const hours = Number(token.split(':')[0]);
@@ -21,7 +20,7 @@ function literals(text) {
     if (nonTimeUnit.test(text.slice(m.index + m[0].length))) continue;
     add(m[1], m.index + m[0].indexOf(m[1])); add(m[2], m.index + m[0].lastIndexOf(m[2]));
   }
-  // A bare «1–2 часа» can be a duration, not clock bounds. Do not guess.
+
   const bound = new RegExp(`(?<!\\p{L})(?:после|раньше|позже)\\s+(${clock})(?![\\p{L}\\p{N}:]|[.,]\\d)|(?<!\\p{L})(?:с|до|в|к)\\s+(${clock})\\s*${unit}`, 'giu');
   for (const m of text.matchAll(bound)) {
     if (nonTimeUnit.test(text.slice(m.index + m[0].length))) continue;

@@ -196,7 +196,7 @@ it('accepts an explicitly repeated trusted city without discarding the regional 
 it('does not invent a transport mode when the model omits it', async () => {
   const f = intentFixture();
   f.response.shared_updates = [];
-  // The authored provider response must preserve the independently requested walk.
+
   f.context.catalog.rows.push(['168', 'Парки', []]);
   f.response.days[0]!.activity_edits.push({ op: 'add', activity_id: 'new:3', label: 'Прогулка',
     selection: { category_policy: 'related_allowed', named_types: [], evidence: 'погулять' }, requirements: [], evidence: 'погулять' });

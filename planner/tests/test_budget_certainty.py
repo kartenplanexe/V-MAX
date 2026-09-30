@@ -1,4 +1,3 @@
-"""Real provider normalization, eligibility, solver and independent validation."""
 from copy import deepcopy
 
 import pytest
@@ -7,7 +6,6 @@ from vmax_planner.demo import demo_job
 from vmax_planner.dgis import normalize_place
 from vmax_planner.routing import prepare_routes
 from vmax_planner.selection import select_places, validate_selection
-
 
 def average_bill_job(*, amount=1500, people=1, enforcement=None, consent=False, priced=True):
     job = demo_job()
@@ -31,7 +29,6 @@ def average_bill_job(*, amount=1500, people=1, enforcement=None, consent=False, 
     job["route_legs"] = [leg for leg in job["route_legs"] if leg["from_id"] == "@origin" and leg["to_id"] == "cafe"]
     return job
 
-
 def solved(job):
     prepared = prepare_routes(job)
     if prepared["status"] != "AVAILABLE":
@@ -41,7 +38,6 @@ def solved(job):
     validate_selection(narrowed, result)
     return result
 
-
 def test_strict_default_never_turns_average_bill_into_upper_bound():
     job = average_bill_job()
     result = solved(job)
@@ -50,13 +46,11 @@ def test_strict_default_never_turns_average_bill_into_upper_bound():
     assert result["total_budget_upper_minor"] is None
     assert result["days"][0]["missing_activity_ids"] == ["food"]
 
-
 def test_internal_policy_cannot_silently_relax_confirmed_strict_budget():
     job = average_bill_job()
     job["budget_policy"] = "estimate"
     with pytest.raises(ValueError, match="confirmed budget"):
         solved(job)
-
 
 def test_explicit_estimate_consent_uses_average_bill_without_fabricating_upper():
     job = average_bill_job(enforcement="estimated", consent=True)
@@ -68,13 +62,11 @@ def test_explicit_estimate_consent_uses_average_bill_without_fabricating_upper()
     assert job["places"][0]["price"]["basis"] == "unknown"
     assert job["places"][0]["price"]["upper_minor"] is None
 
-
 @pytest.mark.parametrize("people,consent,issue", [(1, False, "BUDGET_PRICE_BASIS_REQUIRED"), (None, True, "PARTY_REQUIRED")])
 def test_estimate_requires_user_basis_consent_and_known_group(people, consent, issue):
     result = solved(average_bill_job(enforcement="estimated", consent=consent, people=people))
     assert result["status"] == "NEEDS_INPUT"
     assert issue in result["issues"]
-
 
 def test_unknown_prices_are_not_zero_even_with_estimate_consent():
     result = solved(average_bill_job(enforcement="estimated", consent=True, priced=False))
@@ -83,7 +75,6 @@ def test_unknown_prices_are_not_zero_even_with_estimate_consent():
     assert result["issues"] == ["BUDGET_PRICE_DATA_REQUIRED"]
     assert result["excluded"][0]["reasons"] == ["PRICE_ESTIMATE_UNKNOWN"]
 
-
 def test_average_bill_estimate_is_scaled_to_group_and_respects_limit():
     job = average_bill_job(enforcement="estimated", consent=True, people=2, amount=2300)
     assert solved(job)["status"] == "UNAVAILABLE"
@@ -91,7 +82,6 @@ def test_average_bill_estimate_is_scaled_to_group_and_respects_limit():
     result = solved(job)
     assert result["status"] == "AVAILABLE"
     assert result["total_expected_cost_minor"] == 240000
-
 
 def test_estimated_trip_budget_is_not_repeated_for_each_day():
     job = average_bill_job(enforcement="estimated", consent=True)
@@ -105,7 +95,6 @@ def test_estimated_trip_budget_is_not_repeated_for_each_day():
     result = solved(job)
     assert result["status"] == "AVAILABLE"
     assert result["total_expected_cost_minor"] == 240000
-
 
 def test_estimated_mode_accepts_a_verified_upper_bound_without_inventing_expected_price():
     job = average_bill_job(amount=1500, people=2)

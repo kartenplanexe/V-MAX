@@ -1,6 +1,5 @@
 import type { SavedConditionsView } from './saved-conditions.js';
 
-/** User-owned conditions only; never reconstruct an expired provider itinerary. */
 export function savedConditionsText(saved: SavedConditionsView): string {
   const conditions = saved.conditions;
   const lines = ['Сохранённые условия', 'Места и прежний маршрут нужно проверить заново.'];

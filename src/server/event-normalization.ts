@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { EventCardSchema, EventVenueSchema, EventFactSourceSchema, type EventCard, type EventVenue } from '../shared/event-catalog.js';
 
 export type EventNormalizationContext = { fetchedAt: string; validUntil: string; dataMode?: 'live' | 'test';
-  /** Opt-in only after an operator verifies the particular material's rights. Never inferred from a CDN URL. */
+
   mediaLicense?: { basis: string; sourcePage: string; attributionText: string; attributionUrl: string } };
 const Id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const Point = z.object({ lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180) });
@@ -26,7 +26,7 @@ function source(url: string, context: EventNormalizationContext) {
 
 function dateEntry(raw: unknown, eventId: number, venueId: number | null): EventCard['schedule']['entries'][number] {
   const parsed = DateInput.safeParse(raw), date = parsed.success ? parsed.data : null;
-  // Date reordering preserves identity; changed time or venue requires a new choice.
+
   const occurrence_key = createHash('sha256').update(JSON.stringify(['kudago-occurrence.v1', String(eventId), venueId,
     date?.is_startless ? null : date?.start ?? null, date?.is_endless ? null : date?.end ?? null,
     date?.is_continuous ?? null, date?.is_endless ?? null, date?.is_startless ?? null, date?.use_place_schedule ?? null,
@@ -46,7 +46,7 @@ function dateEntry(raw: unknown, eventId: number, venueId: number | null): Event
   if (d.is_endless || d.is_startless) return incomplete(['UNBOUNDED_SESSION'], start, end);
   if (d.is_continuous) return incomplete(['CONTINUOUS_UNSUPPORTED'], start, end);
   if (start === null || end === null) return incomplete(['DATE_BOUND_UNKNOWN'], start, end);
-  // A multi-day exhibition interval is not an official duration or daily opening window.
+
   if (end - start > 12 * 3600) return incomplete(['LONG_INTERVAL_UNSUPPORTED'], start, end);
   return { id, occurrence_key, state: 'FIXED', start_utc: start, end_utc: end, reasons: [] };
 }
@@ -141,7 +141,7 @@ export function parseVenueTimetable(raw: string | null | undefined): EventVenue[
       assigned.add(day); weekly[day] = hours.map(h => ({ ...h }));
     }
   }
-  // Retain proven weekdays independently; an omitted day is not a closed day.
+
   return { state: assigned.size === 7 ? 'KNOWN' : 'PARTIAL', weekly, known_days: Days.map((_, i) => assigned.has(i)),
     reasons: assigned.size === 7 ? [] : ['HOURS_DAYS_UNKNOWN'], policy_version: 'kudago-weekly-hours.v2' };
 }
@@ -156,7 +156,7 @@ const CalendarDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).refine(value => {
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 });
-/** Converts only unique real wall-clock instants; DST gaps and folds remain incomplete. */
+
 export function localEventInstant(date: string, minutes: number, formatter: Intl.DateTimeFormat): number | null {
   const wall = Date.parse(`${date}T00:00:00Z`) + minutes * 60000;
   const partsAt = (ms: number) => {

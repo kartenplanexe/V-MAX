@@ -2,7 +2,6 @@ from test_routing_budget import candidates_job
 from vmax_planner.routing import prepare_routes, recover_routes
 from vmax_planner.selection import select_places, validate_selection
 
-
 def replay(job):
     job['routing_policy'] = {'strategy': 'progressive'}
     prepared = prepare_routes(job)
@@ -22,12 +21,10 @@ def replay(job):
         measured['candidate_pool'].append(proposal['candidate'])
     raise AssertionError('non-terminating search')
 
-
 def test_progressive_walk_can_use_eight_places_without_quadratic_matrix():
     result, purchases = replay(candidates_job(walk=True))
     assert len(result['days'][0]['visits']) == 8
     assert purchases == 8
-
 
 def test_progressive_prioritizes_food_before_extra_walk_and_keeps_hard_order():
     job = candidates_job(activities=2, walk=True)
@@ -36,8 +33,7 @@ def test_progressive_prioritizes_food_before_extra_walk_and_keeps_hard_order():
     result, purchases = replay(job)
     assert result['status'] == 'AVAILABLE'
     assert result['days'][0]['visits'][-1]['activity_id'] == 'activity-1'
-    assert purchases < 30  # broad pool still has sixteen candidates
-
+    assert purchases < 30
 
 def test_impossible_window_does_not_purchase_impossible_insertions():
     job = candidates_job(activities=2, walk=True)

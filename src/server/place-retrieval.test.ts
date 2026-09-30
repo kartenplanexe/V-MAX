@@ -228,7 +228,7 @@ describe('regional candidate retrieval', () => {
     expect(result.searches[0]?.targets).toHaveLength(2);
     expect(result.coverage).toBe('BOUNDED_RESULTS');
     await retrievePlaceCandidates(client, intent(), { catalogVersion: 'v1', radiusMeters: 5000 });
-    expect(calls).toBe(2); // No production cross-request cache.
+    expect(calls).toBe(2);
   });
 
   it('labels truncation, preserves partial results on provider failure and never fabricates places', async () => {

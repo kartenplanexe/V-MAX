@@ -8,7 +8,6 @@ import { registerMaxChatRoute, maxWebhookSecret, type MaxChatDependencies } from
 import { maxWorkerSecret } from './max-async.js';
 import { demoNow, planningFixture } from './place-planning.fixture.js';
 
-// Local HTTP and PostgreSQL acceptance test; cloud dispatch is replaced.
 it.skipIf(!process.env.TEST_DATABASE_URL || !process.env.RUN_LONG_ASYNC_ACCEPTANCE)(
   'persists a 40-second plan and rejects redelivery after reconnect without another calculation', async () => {
     const url = process.env.TEST_DATABASE_URL!;
@@ -64,7 +63,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL || !process.env.RUN_LONG_ASYNC_ACCEPTAN
       running = post('/api/max/worker', maxWorkerSecret(token), queued[0]);
       await entered;
       const concurrentDuplicate = await post('/api/max/worker', maxWorkerSecret(token), queued[0]);
-      expect(concurrentDuplicate.status).toBe(503); // bounded 30-second wait while original still runs
+      expect(concurrentDuplicate.status).toBe(503);
       expect(await concurrentDuplicate.json()).toEqual({ status: 'retry_later' });
       const completed = await running;
       expect(completed.status).toBe(200); expect(await completed.json()).toEqual({ status: 'handled' });

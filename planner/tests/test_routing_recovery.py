@@ -4,7 +4,6 @@ from test_routing_budget import candidates_job
 from vmax_planner.routing import prepare_routes, recover_routes
 from vmax_planner.selection import select_places, validate_selection
 
-
 def broken_job(*, destination=False):
     job = candidates_job(activities=2, candidates=25)
     job['intent']['days'][0]['order'] = [['activity-0', 'activity-1']]
@@ -17,12 +16,10 @@ def broken_job(*, destination=False):
     narrowed = prepared['job'] | {'route_legs': legs}
     return prepared, narrowed, select_places(narrowed)
 
-
 def apply_proposal(job, proposal):
     return job | {'candidate_pool': job['candidate_pool'] + [proposal['candidate']],
                   'route_legs': job['route_legs'] + [pair | {'safe_minutes': 5, 'source': job['places'][0]['source']}
                                                    for pair in proposal['pairs']]}
-
 
 def test_recovers_ordered_activity_with_one_connector_inside_default_budget():
     prepared, job, result = broken_job()
@@ -41,7 +38,6 @@ def test_recovers_ordered_activity_with_one_connector_inside_default_budget():
     validate_selection(expanded, complete)
     assert recover_routes({'job': expanded, 'result': complete, 'attempted': []})['stop_reason'] == 'COVERAGE_COMPLETE'
 
-
 def test_recovery_requires_the_explicit_finish_leg_and_keeps_order():
     _, job, result = broken_job(destination=True)
     recovery = recover_routes({'job': job, 'result': result, 'attempted': []})
@@ -54,7 +50,6 @@ def test_recovery_requires_the_explicit_finish_leg_and_keeps_order():
     validate_selection(expanded, complete)
     assert [v['activity_id'] for v in complete['days'][0]['visits']] == ['activity-0', 'activity-1']
 
-
 def test_attempted_insertions_are_not_repeated_and_order_is_deterministic():
     _, job, result = broken_job()
     first = recover_routes({'job': job, 'result': result, 'attempted': []})
@@ -64,7 +59,6 @@ def test_attempted_insertions_are_not_repeated_and_order_is_deterministic():
     second = recover_routes({'job': job, 'result': result, 'attempted': [first['proposal']['key']]})
     assert second['proposal']['key'] != first['proposal']['key']
     assert second['proposal']['candidate'] != first['proposal']['candidate']
-
 
 def test_recovery_does_not_reintroduce_ineligible_places_or_relax_time():
     _, job, result = broken_job()
@@ -76,7 +70,6 @@ def test_recovery_does_not_reintroduce_ineligible_places_or_relax_time():
     recovery = recover_routes({'job': job, 'result': result, 'attempted': []})
     assert recovery['stop_reason'] == 'ELIGIBLE_POOL_EXHAUSTED'
     assert result['days'][0]['missing_activity_ids'] == ['activity-1']
-
 
 def test_recovery_honors_an_explicit_operator_candidate_cap():
     _, job, result = broken_job()

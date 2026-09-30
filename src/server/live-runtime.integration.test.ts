@@ -7,7 +7,7 @@ import { registerLiveRuntime } from './live-runtime.js';
 
 it.skipIf(!process.env.TEST_DATABASE_URL)('starts authenticated manual and saved-route APIs without LLM credentials', async () => {
   const original = { ...config }, app = Fastify();
-  // Use an isolated schema so real-clock cleanup cannot remove another suite’s fixtures.
+
   const schema = `runtime_${randomUUID().replaceAll('-', '')}`;
   const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
   const scoped = new URL(process.env.TEST_DATABASE_URL!); scoped.searchParams.set('options', `-c search_path=${schema}`);
@@ -38,7 +38,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL)('starts authenticated manual and saved
       expect(response.statusCode).toBe(401);
       expect(response.json()).toEqual({ error: 'AUTH_REQUIRED' });
     }
-    // Reject invalid city tokens before any external call.
+
     const invalidCity = await app.inject({ method: 'POST', url: '/api/planning/manual/options', headers,
       payload: { locality_token: 'synthetic-invalid-token' } });
     expect(invalidCity.statusCode).toBe(422);

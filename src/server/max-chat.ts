@@ -107,7 +107,6 @@ function parseUpdate(raw: unknown): Incoming | null {
   return null;
 }
 
-/** Drop profiles and unrelated MAX fields before managed queue delivery. */
 export function minimalMaxUpdate(raw: unknown): unknown | null {
   const parsed = parseUpdate(raw);
   if (!parsed) return null;
@@ -121,7 +120,6 @@ export function minimalMaxUpdate(raw: unknown): unknown | null {
       ...(parsed.location ? { attachments: [{ type: 'location', latitude: parsed.location.lat, longitude: parsed.location.lon }] } : {}) } } };
 }
 
-/** Webhook secret is not a second manually managed credential; never expose the derived value. */
 export function maxWebhookSecret(botToken: string) {
   return createHash('sha256').update('v-max:webhook:v1:' + botToken).digest('hex');
 }
@@ -503,7 +501,7 @@ export class MaxChatController {
       if (update.kind === 'callback' && update.callbackId) {
         try { await this.deps.transport.answer(update.callbackId); }
         catch (error) {
-          // Process the action even if MAX rejects the callback acknowledgement.
+
           this.deps.onCallbackDiagnostic?.(error instanceof Error ? error.message : 'UNKNOWN');
         }
       }
@@ -704,7 +702,7 @@ export class MaxChatController {
         : await this.deps.planning.start(owner, { event_id: requestId, user_text: text, locality_token: localityToken,
           ...(localityQuery ? { locality_query: localityQuery } : {}) });
     } catch (error) {
-      // After a parse failure, offer a retry instead of waiting for another city.
+
       if (error instanceof InitialIntentError && ['INTENT_INVALID_RESPONSE', 'INTENT_NEEDS_CLARIFICATION',
         'INTENT_PROVIDER_FAILED'].includes(error.code)) {
         await this.setPending(owner, { kind: 'intent_retry', requestText: text, localityToken,
@@ -812,7 +810,7 @@ export class MaxChatController {
     const details = summary(view), remaining = 3800 - heading.length - question.length;
     const more = '\nПолные условия доступны в мини-приложении.';
     const visibleDetails = details.length <= remaining ? details : details.slice(0, Math.max(0, remaining - more.length)) + more;
-    // Preserve the actionable question when the summary is long (MAX: 4000 chars).
+
     await this.send(userId, { text: `${heading}${visibleDetails}${question}`, buttons });
   }
 
@@ -1057,7 +1055,7 @@ export class MaxApiTransport {
           const status = response.statusCode ?? 0;
           if (status < 200 || status >= 300) return reject(new Error(`MAX_${method === 'DELETE' ? 'DELETE' : 'SEND'}_HTTP_${status}`));
           let payload: unknown = null;
-          try { payload = JSON.parse(responseBody); } catch { /* Empty responses are allowed. */ }
+          try { payload = JSON.parse(responseBody); } catch {                                    }
           if (payload && typeof payload === 'object' && 'success' in payload && payload.success === false)
             return reject(new Error(method === 'DELETE' ? 'MAX_DELETE_PROVIDER_REJECTED' : 'MAX_SEND_PROVIDER_REJECTED'));
           resolve(payload);

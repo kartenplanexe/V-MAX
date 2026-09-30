@@ -17,7 +17,6 @@ const minutes = (time: string) => {
   return Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
 };
 
-// Local-minute scheduling cannot represent DST gaps or repeated hours.
 function ordinaryLocalWindow(start: number, end: number, timezone: string) {
   const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });

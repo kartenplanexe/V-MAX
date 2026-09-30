@@ -16,6 +16,6 @@ export function candidateSourceLink(source: z.infer<typeof CandidatePlace>['sour
     if (url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash) return null;
     if (source.provider === '2gis' && url.hostname === '2gis.ru' && /^\/[a-z0-9_-]{1,80}\/(?:firm|geo)\/[0-9]{1,30}$/u.test(url.pathname)) return url.href;
     if (source.provider === 'kudago') return kudagoEventUrl(source.url) ?? null;
-  } catch { /* Ignore malformed provider URLs. */ }
+  } catch {                                       }
   return null;
 }

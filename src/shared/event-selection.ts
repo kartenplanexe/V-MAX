@@ -34,7 +34,6 @@ export const EventAvailabilitySchema = z.object({ status: z.enum(['READY', 'PART
     dates: z.array(DateValue).max(31).optional() }).strict()).max(400) }).strict();
 export type EventAvailability = z.infer<typeof EventAvailabilitySchema>;
 
-/** Server-owned wire input for Python. Never accepted as an HTTP request body. */
 export const EventPlanningCandidateSchema = z.object({ kind: z.literal('event'), id: z.string().regex(/^event:kudago:[0-9a-f]{64}$/u),
   name: z.string().min(1).max(500), location_label: z.string().max(1000).nullable(),
   locality_id: Id, region_id: Id, date: DateValue, event_ref: EventRefSchema, activity_id: Id, day_id: Id,

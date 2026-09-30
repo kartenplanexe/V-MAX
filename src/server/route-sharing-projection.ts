@@ -24,7 +24,7 @@ export function projectSharedConditions(raw: unknown, includePrivatePoints: bool
 }
 
 const Source = z.object({ provider: z.string(), fetched_at: z.string(), valid_until: z.string(), data_mode: z.string() });
-// Explicit display-only transit whitelist. Never forward provider route objects.
+
 const Transit = z.object({ pedestrian: z.boolean(), waitingSeconds: z.number().nonnegative().nullable(),
   transferCount: z.number().int().nonnegative(), crossingCount: z.number().int().nonnegative(),
   scheduleEvidence: z.enum(['predicted', 'provided', 'unknown']),
@@ -38,7 +38,7 @@ const Segment = z.object({ from_id: z.string(), to_id: z.string(), departure_utc
   transit: Transit.optional(), source: Source });
 type SegmentedDay = { travel_segments?: z.infer<typeof Segment>[] };
 const absent = () => ({ result: null, result_expires_at: null });
-/** Explicit projection. Extending PublicPlan does not automatically disclose new fields. */
+
 export function projectSharedResult(raw: unknown, originalExpiry: number, now: number, includePrivatePoints: boolean):
   Pick<SharePreview, 'result' | 'result_expires_at'> {
   if (!raw || !Number.isFinite(originalExpiry) || originalExpiry <= now) return absent();
@@ -50,7 +50,7 @@ export function projectSharedResult(raw: unknown, originalExpiry: number, now: n
     const ids = new Set(day.visits.map(visit => visit.place_id));
     const rawSegments = (day as typeof day & SegmentedDay).travel_segments;
     const allSegments = rawSegments?.map(segment => Segment.parse(segment));
-    // Hiding start/finish legs must not extend the result’s freshness.
+
     for (const segment of allSegments ?? []) deadlines.push(Date.parse(segment.source.valid_until));
     const segments = allSegments?.filter(segment => includePrivatePoints || ids.has(segment.from_id) && ids.has(segment.to_id));
     return { day_id: day.day_id, date: day.date, status: day.status, missing_activity_ids: [...day.missing_activity_ids],

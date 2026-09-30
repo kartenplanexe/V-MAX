@@ -50,7 +50,7 @@ run('deletes only an explicitly selected own revision, preserves another active 
     await expect(f.library.remove(f.owner, b!.id, body)).rejects.toMatchObject({ code: 'EVENT_CONFLICT' });
     const remaining = await f.library.list(f.owner);
     expect(remaining.items).toHaveLength(1); expect(remaining.items[0]).toMatchObject({ id: b!.id, active: true });
-    f.advance(1_800_001); // Long-lived own conditions can also be deleted after draft expiry.
+    f.advance(1_800_001);
     await f.library.remove(f.owner, b!.id, { event_id: randomUUID(), base_revision: b!.version });
     expect((await f.library.list(f.owner)).items).toEqual([]);
     const state = (await f.database.pool.query('SELECT state FROM bot_navigation WHERE owner=$1', [f.owner])).rows[0].state;

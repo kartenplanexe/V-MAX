@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-/** User choices only. Provider facts and activity labels are assigned by the server. */
 export const ActivityChoiceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('walk') }).strict(),
   z.object({ kind: z.literal('place'), category_ids: z.array(z.string().min(1).max(128)).min(1).max(10)

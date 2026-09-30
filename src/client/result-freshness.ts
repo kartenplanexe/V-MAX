@@ -1,12 +1,10 @@
 import type { PlanningView } from '../shared/planning-form';
 
-/** A warning deadline; opening a retained snapshot never refreshes its facts. */
 export function placesStaleAt(plan: PlanningView['result']): string {
   const observed = plan?.candidate_preview?.groups.flatMap(group => group.places.map(place => Date.parse(place.source.fetched_at))) ?? [];
   return new Date(observed.length && observed.every(Number.isFinite) ? Math.min(...observed) + 30 * 60_000 : 0).toISOString();
 }
 
-// Older checkpoints lack an aggregate deadline; derive it from source timestamps.
 export function resultValidUntil(view: Pick<PlanningView, 'expires_at' | 'result'>): string {
   const deadlines = [Date.parse(view.expires_at)];
   const plan = view.result;

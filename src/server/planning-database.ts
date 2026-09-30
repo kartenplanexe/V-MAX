@@ -24,7 +24,6 @@ export type BotNavigation = { welcomed: boolean; mode: 'idle' | 'awaiting_reques
   resultMessageIds?: string[]; resultDraftId?: string };
 const emptyNavigation = (): BotNavigation => ({ welcomed: false, mode: 'idle', routes: [] });
 
-// Session advisory locks span HTTP calls; SQL transactions do not. Requires session pooling.
 export class PlanningDatabase {
   readonly now: () => Date;
   constructor(readonly pool: Pool, options: { now?: () => Date } = {}) { this.now = options.now ?? (() => new Date()); }
@@ -64,12 +63,12 @@ export class PlanningDatabase {
       };
       return await work(state, save, client);
     } finally {
-      // Release all locks on this leased connection, including any failed individual release.
+
       if (locked) { try { await client.query('SELECT pg_advisory_unlock_all()'); } catch { broken = true; } }
       client.release(broken);
     }
   }
-  // Short writes only; caller holds the owner lock. No HTTP awaits inside the transaction.
+
   async transaction<T>(client: PoolClient, work: () => Promise<T>): Promise<T> {
     await client.query('BEGIN');
     try { const value = await work(); await client.query('COMMIT'); return value; }
@@ -83,7 +82,7 @@ export class PlanningDatabase {
       conditions: row.conditions, expires_at: new Date(row.expires_at).toISOString() }) : null;
   }
   async saveSaved(client: PoolClient, owner: string, input: SavedConditionsView) {
-    // Validate saved fields again at the persistence boundary.
+
     const saved = SavedConditionsViewSchema.parse(input), json = JSON.stringify(saved.conditions);
     if (Buffer.byteLength(json) > 256 * 1024) throw new PlanningSessionError('SESSION_CAPACITY', 429);
     await client.query(`INSERT INTO saved_user_conditions(owner,draft_id,revision,conditions,expires_at)
@@ -115,11 +114,11 @@ export class PlanningDatabase {
     }
   }
   async recordUsage(client: PoolClient, kind: string) {
-    // Record attempts for cost visibility. Never gate a user's request on the count.
+
     await client.query(`INSERT INTO planning_daily_usage(day,kind,calls) VALUES (CURRENT_DATE,$1,1)
       ON CONFLICT(day,kind) DO UPDATE SET calls=planning_daily_usage.calls+1`, [kind]);
   }
-  // Chat locks use a separate namespace; no SQL transaction spans HTTP.
+
   async withChatUpdate<T>(owner: string, work: () => Promise<T>): Promise<T> {
     const client = await this.pool.connect(); let broken = false;
     try {
@@ -145,7 +144,7 @@ export class PlanningDatabase {
     finally { await client.query('SELECT pg_advisory_unlock($1::integer,$2::integer)', [namespace, slot]); }
   }
   async purge() {
-    // Run at startup and periodically; no provider snapshots are retained as a reusable cache.
+
     await this.pool.query('UPDATE planning_share_links SET plan=NULL,plan_expires_at=NULL WHERE plan_expires_at <= $1', [this.now()]);
     await this.pool.query('DELETE FROM planning_share_links WHERE expires_at <= $1', [this.now()]);
     await this.pool.query('DELETE FROM planning_share_imports WHERE expires_at <= $1', [this.now()]);

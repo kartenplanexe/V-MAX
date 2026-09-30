@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { CandidatePlace, CandidatePreview, SelectionGaps } from '../shared/candidate-preview-schema.js';
 import { candidateSourceLink } from '../shared/candidate-preview.js';
 
-/** Only the canonical, eligibility-filtered shortlist of this operation may be exposed. */
 export function projectCandidatePreview(job: Record<string, unknown> | undefined, now: Date): {
   candidate_preview?: z.infer<typeof CandidatePreview>; selection_gaps?: z.infer<typeof SelectionGaps>; valid_until?: string;
 } {

@@ -1,6 +1,5 @@
 import type { InitialContext } from './intent-start.js';
 
-/** Authored HTTP-boundary responses, NOT outputs from Alice. Exact replay only. */
 export function intentFixture(count = 1) {
   const text = count === 3
     ? 'Завтра и ещё два дня с 16 до 19 хочу в музей, потом в кафе. Пешком. Общий бюджет на всю поездку 5000 рублей.'

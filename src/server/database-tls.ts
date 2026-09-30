@@ -13,7 +13,6 @@ export function requireDatabaseTls(production: boolean, allowLocalPlaintext: boo
   return true;
 }
 
-/** Lockbox can inject PEM directly; local development can still use a CA file. */
 export async function loadDatabaseCa(options: { pem?: string; path?: string; required: boolean }) {
   const pem = options.pem?.trim();
   const path = options.path?.trim();
@@ -26,7 +25,7 @@ export async function loadDatabaseCa(options: { pem?: string; path?: string; req
   if (!ca.includes('-----BEGIN CERTIFICATE-----') || ca.includes('PRIVATE KEY')) {
     throw new Error('PostgreSQL CA must contain a public PEM certificate, not a private key');
   }
-  // Actual certificate chain/host validation is performed by Node TLS on connection.
+
   return ca;
 }
 
@@ -34,11 +33,11 @@ export function planningPoolConfig(connectionString: string, ca?: string): PoolC
   let ssl: PoolConfig['ssl'];
   if (ca) {
     const url = new URL(connectionString);
-    // node-postgres URL parameters can replace the explicit ssl object, losing the CA.
+
     if ([...url.searchParams.keys()].some(key => key.toLowerCase().startsWith('ssl'))) {
       throw new Error('Remove SSL URL parameters; configure PostgreSQL TLS through the CA setting');
     }
-    // For IP connections pg omits servername; verify the URL host instead of localhost.
+
     const hostname = url.hostname.startsWith('[') ? url.hostname.slice(1, -1) : url.hostname;
     ssl = { ca, rejectUnauthorized: true,
       checkServerIdentity: (_servername, certificate) => checkServerIdentity(hostname, certificate) };

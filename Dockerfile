@@ -3,7 +3,6 @@ FROM node:24.15.0-bookworm-slim AS dependencies
 
 WORKDIR /app
 COPY package.json package-lock.json ./
-# Check native build tools before caching the dependency layer.
 RUN npm ci \
     && node --input-type=module -e "await import('vite')" \
     && ./node_modules/.bin/tsc --version

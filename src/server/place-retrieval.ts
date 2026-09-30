@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { DgisClient, DgisProviderError, DgisRequestBudgetError } from './dgis.js';
 import { SelectedEventTargetSchema } from '../shared/event-selection.js';
 
-// Build search parameters from confirmed intent.
 const Id = z.string().regex(/^\d+$/u);
 const RetrievalIntent = z.object({
   schema_version: z.literal('confirmed-daily-intent.research.v1'),
@@ -45,12 +44,12 @@ export async function retrievePlaceCandidates(
   if (intent.points.origin.locality_id !== intent.locality.id) throw new DgisProviderError('Origin locality mismatch.');
   const groups = new Map<string, { rubricIds: string[]; targets: { day_id: string; activity_id: string }[] }>();
   for (const day of intent.days) for (const activity of day.activities) {
-    if (activity.target) continue; // Events are resolved by their own provider, never converted to 2GIS rubrics.
+    if (activity.target) continue;
     const c = activity.categories;
     if (c.catalog_version !== options.catalogVersion || c.region_id !== intent.locality.region_id ||
         c.include_any.some(id => c.exclude.includes(id))) throw new DgisProviderError('Activity catalog mismatch.');
     const unique = [...new Set(c.include_any)].sort();
-    // Search parks and landmarks separately to prevent nearby minor POIs filling the pool.
+
     const partitions = activity.intent_kind === 'route_walk' && options.walkRubricScores
       ? [2, 1, 0].map(score => unique.filter(id => (options.walkRubricScores![id] ?? 0) === score)).filter(ids => ids.length)
       : [unique];
@@ -76,7 +75,7 @@ export async function retrievePlaceCandidates(
       state.search.stop_reason = reason; state.done = true;
     }
   };
-  // Fetch one page per group before second pages; charge actual requests only.
+
   rounds: for (let page = 1; page <= maxPages; page++) {
     for (const state of states) {
       if (state.done) continue;
@@ -106,7 +105,7 @@ export async function retrievePlaceCandidates(
           state.seen.add(item.id);
           if (!places.has(item.id)) places.set(item.id, { ...item, fetched_at: fetchedAt });
         }
-        // Changing page counts cannot prove exhaustion.
+
         if (response.total !== null && (state.seen.size > response.total || previousTotal !== null && previousTotal !== response.total)) {
           search.stop_reason = 'RESULT_COUNT_INCONSISTENT'; state.done = true;
         } else if (response.total === null && previousTotal !== null) {

@@ -8,7 +8,6 @@
 |---|---|
 | [npm-зависимости](third-party/npm-lock-inventory.json) | Пакеты из `package-lock.json`: версии, лицензии, источники и контрольные суммы. Включены инструменты разработки и пакеты для разных платформ. |
 | [Python-зависимости](third-party/python-linux-runtime.json) | Пакеты рабочего Linux-образа, сверенные с `planner/uv.lock`, и контрольные суммы файлов лицензий. Системные пакеты Debian и зависимости для разработки сюда не входят. |
-| [Уведомления для браузера](public/third-party-notices.txt) | Лицензии React, ReactDOM, MAX UI, MapGL wrapper и их зависимостей. Файл доступен в приложении по `/third-party-notices.txt`. |
 
 В npm-зависимостях используются MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, BlueOak-1.0.0 и 0BSD. `lightningcss` и его платформенные пакеты для сборки используют MPL-2.0; их исходники в проекте не менялись. Условия описаны в [Mozilla MPL FAQ](https://www.mozilla.org/en-US/MPL/2.0/FAQ/).
 
@@ -16,7 +15,7 @@ OR-Tools и absl-py используют Apache-2.0, immutabledict и six — MI
 
 Docker-образ сохраняет файлы LICENSE/NOTICE из npm-пакетов, лицензии Python-пакетов и уведомления базового Debian-образа. Лицензия Node.js находится в `/usr/local/share/doc/node/LICENSE`. Текст MIT для uv 0.11.14 хранится в [third-party/licenses](third-party/licenses/uv-0.11.14-MIT.txt), источник — [официальный тег uv](https://github.com/astral-sh/uv/blob/0.11.14/LICENSE-MIT).
 
-У `@maxhub/max-ui@0.5.0` в `package.json` указана MIT, но отдельный файл LICENSE и уведомление об авторских правах не найдены в npm-пакете и [исходниках этой версии](https://github.com/max-messenger/max-ui/tree/865fb899306191ca15a2074cd3bb9890a179d687). В браузерные уведомления включены доступные метаданные автора и лицензии.
+У `@maxhub/max-ui@0.5.0` в `package.json` указана MIT, но отдельный файл LICENSE и уведомление об авторских правах не найдены в npm-пакете и [исходниках этой версии](https://github.com/max-messenger/max-ui/tree/865fb899306191ca15a2074cd3bb9890a179d687).
 
 ## Обновление списка зависимостей
 
@@ -24,7 +23,6 @@ Docker-образ сохраняет файлы LICENSE/NOTICE из npm-паке
 
 ```sh
 node scripts/dependency-inventory.mjs
-node scripts/client-notices.mjs
 ```
 
 CI проверяет эти файлы теми же командами с `--check`. Для обновления Python-списка запустите `scripts/python-dependency-inventory.py` в конечном Linux-образе, передав `/app/planner/uv.lock`, и сохраните вывод в `third-party/python-linux-runtime.json`.

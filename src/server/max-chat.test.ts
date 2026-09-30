@@ -207,7 +207,7 @@ describe('MAX chat', () => {
     await chat.handle(press('open-no-source-text', `nav:open:${routeId}`));
     expect(h.messages.at(-1)!.text).toContain('Исходного пожелания в этой записи нет');
     expect(JSON.stringify(h.messages.at(-1))).not.toContain('nav:restart');
-    // An old callback is still handled safely; it asks for a new authored text.
+
     await chat.handle(press('restart-no-source-text', `nav:restart:${routeId}`));
     expect(h.navigation.mode).toBe('awaiting_request');
     expect(search).not.toHaveBeenCalled(); expect(h.planning.start).not.toHaveBeenCalled();

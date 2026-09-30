@@ -1,8 +1,3 @@
-"""Read installed wheel metadata and license hashes against a supplied uv.lock.
-
-Run inside the exact runtime image for Linux evidence. Prints only package data;
-does not inspect application environment or contact package repositories.
-"""
 import hashlib
 import importlib.metadata
 import json

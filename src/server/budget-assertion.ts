@@ -1,4 +1,3 @@
-// Check quoted budget evidence; ambiguous input requires a form answer.
 export const budgetAssertionVersion = 'budget-assertion.v2';
 const explicitUnlimited = [
   /^(?:(?:мой|наш|общий)\s+)?бюджет\s*(?:—|-|:)?\s*(?:не\s+ограничен|неограниченный|без\s+(?:ограничений|лимита)|любой|не\s+важен)$/iu,
@@ -20,7 +19,7 @@ export function reviewBudgetAssertion(input: {
   const amounts = [...quote.matchAll(/(?<![\p{L}\d])([0-9]+(?:[ \u00a0\u202f][0-9]{3})*(?:[.,][0-9]{1,2})?)\s*(тыс(?:яч[аиу]?)?\.?|млн\.?)?\s*(?:руб(?:л[её]й|ля|ль|лей)?\.?|₽|р\.(?!\p{L}))/giu)]
     .map(match => Number(match[1]!.replace(/[ \u00a0\u202f]/gu, '').replace(',', '.')) *
       (match[2]?.startsWith('тыс') ? 1000 : match[2]?.startsWith('млн') ? 1_000_000 : 1));
-  // Without currency, accept only a single number in an explicit budget quote.
+
   if (!amounts.length && budgetMention.test(quote)) {
     const plain = [...quote.matchAll(/\d+(?:[ \u00a0\u202f]\d{3})*(?:[.,]\d{1,2})?/gu)];
     if (plain.length === 1 && !/тыс|млн/iu.test(quote)) amounts.push(Number(plain[0]![0].replace(/[ \u00a0\u202f]/gu, '').replace(',', '.')));

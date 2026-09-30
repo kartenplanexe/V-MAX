@@ -7,7 +7,6 @@ export function validMaxWorkerSecret(actual: unknown, token: string) {
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
-// Transfer ownership to the managed queue before replying; serverless may freeze afterward.
 export function yandexMaxDispatcher(baseUrl: string, token: string, http: typeof fetch = fetch) {
   const base = new URL(baseUrl);
   if (base.protocol !== 'https:' || !/^[a-z0-9]+\.containers\.yandexcloud\.net$/.test(base.hostname) ||

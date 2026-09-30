@@ -10,7 +10,6 @@ const Input = z.object({ event_id: z.string().min(8).max(128), user_text: z.stri
 type Result = { status: 'off_topic' } | { status: 'draft'; view: PlanningView };
 type Receipt = { hash: string; expires: number; pending: boolean; task: Promise<Result> };
 
-/** Single-process coordinator. Deliberately not mounted in Serverless until shared state exists. */
 export class InitialRequests {
   readonly #receipts = new Map<string, Receipt>();
   readonly #active = new Set<string>();
@@ -33,7 +32,7 @@ export class InitialRequests {
     if (this.#active.size >= 2) throw new InitialIntentError('INTENT_BUSY', 429);
     this.#active.add(owner);
     const receipt: Receipt = { hash, expires: now + 1_800_000, pending: true, task: Promise.resolve({ status: 'off_topic' }) };
-    // Start on the next microtask so the receipt exists before any provider await.
+
     receipt.task = Promise.resolve().then(async (): Promise<Result> => {
       const context = this.options.context();
       if (context.catalog.version !== context.planning.catalog.version || context.catalog.region_id !== context.planning.catalog.region_id)

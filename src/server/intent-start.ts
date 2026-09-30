@@ -9,7 +9,6 @@ import { inspectTimeLiteralCoverage } from './intent/time-literal-coverage.mjs';
 import { reviewBudgetAssertion } from './budget-assertion.js';
 import { relativeDateDays, dateAfter, overlapsBusyTime } from './intent-scalar-evidence.js';
 
-
 export type CatalogRow = [string, string, string[], { type?: string; caption?: string; declared_parent_ids?: string[] }?];
 export interface InitialContext {
   now: string;
@@ -29,7 +28,7 @@ const Text = z.string().trim().min(1).max(4000);
 const greetings = new Set(['привет', 'здравствуйте', 'добрый день', 'добрый вечер', 'как дела', 'спасибо']);
 const name = (value: string) => value.trim().toLocaleLowerCase('ru-RU').replace(/ё/gu, 'е');
 export const isExactGreeting = (text: string) => greetings.has(name(text).replace(/[!?.,\s]+$/gu, ''));
-// Narrow projection of the proposal AFTER the frozen JSON-schema/evidence guard.
+
 interface ValidatedProposal {
   action: string;
   date_anchor: { value: { kind: string; days?: number }; evidence: string } | null;
@@ -41,12 +40,11 @@ interface ValidatedProposal {
     order_changes: { op: string; before: string; after: string }[] }[];
 }
 
-/** Initial extraction only. Subsequent changes go through typed form operations, never an LLM. */
 export async function parseInitialIntent(context: InitialContext & { userText: string; inputId: string }, provider: IntentProvider): Promise<InitialResult> {
   const parsedText = Text.safeParse(context.userText);
   if (!parsedText.success) throw new InitialIntentError('INVALID_REQUEST_TEXT', 400);
   const text = parsedText.data;
-  // Deliberately tiny exact-match gate; uncertain messages must not be keyword-filtered out.
+
   if (isExactGreeting(text)) return { status: 'off_topic' };
   if (!context.catalog.complete || context.catalog.region_id !== context.locality.region_id || !context.catalog.version || !context.catalog.rows.length)
     throw new InitialIntentError('CATALOG_UNAVAILABLE', 503);
@@ -75,7 +73,7 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
         day.time_updates.some(update => update.op === 'set' && ['start', 'end'].includes(update.field)) &&
         !projectedDays[index]?.window ? [projectedDays[index]] : []);
       if (unrepresented.length) {
-        // Keep unsupported time constraints for user review instead of changing their meaning.
+
         (result.guard.reasons as string[]).push(...new Set(['TIME_WINDOW_UNREPRESENTABLE',
           ...unrepresented.flatMap(day => day?.issues ?? [])]));
         result.guard.proposal = null; result.guard.status = 'needs_clarification';
@@ -95,7 +93,7 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
     const errors = projection.guard.errors;
     if (calls < 2 && raw && typeof raw === 'object' && 'action' in raw && raw.action === 'new_request' &&
         errors.length > 0 && errors.every((error: string) => repairable.has(error))) {
-      // All network phases share the same two-call budget, including correction.
+
       reply = extract(await provider(buildDailyRepairRequest(input, errors, raw))); calls++;
       raw = reply.proposal; projection = project(raw); continue;
     }
@@ -113,7 +111,7 @@ export async function parseInitialIntent(context: InitialContext & { userText: s
     if (resolved.pending.length) calls++;
     reply = { proposal: raw, requiresMapping: false }; projection = project(raw);
   }
-  // Check the final response too: a repair must never bypass trusted city resolution.
+
   if (raw && typeof raw === 'object' && 'shared_updates' in raw && Array.isArray(raw.shared_updates)) {
     const city = raw.shared_updates.find((u: unknown) => u && typeof u === 'object' && 'field' in u && u.field === 'locality_text');
     if (city && (typeof city.value !== 'string' || name(city.value) !== name(context.locality.name)))

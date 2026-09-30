@@ -20,7 +20,6 @@ function conditionKey(value: SavedUserConditionsV1) {
   return { ...own, points: authoredPoints };
 }
 
-/** The production coordinator: all instances share drafts and idempotency receipts. */
 export class DurablePlanning {
   constructor(readonly options: { database: PlanningDatabase; plan: (job: Record<string, unknown>) => Promise<unknown>;
     context: (token: string) => Promise<InitialContext & { planning: PlanningContext }>;
@@ -29,7 +28,7 @@ export class DurablePlanning {
   private sessions(state: OwnerState, save: () => Promise<void>, reservePlan?: () => Promise<void>) {
     const sessions = new PlanningSessions({ checkpoint: state.checkpoint, plan: this.options.plan, now: () => this.now(),
       beforePlan: async () => { await reservePlan?.(); state.checkpoint = sessions.checkpoint(); await save(); } });
-    // Prune expired drafts before saving receipts that may outlive them.
+
     state.checkpoint = sessions.checkpoint();
     return sessions;
   }
@@ -64,7 +63,7 @@ export class DurablePlanning {
       const sessions = this.sessions(state, save, () => this.options.database.recordUsage(client, 'plan'));
       let changedConditions = false, confirmed = false;
       try {
-        // Ownership is checked before validation and the planner call.
+
         const before = sessions.get(owner, id);
         const view = action === 'calculate' ? await this.options.database.withSlot(client, 'plan', () => sessions.calculate(owner, id, input))
           : action === 'get' ? sessions.get(owner, id) : await sessions[action](owner, id, input);
@@ -115,7 +114,7 @@ export class DurablePlanning {
     return this.options.database.withOwner(owner, async (state, save, client) => {
       const sessions = this.sessions(state, save, () => this.options.database.recordUsage(client, 'plan'));
       try {
-        sessions.get(owner, id); // Authorize before any paid work or schema details.
+        sessions.get(owner, id);
         return await this.options.database.withSlot(client, 'plan', () => sessions.previewAlternative(owner, id, input));
       } finally { await this.persist(owner, state, save, client, sessions, this.maybeView(sessions, owner, id)); }
     });
@@ -139,7 +138,7 @@ export class DurablePlanning {
   async getSaved(owner: string, id: string): Promise<SavedConditionsView> {
     return this.options.database.withOwner(owner, async (state, save, client) => {
       const sessions = this.sessions(state, save), view = this.maybeView(sessions, owner, id);
-      // Persist the new revision without extending saved-condition retention.
+
       const saved = await this.persist(owner, state, save, client, sessions, view)
         ?? await this.options.database.loadSaved(client, owner, id);
       if (!saved) throw new PlanningSessionError('SAVED_CONDITIONS_NOT_FOUND', 404);
@@ -168,7 +167,7 @@ export class DurablePlanning {
       if (active) saved = (await this.persist(owner, state, save, client, sessions, active))!;
       if (body.base_revision !== saved.revision) throw new PlanningSessionError('SAVED_CONDITIONS_STALE');
       state.receipts[key] = { hash, status: 'pending', at: this.now().getTime(), draftId: id };
-      await save(); // Reserve recovery before fresh catalog work; no SQL transaction spans HTTP.
+      await save();
       try {
         const context = await this.options.database.withSlot(client, 'intent', () => this.options.context(body.locality_token));
         if (this.now().getTime() >= new Date(saved.expires_at).getTime()) throw new PlanningSessionError('SAVED_CONDITIONS_NOT_FOUND', 404);
@@ -178,7 +177,7 @@ export class DurablePlanning {
           remapped.draft, context.planning, remapped.provenance);
         state.receipts[key]!.status = 'done';
         await this.persist(owner, state, save, client, sessions, view, false, undefined, 'draft');
-        // The restored draft supplies its own validation issues.
+
         return view;
       } catch (error) {
         const failure = error instanceof PlanningSessionError ? error : error instanceof InitialIntentError
@@ -206,7 +205,7 @@ export class DurablePlanning {
         return { status: 'draft' as const, view };
       }
       state.receipts[body.event_id] = { hash, status: 'pending', at: this.now().getTime() };
-      await save(); // Before *any* external work. A crash cannot silently repeat a paid call.
+      await save();
       try {
         if (isExactGreeting(body.user_text)) {
           state.receipts[body.event_id]!.offTopic = true; state.receipts[body.event_id]!.status = 'done';

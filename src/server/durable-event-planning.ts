@@ -24,7 +24,6 @@ function parse<S extends z.ZodType>(schema: S, raw: unknown): z.output<S> {
 }
 const noPlan = async (): Promise<never> => reject('EVENT_SERVICE_CANNOT_CALCULATE', 500);
 
-// Persist selected event IDs and duration; source observations expire separately.
 export class DurableEventPlanning {
   constructor(readonly options: { database: PlanningDatabase; client: KudagoClient }) {}
   private now() { return this.options.database.now(); }
@@ -53,7 +52,7 @@ export class DurableEventPlanning {
         if (attempts >= 4) throw new EventRequestBudgetError('HTTP_BUDGET_EXHAUSTED');
         attempts++;
       } } }); } finally {
-        // Aggregate physical-attempt usage, never a raw response, token or user text.
+
         if (attempts) await client.query(`INSERT INTO planning_daily_usage(day,kind,calls) VALUES(CURRENT_DATE,'event_http',$1)
           ON CONFLICT(day,kind) DO UPDATE SET calls=planning_daily_usage.calls+excluded.calls`, [attempts]);
       }
@@ -80,7 +79,7 @@ export class DurableEventPlanning {
       }
       const view = sessions.get(owner, draftId), saved = await database.loadSaved(client, owner, draftId);
       if (!saved) reject('SAVED_CONDITIONS_NOT_FOUND', 404);
-      // Persist pruning/header changes without refreshing the durable condition TTL.
+
       const pruned = sessions.checkpoint();
       if (JSON.stringify(pruned) !== JSON.stringify(state.checkpoint)) {
         const before = state.checkpoint; state.checkpoint = pruned;

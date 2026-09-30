@@ -11,7 +11,7 @@ const semanticPolicy = JSON.parse(fs.readFileSync(new URL('./intent/semantic-pol
   families: { id: string; rubrics: string }[];
 };
 const fold = (value: string) => value.trim().toLocaleLowerCase('ru-RU').replace(/ё/gu, 'е');
-// Inflection mapping preserves the named type without adding related venue types.
+
 const typeForms: Record<string, readonly string[]> = {
   'музеи': ['музей', 'музея', 'музее', 'музею', 'музеем', 'музеев', 'музеях'],
   'парки': ['парк', 'парка', 'парке', 'парку', 'парком', 'парков', 'парках'],
@@ -48,7 +48,6 @@ function semanticKey(activity: Exclude<Activity, { intent_kind: 'event_visit' }>
   return families.size === 1 && families.has('food') ? 'food' as const : 'unresolved' as const;
 }
 
-/** Caller-supplied queries must be original user input, never provider labels. */
 export function projectSavedConditions(view: PlanningView, options: { now?: Date; queries?: Queries } = {}): SavedUserConditionsV1 {
   const now = (options.now ?? new Date()).toISOString(), draft = FormDraft.parse(view.draft);
   const required: SavedIssue[] = [];
@@ -119,7 +118,6 @@ export function projectSavedConditions(view: PlanningView, options: { now?: Date
 export type SavedConditionsRemap = { status: 'RESTORABLE'; draft: PlanningView['draft']; provenance: Record<string, string>; issues: FormIssue[] }
   | { status: 'NEEDS_INPUT'; issues: FormIssue[] };
 
-/** Pure fresh-context binding. Never calls LLM, Places, routing, or a geocoder. */
 export function remapSavedConditions(raw: SavedUserConditionsV1, context: InitialContext & { planning: PlanningContext }): SavedConditionsRemap {
   const saved = SavedUserConditionsV1Schema.parse(raw), issues: FormIssue[] = [];
   const blockers: FormIssue[] = saved.reconfirmation_required.filter(issue => !['POINT_RECONFIRM_REQUIRED', 'EVENT_RECHECK_REQUIRED'].includes(issue.code));

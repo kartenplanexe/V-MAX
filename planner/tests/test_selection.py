@@ -4,7 +4,6 @@ import pytest
 
 from vmax_planner.selection import select_places, validate_selection
 
-
 @pytest.fixture
 def job():
     def activity(aid, category):
@@ -38,7 +37,6 @@ def job():
             "visit_policy": {"version": "test-durations.v1", "by_category": {"museum": 60, "cafe": 45}, "arrival_buffer_minutes": 5},
             "places": places, "route_legs": legs}
 
-
 def test_selects_one_place_per_activity_and_preserves_order(job):
     result = select_places(job)
     assert result["status"] == "AVAILABLE"
@@ -50,7 +48,6 @@ def test_selects_one_place_per_activity_and_preserves_order(job):
     assert result["data_mode"] == "test"
     assert result["origin"]["label"] == "Начало"
     validate_selection(job, result)
-
 
 def test_generic_walk_can_visit_two_distinct_waypoints(job):
     day = job["intent"]["days"][0]
@@ -64,7 +61,6 @@ def test_generic_walk_can_visit_two_distinct_waypoints(job):
     assert all(v["duration_minutes"] == 60 for v in result["days"][0]["visits"])
     validate_selection(job, result)
 
-
 def test_generic_walk_with_one_reachable_waypoint_is_marked_incomplete(job):
     day = job["intent"]["days"][0]
     day["activities"] = day["activities"][:1]
@@ -77,7 +73,6 @@ def test_generic_walk_with_one_reachable_waypoint_is_marked_incomplete(job):
     assert len(result["days"][0]["visits"]) == 1
     assert "WALK_WAYPOINTS_INCOMPLETE" in result["warnings"]
     validate_selection(job, result)
-
 
 def test_walk_uses_three_waypoints_when_the_verified_day_has_room(job):
     day = job["intent"]["days"][0]
@@ -106,7 +101,6 @@ def test_walk_uses_three_waypoints_when_the_verified_day_has_room(job):
     assert len(shorter["days"][0]["visits"]) < 3
     validate_selection(job, shorter)
 
-
 def test_walk_then_eat_keeps_the_meal_after_multiple_walk_stops(job):
     job["intent"]["shared"]["budget"]["amount_rub"] = 2000
     third = deepcopy(job["places"][0])
@@ -125,12 +119,11 @@ def test_walk_then_eat_keeps_the_meal_after_multiple_walk_stops(job):
     result = select_places(job)
     visits = result["days"][0]["visits"]
     assert result["status"] == "AVAILABLE"
-    # Three hour-long visits plus food and verified travel cannot fit four hours.
+
     assert [visit["activity_id"] for visit in visits] == ["culture", "culture", "food"]
     assert [visit["duration_minutes"] for visit in visits] == [60, 60, 45]
     assert result["days"][0]["missing_activity_ids"] == []
     validate_selection(job, result)
-
 
 def test_route_walk_prefers_a_useful_verified_walk_over_adjacent_pois(job):
     day = job["intent"]["days"][0]
@@ -155,7 +148,6 @@ def test_route_walk_prefers_a_useful_verified_walk_over_adjacent_pois(job):
     assert result["days"][0]["total_safe_travel_minutes"] >= 35
     validate_selection(job, result)
 
-
 def test_provider_cannot_expand_a_local_search_to_a_distant_place(job):
     job["retrieval"] = {"coverage": "BOUNDED_RESULTS", "radius_meters": 5000}
     far = next(place for place in job["places"] if place["id"] == "museum-far")
@@ -168,13 +160,11 @@ def test_provider_cannot_expand_a_local_search_to_a_distant_place(job):
                for row in result["excluded"])
     validate_selection(job, result)
 
-
 def test_confirmed_search_radius_rejects_a_different_retrieval_scope(job):
     job["intent"]["shared"]["search_radius_meters"] = 100
     job["retrieval"] = {"coverage": "BOUNDED_RESULTS", "radius_meters": 5000}
     with pytest.raises(ValueError, match="search radius must match confirmed condition"):
         select_places(job)
-
 
 def test_confirmed_search_radius_filters_even_without_retrieval_metadata(job):
     job["intent"]["shared"]["search_radius_meters"] = 100
@@ -187,13 +177,11 @@ def test_confirmed_search_radius_filters_even_without_retrieval_metadata(job):
     assert any(row["place_id"] == "museum-far" and "OUTSIDE_SEARCH_RADIUS" in row["reasons"] for row in result["excluded"])
     validate_selection(job, result)
 
-
 @pytest.mark.parametrize("radius", [0, -1, 50001, 1.5, "5000", None, True])
 def test_invalid_confirmed_radius_is_not_ignored(job, radius):
     job["intent"]["shared"]["search_radius_meters"] = radius
     with pytest.raises(ValueError):
         select_places(job)
-
 
 def test_no_implicit_return_to_origin(job):
     job["route_legs"] = [leg for leg in job["route_legs"] if leg["to_id"] != "@destination"]
@@ -202,14 +190,12 @@ def test_no_implicit_return_to_origin(job):
     result = select_places(job)
     assert result["status"] == "UNAVAILABLE"
 
-
 def test_departure_and_return_must_fit_day(job):
     job["intent"]["points"]["destination"] = deepcopy(job["intent"]["points"]["origin"])
     for leg in job["route_legs"]:
         if leg["to_id"] == "@destination":
             leg["safe_minutes"] = 240
     assert select_places(job)["status"] == "UNAVAILABLE"
-
 
 @pytest.mark.parametrize("change,reason", [
     ({"opening_intervals": {}}, "SCHEDULE_UNKNOWN"),
@@ -228,13 +214,11 @@ def test_ineligible_places_are_explained(job, change, reason):
     assert result["days"][0]["missing_activity_ids"] == ["culture"]
     assert any(reason in item["reasons"] for item in result["excluded"])
 
-
 def test_exclusions_win_over_matching_category(job):
     job["intent"]["days"][0]["activities"][1]["categories"]["exclude"] = ["pub"]
     job["places"][-1]["rubric_ids"] = ["cafe", "pub"]
     result = select_places(job)
     assert result["days"][0]["missing_activity_ids"] == ["food"]
-
 
 def test_known_matching_duration_survives_unmapped_secondary_rubric(job):
     activity = job["intent"]["days"][0]["activities"][0]
@@ -244,14 +228,12 @@ def test_known_matching_duration_survives_unmapped_secondary_rubric(job):
     assert result["status"] == "AVAILABLE"
     assert result["days"][0]["visits"][0]["duration_minutes"] == 60
 
-
 def test_no_known_matching_duration_still_excludes_place(job):
     activity = job["intent"]["days"][0]["activities"][0]
     activity["categories"]["include_any"] = ["pub"]
     job["places"][0]["rubric_ids"] = ["pub"]
     result = select_places(job)
     assert any("DURATION_UNKNOWN" in item["reasons"] for item in result["excluded"] if item["place_id"] == "museum-near")
-
 
 def test_walk_activity_estimate_recovers_unmapped_matching_rubric_without_guessing_hours(job):
     activity = job["intent"]["days"][0]["activities"][0]
@@ -265,14 +247,12 @@ def test_walk_activity_estimate_recovers_unmapped_matching_rubric_without_guessi
     result = select_places(job)
     assert any("SCHEDULE_UNKNOWN" in item["reasons"] for item in result["excluded"] if item["place_id"] == "museum-near")
 
-
 def test_walk_activity_duration_is_not_shortened_by_poi_estimate(job):
     job["visit_policy"]["by_activity"] = {"culture": 60}
     job["visit_policy"]["by_category"]["museum"] = 20
     result = select_places(job)
     visit = next(v for v in result["days"][0]["visits"] if v["activity_id"] == "culture")
     assert visit["duration_minutes"] == 60
-
 
 def test_tentative_outdoor_walk_never_claims_verified_opening_hours(job):
     job["intent"]["days"][0]["activities"] = [job["intent"]["days"][0]["activities"][0]]
@@ -292,7 +272,6 @@ def test_tentative_outdoor_walk_never_claims_verified_opening_hours(job):
     assert "OPEN_FOR_FULL_VISIT" not in visit["reasons"]
     assert "OPENING_HOURS_UNVERIFIED" in result["warnings"]
 
-
 def test_required_facts_are_not_guessed(job):
     activity = job["intent"]["days"][0]["activities"][0]
     activity["requirements"] = [{"text": "доступно на коляске", "strength": "required"}]
@@ -300,12 +279,10 @@ def test_required_facts_are_not_guessed(job):
     result = select_places(job)
     assert result["days"][0]["visits"][0]["place_id"] == "museum-far"
 
-
 def test_preference_beats_distance_when_verified(job):
     job["intent"]["days"][0]["activities"][0]["requirements"] = [{"text": "тихо", "strength": "preferred"}]
     job["places"][1]["facts"]["тихо"] = True
     assert select_places(job)["days"][0]["visits"][0]["place_id"] == "museum-far"
-
 
 def test_no_routes_means_no_invented_travel(job):
     job["route_legs"] = []
@@ -314,12 +291,10 @@ def test_no_routes_means_no_invented_travel(job):
     assert result["total_expected_cost_minor"] is None
     assert result["total_budget_upper_minor"] is None
 
-
 def test_stale_place_and_route_data_are_not_used(job):
     for place in job["places"]:
         place["source"]["valid_until"] = "2026-09-24T08:30:00Z"
     assert select_places(job)["status"] == "UNAVAILABLE"
-
 
 def test_same_place_cannot_fill_two_activities(job):
     job["places"] = [job["places"][-1]]
@@ -327,7 +302,6 @@ def test_same_place_cannot_fill_two_activities(job):
     result = select_places(job)
     assert result["status"] == "LIMITED"
     assert len(result["days"][0]["visits"]) == 1
-
 
 def test_three_days_share_budget_not_three_copies(job):
     first_day = job["intent"]["days"][0]
@@ -349,7 +323,6 @@ def test_three_days_share_budget_not_three_copies(job):
     job["intent"]["shared"]["budget"]["period"] = "per_day"
     assert select_places(job)["status"] == "AVAILABLE"
 
-
 def test_higher_average_check_is_not_treated_as_proven_upper_bound(job):
     job["places"][-1]["price"]["upper_minor"] = None
     result = select_places(job)
@@ -361,7 +334,6 @@ def test_higher_average_check_is_not_treated_as_proven_upper_bound(job):
     assert result["total_budget_upper_minor"] is None
     assert "BUDGET_ESTIMATED_NOT_GUARANTEED" in result["warnings"]
 
-
 def test_optional_budget_allows_unknown_price_with_warning(job):
     job["intent"]["shared"].pop("budget")
     job["places"][-1]["price"] = None
@@ -370,18 +342,15 @@ def test_optional_budget_allows_unknown_price_with_warning(job):
     assert result["total_expected_cost_minor"] is None
     assert "PRICE_UNKNOWN" in result["warnings"]
 
-
 def test_unsupported_transport_is_not_substituted(job):
     job["intent"]["shared"]["mobility"] = ["teleport"]
     result = select_places(job)
     assert result["status"] == "NEEDS_INPUT"
     assert "UNSUPPORTED_TRANSPORT" in result["issues"]
 
-
 def test_catalog_mismatch_is_not_silently_accepted(job):
     job["catalog"]["version"] = "other"
     assert "CATALOG_MISMATCH" in select_places(job)["issues"]
-
 
 @pytest.mark.parametrize("corrupt", ["time", "place", "total", "duplicate", "missing", "status"])
 def test_independent_validator_rejects_corrupt_result(job, corrupt):
@@ -394,18 +363,15 @@ def test_independent_validator_rejects_corrupt_result(job, corrupt):
     if corrupt == "status": result["status"] = "UNAVAILABLE"
     with pytest.raises(ValueError): validate_selection(job, result)
 
-
 def test_result_is_stable_under_candidate_input_reordering(job):
     result = select_places(job)
     job["places"].reverse()
     job["route_legs"].reverse()
     assert select_places(job) == result
 
-
 def test_strictly_validates_untrusted_shapes(job):
     job["intent"]["days"][0]["window"]["start"] = "12:99"
     with pytest.raises(ValueError): select_places(job)
-
 
 @pytest.mark.parametrize("field,value", [
     ("mode", "driving"), ("date", "2026-09-26"),
@@ -421,11 +387,9 @@ def test_route_evidence_is_bound_to_coordinates_mode_date_window_and_freshness(j
     assert result["status"] == "UNAVAILABLE"
     assert result["route_issues"]
 
-
 def test_changing_origin_invalidates_previously_computed_routes(job):
     job["intent"]["points"]["origin"]["lat"] += 0.01
     assert select_places(job)["status"] == "UNAVAILABLE"
-
 
 def test_transitive_order_survives_missing_intermediate_activity(job):
     day = job["intent"]["days"][0]
@@ -438,10 +402,9 @@ def test_transitive_order_survives_missing_intermediate_activity(job):
     assert [v["activity_id"] for v in result["days"][0]["visits"]] == ["food", "culture"]
     assert result["days"][0]["missing_activity_ids"] == ["middle"]
 
-
 @pytest.mark.parametrize("seed", range(8))
 def test_tiny_solver_objective_matches_exhaustive_oracle(job, seed):
-    # An independent tiny test oracle, never a production search algorithm.
+
     from itertools import permutations
     from random import Random
     rng = Random(seed)
@@ -467,18 +430,12 @@ def test_tiny_solver_objective_matches_exhaustive_oracle(job, seed):
     count = len(day["visits"])
     assert (count, -day["total_safe_travel_minutes"], count * 350, -day["ends_at"]) == max(possibilities)
 
-
 def test_partial_retrieval_is_visible_even_when_every_activity_fits(job):
     job["retrieval"] = {"coverage": "PARTIAL"}
     assert "RETRIEVAL_PARTIAL" in select_places(job)["warnings"]
 
-
 def walk_quality_job(job):
-    """Two feasible branches, identical source quality and no cross-branch roads.
 
-    Ratings are synthetic observations, not provider fixtures. The longer branch
-    adds one poorly rated stop; it must not win just by increasing cardinality.
-    """
     job["intent"]["shared"].pop("budget")
     job["visit_policy"].update(by_activity={"culture": 25}, max_stops_by_activity={"culture": 9})
     job["visit_policy"]["by_category"]["museum"] = 25
@@ -494,14 +451,12 @@ def walk_quality_job(job):
                          for a, b in edges]
     return job
 
-
 def test_walk_quality_is_not_replaced_by_a_count_of_weak_stops(job):
     job = walk_quality_job(job)
     result = select_places(job)
     assert [v["place_id"] for v in result["days"][0]["visits"]] == ["strong-1", "strong-2", "cafe"]
     assert result["days"][0]["missing_activity_ids"] == []
     validate_selection(job, result)
-
 
 def test_quality_cannot_drop_the_meal_or_break_confirmed_order(job):
     job = walk_quality_job(job)
@@ -515,7 +470,6 @@ def test_quality_cannot_drop_the_meal_or_break_confirmed_order(job):
     assert result["days"][0]["missing_activity_ids"] == []
     validate_selection(job, result)
 
-
 def test_a_single_high_rating_does_not_replace_a_complete_walk(job):
     job = walk_quality_job(job)
     job["route_legs"] = [leg for leg in job["route_legs"] if leg["to_id"] != "strong-2"]
@@ -525,7 +479,6 @@ def test_a_single_high_rating_does_not_replace_a_complete_walk(job):
     assert visits[-1]["activity_id"] == "food"
     validate_selection(job, result)
 
-
 def test_multistop_walk_does_not_shorten_a_known_category_duration(job):
     job["intent"]["days"][0]["activities"] = job["intent"]["days"][0]["activities"][:1]
     job["intent"]["days"][0]["order"] = []
@@ -534,7 +487,6 @@ def test_multistop_walk_does_not_shorten_a_known_category_duration(job):
     assert result["days"][0]["visits"]
     assert all(v["duration_minutes"] == 60 for v in result["days"][0]["visits"])
     validate_selection(job, result)
-
 
 @pytest.mark.parametrize("seed", range(12))
 def test_walk_quality_and_feasibility_match_independent_enumeration(job, seed):

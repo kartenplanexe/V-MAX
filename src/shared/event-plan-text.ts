@@ -1,4 +1,3 @@
-/** The bot and mini-app explain the same event gap without exposing provider diagnostics. */
 export function eventGapText(code: string): string {
   const descriptions: Record<string, string> = {
     EVENT_HTTP_BUDGET_EXHAUSTED: 'Проверка события не завершена в пределах одного расчёта. Попробуйте ещё раз или измените набор занятий.',

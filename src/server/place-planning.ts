@@ -42,7 +42,6 @@ const STOP_ISSUES = ['ROUTING_BUDGET_EXCEEDED', 'ROUTING_BUDGET_OR_DEADLINE_EXCE
 const allowedCode = (value: unknown, allowed: readonly string[]) =>
   typeof value === 'string' && allowed.includes(value) ? value : null;
 
-/** Aggregate operator evidence only. Never log a place, coordinate, user text or provider response. */
 export function safePlanningDiagnostic(value: unknown) {
   const result = value && typeof value === 'object' ? value as Record<string, unknown> : {};
   const routing = result.routing && typeof result.routing === 'object' ? result.routing as Record<string, unknown> : {};
@@ -60,7 +59,7 @@ export function safePlanningDiagnostic(value: unknown) {
   const preview = result.candidate_preview && typeof result.candidate_preview === 'object'
     ? result.candidate_preview as Record<string, unknown> : {};
   const previewGroups = Array.isArray(preview.groups) ? preview.groups : null;
-  // Use aggregate counts to diagnose lost stages without storing user or place data.
+
   const activity_funnel = groups.slice(0, 50).map((group, index) => {
     const day = days.find(item => item?.day_id === group?.day_id);
     const count = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
@@ -118,7 +117,7 @@ function safeMinutes(seconds: number, pair: RoutePair, row: Measurement) {
   }
   return Math.ceil(seconds / 60 * 1.25) + 2;
 }
-/** PT samples are observed search estimates, never an upper bound over all departures. */
+
 function measuredLeg(pair: RoutePair, values: Measurement[]) {
   const usable = values.flatMap(value => {
     const seconds = conservativeTravelSeconds(pair, value);
@@ -133,7 +132,7 @@ function directMeters(a: Coordinates, b: Coordinates) {
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
   return 2 * 6371000 * Math.asin(Math.sqrt(Math.min(1, h)));
 }
-// Reject inconsistent geometry and implausible speed estimates.
+
 export function conservativeTravelSeconds(pair: RoutePair, row: Measurement): number | null {
   if (!row || !Number.isFinite(row.durationSeconds) || !Number.isFinite(row.distanceMeters) ||
       row.durationSeconds < 0 || row.distanceMeters < 0) return null;
@@ -163,7 +162,6 @@ function batches(queries: Query[], maxBatch = 50) {
   });
 }
 
-// Retrieve candidates and run the planner for confirmed conditions.
 export async function planPlacesWithDgis(client: DgisClient, input: Record<string, unknown>, options: {
   retrieval: { radiusMeters?: number; pageSize?: number; maxPages?: number; maxRequests?: number };
   maxRoutePairs?: number;
@@ -235,7 +233,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
     const pending: Query[] = [], indices: number[] = [];
     queries.forEach((query, index) => {
       const previous = cache.get(queryKey(query));
-      // Reuse successful matrix samples, but measure final route legs again.
+
       if (previous && (reuse || previous.value === null)) output[index] = previous.value;
       else { pending.push(query); indices.push(index); }
     });
@@ -253,7 +251,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
             if (counters.routing_http_calls + 1 + reserve > maxHttp)
               throw new DgisRequestBudgetError('HTTP_BUDGET_EXHAUSTED');
             await options.consumeRoutingQuota?.(batch.entries.length, 90_000 - (performance.now() - started));
-            // Every physical attempt, including a key denial, consumes allowance.
+
             counters.route_pair_calculations += batch.entries.length; counters.routing_http_calls++;
           } };
         let rows: Measurement[];
@@ -274,7 +272,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
       } catch (error) {
         if (error instanceof DgisRequestBudgetError) throw error;
         if (!(error instanceof DgisProviderError)) throw error;
-        counters.routing_failed_batches++; // No automatic HTTP retries, missing edges stay forbidden.
+        counters.routing_failed_batches++;
         if (error instanceof DgisRoutingUnavailableError) throw error;
         batch.entries.forEach(entry => entry.indices.forEach(index => {
           cache.set(queryKey(pending[index]!), { value: null, source: observedSource });
@@ -284,14 +282,14 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
     return output;
   }
   try {
-    // Validate the entire intent, date/timezone, durations and supported modes BEFORE external requests.
+
     const base = { schema_version: input.schema_version, as_of: now().toISOString(), intent: input.intent,
       catalog: input.catalog, visit_policy: input.visit_policy, budget_policy: input.budget_policy,
       ...(input.replacement === undefined ? {} : { replacement: input.replacement }),
       routing_policy: { ...z.record(z.string(), z.unknown()).parse(input.routing_policy ?? {}),
         ...(options.routingMode === 'external' ? { strategy: 'progressive', external_compact: true } : options.routingStrategy ? { strategy: options.routingStrategy } : {}),
         max_route_pair_calculations: maxPairs, max_routing_http_calls: maxHttp }, places: [], route_legs: [] };
-    // Validate replacement choices after retrieving their current place facts.
+
     const { replacement: _replacement, ...preflightBase } = base as Record<string, unknown>;
     const preflight = await run(preflightBase, 'prepare-routes');
     if (preflight.status !== 'AVAILABLE') return { ...preflight, routing: metadata() };
@@ -359,15 +357,15 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
     shortlistTruncated = z.array(z.object({ truncated: z.boolean() })).parse(prepared.shortlist.groups).some(group => group.truncated);
     const queries = prepared.pairs.flatMap(pair => (pair.sample_utc ?? []).map(utc => ({ pair, utc })));
     const matrixBatches = batches(queries, options.consumeRoutingQuota ? 5 : 50);
-    // Reserve both verification rounds before spending on the matrix. Each route pair can be billed.
+
     const reserve = prepared.maximum_selected_legs * 2;
     pipelineStage = 'MATRIX';
     if (queries.length && (matrixBatches.reduce((n, b) => n + b.entries.length, 0) + reserve > maxPairs ||
         matrixBatches.length + reserve > maxHttp)) return stop('ROUTING_BUDGET_EXCEEDED');
-    const matrixSource = source(); // Do not refresh older measurements merely because a later HTTP batch completed.
+    const matrixSource = source();
     const measurements = await measure(queries, reserve);
     incompleteMatrix = measurements.some(row => row === null);
-    // Distribute remaining quota after candidate allocation and both check rounds.
+
     const pool = z.array(Candidate).parse(prepared.job.candidate_pool);
     if (hasTransit) pipelineStage = 'TRANSIT_SAMPLING';
     const transitGroups = new Map<string, RoutePair[]>();
@@ -383,7 +381,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
     let samplingStopped = false;
     for (const anchor of [0, 1]) for (const pair of fairPairs) {
       if (samplingStopped) break;
-      // Python resolves wall-clock anchors in the locality timezone, including DST.
+
       const utc = pair.search_sample_utc?.[anchor];
       if (utc === undefined) continue;
       const query = { pair, utc };
@@ -452,7 +450,7 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
           const values = observed.filter((_, index) => edgeKey(queries[index]!.pair) === edgeKey(pair));
           const measurement = measuredLeg(pair, values);
           if (!measurement || measurement.minutes > 1440) continue;
-          // The oldest sample determines the leg’s freshness.
+
           const sources = queries.filter(query => edgeKey(query.pair) === edgeKey(pair))
             .map(query => cache.get(queryKey(query))!.source).sort((a, b) => a.fetched_at.localeCompare(b.fetched_at));
           additions.push({ ...pair, safe_minutes: measurement.minutes,
@@ -510,9 +508,9 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
       });
       if (changed) {
         if (attempt === 0) { counters.replans++; continue; }
-        return stop('ROUTE_RECHECK_FAILED'); // Never deliver the old schedule after a failed recheck.
+        return stop('ROUTE_RECHECK_FAILED');
       }
-      // Time may have advanced while waiting for HTTP. Check freshness and constraints again without solving.
+
       pipelineStage = 'FINAL_VALIDATION';
       const finalCheck = await run({ job: { ...job, as_of: now().toISOString() }, result }, 'route-checks');
       if (finalCheck.status !== 'AVAILABLE') return stop('PLAN_EXPIRED_OR_INVALID');
@@ -555,6 +553,6 @@ export async function planPlacesWithDgis(client: DgisClient, input: Record<strin
       budgetStopCode = error.code;
       return stop('ROUTING_BUDGET_OR_DEADLINE_EXCEEDED');
     }
-    return stop('PLANNING_PIPELINE_FAILED'); // Never return provider payload, key URLs, paths or input text.
+    return stop('PLANNING_PIPELINE_FAILED');
   }
 }

@@ -1,6 +1,4 @@
-"""A tiny synthetic job, not a real 2GIS response or a live route measurement."""
 from copy import deepcopy
-
 
 def demo_job():
     source = {"provider": "synthetic", "data_mode": "test", "fetched_at": "2026-09-24T09:00:00Z",

@@ -5,7 +5,6 @@ import type { PeerCertificate } from 'node:tls';
 import { expect, it } from 'vitest';
 import { loadDatabaseCa, planningPoolConfig, requireDatabaseTls } from './database-tls.js';
 
-// This fixture checks loading, not cryptographic trust (covered by local PG TLS test).
 const pem = '-----BEGIN CERTIFICATE-----\nloader-test-only\n-----END CERTIFICATE-----';
 it('requires production TLS except for the explicitly enabled local Compose service', () => {
   expect(requireDatabaseTls(true, false, 'postgres://database/db')).toBe(true);
@@ -37,7 +36,7 @@ it('requires verified TLS with the supplied CA and blocks URL overrides', () => 
   if (!ssl || typeof ssl !== 'object' || !ssl.checkServerIdentity) throw new Error('TLS identity check missing');
   const correct = { subjectaltname: 'IP Address:10.130.0.19' } as PeerCertificate;
   const incorrect = { subjectaltname: 'IP Address:10.130.0.20' } as PeerCertificate;
-  // Verify the URL host: pg omits the hostname when connecting to an IP.
+
   expect(ssl.checkServerIdentity('localhost', correct)).toBeUndefined();
   expect(ssl.checkServerIdentity('localhost', incorrect)).toMatchObject({ code: 'ERR_TLS_CERT_ALTNAME_INVALID' });
   for (const key of ['sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'ssl']) {

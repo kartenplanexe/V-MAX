@@ -23,7 +23,6 @@ it.each([
   expect(result.provenance['days.day-1.window.end']).toBe('suggested');
 });
 
-// Synthetic proposals exercise evidence validation and category-call ordering.
 it.each([
   ['after-midnight default', 'после 23:00', 'start', '23:00'],
   ['before-midnight default', 'до 01:00', 'end', '01:00'],

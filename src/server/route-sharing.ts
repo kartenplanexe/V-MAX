@@ -23,7 +23,6 @@ type Row = { id: string; token: string; owner: string; draft_id: string; source_
   plan_expires_at: Date | string | null; expires_at: Date | string; revoked_at: Date | string | null };
 const noPlan = async (): Promise<never> => reject('SHARING_CANNOT_CALCULATE', 500);
 
-/** Recipient reads/imports have no LLM/planner dependency and never access an owner's checkpoint. */
 export class RouteSharing {
   constructor(readonly options: { database: PlanningDatabase; botUsername: string;
     context: (token: string) => Promise<InitialContext & { planning: PlanningContext }> }) {
@@ -130,7 +129,7 @@ export class RouteSharing {
         const before = state.checkpoint; state.checkpoint = sessions.checkpoint();
         try {
           await database.transaction(client, async () => {
-            await this.find(client, body.token, true); // Revoke/expiry may have happened during context HTTP.
+            await this.find(client, body.token, true);
             await save();
             await database.saveSaved(client, recipient, { id: view.id, revision: view.version, conditions: own,
               expires_at: new Date(this.now().getTime() + 30 * 86_400_000).toISOString() });

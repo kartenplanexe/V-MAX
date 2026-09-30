@@ -23,7 +23,6 @@ const EVENT_FIELDS = 'id,title,location,dates,place,categories,age_restriction,p
 const VENUE_FIELDS = 'id,title,site_url,coords,is_closed,timetable';
 const MAX_BODY_BYTES = 1024 * 1024, TTL_MS = 5 * 60000;
 
-/** No credentials, raw provider logging, redirects, implicit retries or server-side image fetches. */
 export class KudagoClient {
   readonly #fetch: typeof fetch;
   readonly #now: () => number;
@@ -42,7 +41,7 @@ export class KudagoClient {
     return operation;
   }
   async #request(url: URL, operation: Operation): Promise<unknown> {
-    // External ledgers are per operation. If consume denies, no physical request is dispatched.
+
     operation.consume();
     let response: Response;
     try { response = await this.#fetch(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(10000),
@@ -69,7 +68,7 @@ export class KudagoClient {
   }
   #failure(error: unknown): Failure {
     if (error instanceof EventProviderError || error instanceof EventRequestBudgetError) return error.code;
-    // A shared retrieval ledger may use another provider's typed budget error.
+
     if (error && typeof error === 'object' && 'code' in error &&
       (error.code === 'HTTP_BUDGET_EXHAUSTED' || error.code === 'DEADLINE_EXCEEDED')) return error.code;
     throw error;
@@ -107,7 +106,7 @@ export class KudagoClient {
         seen.add(identity.data.id);
         try {
           const card = normalizeKudagoEvent(item, this.#context());
-          // Drop only events known to fall outside the window; retain unknown-date gaps.
+
           const entries = card.schedule.entries;
           if (entries.length && entries.every(entry => entry.end_utc !== null && entry.end_utc <= scope.starts_at ||
               entry.start_utc !== null && entry.start_utc >= scope.ends_at)) { result.outside_scope++; continue; }

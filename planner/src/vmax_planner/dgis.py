@@ -1,11 +1,9 @@
-"""Allowlisted 2GIS response projection. No requests, persistence or LLM use."""
 from datetime import date, timedelta
 import re
 
 from .selection import clock, nonempty, point_valid
 
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-
 
 def _location_label(item):
     for field in ("address_name", "full_address_name"):
@@ -17,7 +15,6 @@ def _location_label(item):
             if isinstance(label, str) and label.strip(): return label.strip()[:160]
     return None
 
-
 def _place_url(item, pid):
     alias = item.get("city_alias")
     if not isinstance(alias, str):
@@ -27,7 +24,6 @@ def _place_url(item, pid):
     if not re.fullmatch(r"[0-9]{1,30}", pid): return None
     kind = "firm" if item.get("type") == "branch" else "geo"
     return f"https://2gis.ru/{alias}/{kind}/{pid}"
-
 
 def _hours(day):
     if not isinstance(day, dict): return None
@@ -39,15 +35,14 @@ def _hours(day):
         if not isinstance(span, dict): return None
         try: start, end = clock(span.get("from")), clock(span.get("to"))
         except ValueError: return None
-        if start == end: return None  # Never infer 24h from ambiguous 00:00–00:00.
+        if start == end: return None
         result.append([start, end if end > start else end + 1440])
     return result
-
 
 def _intervals(item, iso):
     schedule, special = item.get("schedule"), item.get("schedule_special", [])
     if not isinstance(schedule, dict) or not isinstance(special, list): return None
-    if schedule.get("comment"): return None  # A textual closure exception needs a separate resolver.
+    if schedule.get("comment"): return None
     current = date.fromisoformat(iso)
     def day_hours(target):
         matched = [s for s in special if isinstance(s, dict) and s.get("date") == target.isoformat()]
@@ -62,7 +57,7 @@ def _intervals(item, iso):
     today = day_hours(current)
     if today is None: return None
     intervals = [[a, min(b, 1440)] for a, b in today]
-    # Explicit target-day schedule replaces carry-over assumptions.
+
     if not any(isinstance(s, dict) and s.get("date") == iso for s in special):
         previous = day_hours(current - timedelta(days=1))
         intervals += [[0, b - 1440] for _, b in previous or [] if b > 1440]
@@ -71,7 +66,6 @@ def _intervals(item, iso):
         if merged and a <= merged[-1][1]: merged[-1][1] = max(b, merged[-1][1])
         else: merged.append([a, b])
     return merged
-
 
 def normalize_place(item, *, dates, requested_region_id, fetched_at, valid_until, data_mode="live"):
     pid, name = nonempty(item.get("id"), "provider id"), nonempty(item.get("name"), "provider name")
@@ -85,7 +79,7 @@ def normalize_place(item, *, dates, requested_region_id, fetched_at, valid_until
         for attribute in group.get("attributes") or []:
             if attribute.get("tag") != "food_service_avg_price": continue
             text = attribute.get("name", "")
-            # Ranges/from-prices are not exact average-check numbers.
+
             numbers = re.findall(r"\d[\d\s\u00a0\u202f]*", text)
             if len(numbers) == 1 and not re.search(r"\bот\b|\bдо\b", text, re.I):
                 amount = int(re.sub(r"\s", "", numbers[0]))

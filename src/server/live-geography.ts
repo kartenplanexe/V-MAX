@@ -38,7 +38,6 @@ export function boundsFromWkt(wkt: string) {
     west: Math.min(...pairs.map(p => p.lon)), east: Math.max(...pairs.map(p => p.lon)) };
 }
 
-// Editable visit-duration defaults; the LLM still receives the full catalog.
 const visitMinutes: Record<string, number> = {
   'музеи': 90, 'художественные галереи': 60, 'выставочные центры': 90, 'выставки': 90,
   'кафе': 60, 'кофейни': 45, 'рестораны': 90, 'столовые': 45, 'быстрое питание': 30,
@@ -47,7 +46,7 @@ const visitMinutes: Record<string, number> = {
   'бассейны': 60, 'боулинг': 60, 'бильярдные залы': 60, 'катки': 60, 'спортивные залы': 60,
   'бары': 90, 'пабы': 90, 'парки культуры и отдыха': 60, 'парки': 60, 'скверы': 45, 'набережные': 60,
   'достопримечательности': 45, 'природные достопримечательности': 45, 'памятники и скульптуры': 30,
-  // Outdoor POI visit estimates, independent of opening hours.
+
   'интересные здания': 20, 'фонтаны': 15, 'памятные доски': 15, 'стрит-арт': 20,
   'водопады': 30, 'руины': 30, 'усадьбы': 45, 'сады / цветники': 45,
   'мост': 20, 'родники': 20, 'вершины гор': 45, 'выставочные экспонаты': 30,
@@ -56,7 +55,7 @@ const visitMinutes: Record<string, number> = {
   'смотровые площадки': 30, 'заповедники': 90, 'пляжи': 60,
   'ботанические сады': 90, 'ботанический сад': 90, 'зоопарки': 120, 'зоопарк': 120,
 };
-// Restrict general walks to outdoor categories.
+
 const walkableNames = new Set([
   'парки', 'парки культуры и отдыха', 'лесопарки', 'скверы', 'набережные', 'смотровые площадки',
   'заповедники', 'природные достопримечательности', 'памятники и скульптуры',
@@ -70,7 +69,7 @@ export function visitPolicy(items: { id: string; name: string }[]): PlanningCont
   const park_category_ids: string[] = [];
   for (const item of items) {
     const name = item.name.trim().toLocaleLowerCase('ru-RU');
-    // User duration overrides the category estimate.
+
     by_category[item.id] = agreedVisitMinutes(name) ?? visitMinutes[name] ?? 60;
     if (walkableNames.has(name)) walkable_category_ids.push(item.id);
     if (name === 'парки' || name === 'парки культуры и отдыха') park_category_ids.push(item.id);
@@ -133,7 +132,7 @@ export class LiveGeography {
     const found = await this.json('/3.0/items', { q, type: 'adm_div.city,adm_div.settlement',
       fields: 'items.point,items.region_id,items.adm_div', page_size: '5' });
     const choices: (VerifiedLocality & { token: string })[] = [];
-    const regions = new Map<string, unknown>(); // Request-scoped only; never a reusable provider cache.
+    const regions = new Map<string, unknown>();
     for (const item of found.result?.items ?? []) {
       if (item.type !== 'adm_div' || !['city', 'settlement'].includes(item.subtype) || !/^\d+$/u.test(item.region_id ?? '') || !Point.safeParse(item.point).success) continue;
       if (!regions.has(item.region_id)) {

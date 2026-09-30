@@ -1,4 +1,3 @@
-// Isolated integration check: no cloud access, no production keys, no exposed ports.
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,7 +15,7 @@ const openssl = process.env.OPENSSL_BIN ?? (process.platform === 'win32'
 function run(bin, args, expectSuccess = true) {
   const result = spawnSync(bin, args, { encoding: 'utf8', timeout: 120_000 });
   if (result.error || (expectSuccess && result.status !== 0)) {
-    // Never include generated credentials or full child command lines in errors.
+
     throw new Error(`${bin} failed: ${String(result.error ?? result.stderr).replaceAll(password, '[REDACTED]')}`);
   }
   return result;
@@ -71,7 +70,7 @@ try {
   console.log('PASS: verified TLS, plaintext rejected, wrong hostname rejected, non-superuser role, DDL restrictions, persistence after restart.');
   console.log('Not tested: Ubuntu package install, real VM permissions/bind mounts, Yandex security group/VPC, backups, cloud app integration.');
 } finally {
-  // Only the unique, test-owned container and temporary directory are removed.
+
   if (created) docker(['rm', '-f', '-v', name]);
   rmSync(fixture, { recursive: true, force: true });
 }

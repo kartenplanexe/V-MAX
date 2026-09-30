@@ -1,4 +1,3 @@
-// Additional semantic checks after schema and evidence validation.
 import fs from 'node:fs';
 const policy = JSON.parse(fs.readFileSync(new URL('./semantic-policy.v1.json', import.meta.url), 'utf8'));
 export const semanticPolicyVersion = policy.version;
@@ -24,13 +23,12 @@ function clause(text, start, end) {
     suffix: text.slice(end, after?.index ?? text.length) };
 }
 
-/** Offsets always refer to the original user text (UTF-16, like existing evidence spans). */
 export function semanticAnchors(text, { source = true } = {}) {
   const anchors = families.flatMap(family => [...text.matchAll(family.pattern)].map(match => ({
     family: family.id, start: match.index, end: match.index + match[0].length, word: match[0],
     action: family.action.test(match[0]), negative: false, negativeScope: null,
   }))).sort((a, b) => a.start - b.start);
-  // Category words inside venue names do not create new activities.
+
   const namedSpans = [...text.matchAll(/[«"]([^»"]+)[»"]/gu)].filter(match =>
     /(?:кафе|рестора[а-яё]*|музе[а-яё]*|кинотеатр[а-яё]*|парк[а-яё]*)\s*$/iu.test(text.slice(0, match.index)));
   return anchors.filter(anchor => {
@@ -40,17 +38,17 @@ export function semanticAnchors(text, { source = true } = {}) {
       /^[А-ЯЁ]/u.test(anchor.word)) return false;
     if (!source) return true;
     const { prefix, suffix } = clause(text, anchor.start, anchor.end);
-    // The word «еду» needs food context to count as an eating request.
+
     if (fold(anchor.word) === 'еду' && !/(?:хочу|хотим|хочется|ищу|ищем|найти|заказать|люблю)\s*$/iu.test(prefix)) return false;
-    // «Есть два часа» is possession, not a request to eat.
+
     if (fold(anchor.word) === 'есть' && !/(?:хочу|хотим|хочется|буду|будем|нужно|надо)\s*$/iu.test(prefix) &&
       !/^\s*(?:не\s+)?(?:хочу|хотим|буду|будем)/iu.test(suffix)) return false;
-    // Start points, destinations and embedded names are not separate visits.
+
     if (/(?:старт|финиш|начало|начать|начнем|начнём|закончить|от|до|возле|около|рядом\s+с)\s+(?:у\s+)?$/iu.test(prefix)) return false;
     if (prior && !connector.test(text.slice(prior.end, anchor.start)) &&
       /^\s+(?:в|на|у|возле|около)\s*$/iu.test(text.slice(prior.end, anchor.start)) &&
-      prior.family !== 'walk') return false; // «поесть в парке/музее»
-    // Walking inside an attraction is part of that visit.
+      prior.family !== 'walk') return false;
+
     const next = anchors.find(other => other.start >= anchor.end && other.family !== anchor.family);
     if (anchor.family === 'walk' && next && ['culture', 'cinema', 'food', 'sport'].includes(next.family) &&
       /^\s+(?:в|по)\s*$/iu.test(text.slice(anchor.end, next.start))) return false;
@@ -81,7 +79,7 @@ function groups(anchors, text) {
   return result;
 }
 function labelFamilies(activity) {
-  // Prefer the activity label, then named types, then a single-activity quote.
+
   let found = semanticAnchors(activity.label ?? '', { source: false });
   if (!found.length) found = semanticAnchors((activity.selection?.named_types ?? []).join(' '), { source: false });
   if (!found.length) {
@@ -105,7 +103,7 @@ function hasPath(day, from, to) {
 
 function matchesUnit(entry, unit, text) {
   if (![...unit.families].some(family => entry.families.has(family))) return false;
-  // One activity cannot cover two separately requested activities.
+
   const quotes = [entry.activity.evidence, entry.activity.selection?.evidence].filter(Boolean);
   const spans = [];
   for (const quote of quotes) {
@@ -168,7 +166,7 @@ export function inspectSemanticCoverage(proposal, input) {
         add('SEMANTIC_CATEGORY_MISMATCH', [...actual].sort().join('+'), day.day_id);
     }
   }
-  // Only unique, short date quotes define day boundaries.
+
   const markers = proposal.days.flatMap(day => {
     const quote = day.date_evidence;
     if (!quote || quote.length > 40 || semanticAnchors(quote).length) return [];
@@ -183,7 +181,7 @@ export function inspectSemanticCoverage(proposal, input) {
     const low = (scopeBoundaries.filter(at => at < unit.start).at(-1) ?? -1) + 1;
     const high = scopeBoundaries.find(at => at >= unit.end) ?? text.length;
     const local = scopeMarkers.filter(value => value.start >= low && value.start < high);
-    // Multiple nearby date markers require review; dates may follow the activity.
+
     const marker = local.length === 1 ? local[0] : local.length ? null
       : scopeMarkers.filter(value => value.start < low).at(-1);
     const days = proposal.days.length === 1 ? proposal.days : marker ? marker.day ? [marker.day] : proposal.days : [null];
@@ -202,7 +200,7 @@ export function inspectSemanticCoverage(proposal, input) {
     });
   }
   for (const day of proposal.days) {
-    // Enforce only unambiguous sequential units in an established day scope.
+
     for (let index = 1; index < scoped.length; index++) {
       if (!scoped[index - 1].days.includes(day) || !scoped[index].days.includes(day)) continue;
       const before = scoped[index - 1].unit, after = scoped[index].unit;

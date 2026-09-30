@@ -1,6 +1,3 @@
-"""Server-owned stop roster. Identities only; all facts must be fetched afresh."""
-
-
 def roster(job, days):
     value = job.get('replacement')
     if value is None:
@@ -37,7 +34,6 @@ def roster(job, days):
         raise ValueError('replacement target must occur once')
     return result
 
-
 def slot_index(slots, activity_id, place_id):
     for index, slot in enumerate(slots):
         if slot['activity_id'] != activity_id:
@@ -47,7 +43,6 @@ def slot_index(slots, activity_id, place_id):
         if slot['replacing'] and place_id not in {s['place_id'] for s in slots}:
             return index
     return None
-
 
 def filter_options(rows, options):
     if rows is None:
@@ -59,7 +54,6 @@ def filter_options(rows, options):
             if not any(o.day_id == did and slot_index(slots, o.activity_id, o.place_id) == i for o in options):
                 issues.append('REPLACEMENT_NO_ELIGIBLE_ALTERNATIVE' if slot['replacing'] else 'REPLACEMENT_CURRENT_PLACE_UNAVAILABLE')
     return options, issues
-
 
 def validate_roster(rows, result):
     if rows is None:

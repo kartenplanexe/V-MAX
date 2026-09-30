@@ -38,11 +38,9 @@ npm run check
 npm run planner:test
 node --import tsx scripts/api-contract.mts --check
 node scripts/dependency-inventory.mjs --check
-node scripts/client-notices.mjs --check
-npm run check:secrets
 ```
 
-`check` запускает типизацию, TypeScript-тесты и сборку. `planner:test` проверяет Python. Контракт сверяется с генератором; проверки лицензий сверяют сохранённые сведения с зависимостями. Для скана секретов нужен работающий Docker.
+`check` запускает типизацию, TypeScript-тесты и сборку. `planner:test` проверяет Python. Контракт сверяется с генератором; проверки лицензий сверяют сохранённые сведения с зависимостями.
 
 SQL-тестам нужна отдельная пустая PostgreSQL в `TEST_DATABASE_URL`. Без этой переменной они пропускаются. CI создаёт такую базу; настройки доступны в [.github/workflows/ci.yml](../.github/workflows/ci.yml). Рабочую базу для тестов использовать нельзя.
 

@@ -1,4 +1,3 @@
-// Dependency inventory from the lockfile, including optional platforms.
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';

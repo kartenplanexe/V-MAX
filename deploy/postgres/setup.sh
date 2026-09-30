@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# First installation on a dedicated Ubuntu VM. Never reset an existing database.
 set -Eeuo pipefail
 umask 077
 trap 'printf "Setup stopped at line %s. Existing files/data were preserved; do not delete them to retry.\n" "$LINENO" >&2' ERR
@@ -44,12 +43,10 @@ pg_gid=$(docker run --rm --network none "$image" id -g postgres)
 install -d -m 700 "$base" "$base/data" "$base/private" "$base/secrets"
 install -d -m 755 "$base/config" "$base/certs" "$base/init"
 install -m 644 "$src/postgresql.conf" "$src/pg_hba.conf" "$base/config/"
-# SCP/Windows checkouts may carry CRLF.
 sed -i 's/\r$//' "$base/config/postgresql.conf" "$base/config/pg_hba.conf"
 printf '%s\n' "$image" > "$base/image.txt"
 openssl rand -hex 32 > "$base/secrets/admin-password"
 openssl rand -hex 32 > "$base/private/app-password"
-# The entrypoint reads the administrator password after switching to postgres.
 chown "$pg_uid:$pg_gid" "$base/secrets/admin-password"
 chmod 400 "$base/secrets/admin-password"
 chown "root:$pg_gid" "$base/secrets"
@@ -99,7 +96,6 @@ docker run -d --name "$container" --restart unless-stopped \
 ready=false
 for ((i=0;i<60;i++)); do
   if docker exec -u postgres "$container" psql -U postgres -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname='maxbot'" 2>/dev/null | grep -qx 1; then
-    # Temporary init server uses only a socket. Require the final TCP/TLS listener too.
     if docker exec -i -u postgres "$container" sh -c 'read -r PGPASSWORD; export PGPASSWORD; exec psql "host=127.0.0.1 user=maxbot dbname=maxbot sslmode=verify-full sslrootcert=/certs/ca.crt connect_timeout=3" -v ON_ERROR_STOP=1 -Atqc "SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()"' < "$base/private/app-password" 2>/dev/null | grep -qx t; then
       ready=true; break
     fi
@@ -107,8 +103,7 @@ for ((i=0;i<60;i++)); do
   sleep 2
 done
 [[ $ready == true ]] || { echo 'Readiness failed. Inspect sudo docker logs --tail 50 maxbot-postgres locally; redact secrets before sharing.'; exit 1; }
-# No longer mount an initialization password in the running container's init file.
-printf '%s\n' '-- Initialization complete. Role password is retained only in the private credentials file.' > "$base/init/01-app.sql"
+: > "$base/init/01-app.sql"
 chmod 644 "$base/init/01-app.sql"
 echo 'Checking rejection of unencrypted connections...'
 if docker exec -i -u postgres "$container" sh -c 'read -r PGPASSWORD; export PGPASSWORD; exec psql "host=127.0.0.1 user=maxbot dbname=maxbot sslmode=disable connect_timeout=3" -Atqc "SELECT 1"' < "$base/private/app-password" >/dev/null 2>&1; then

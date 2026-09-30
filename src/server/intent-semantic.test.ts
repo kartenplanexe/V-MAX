@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { parseInitialIntent } from './intent-start.js';
 import { intentFixture } from './intent-start.fixture.js';
 
-// Authored boundary responses: these test our guard, not the quality of a live LLM.
 function sample(text: string, activities: { label: string; evidence: string; categories: string[] }[],
   order: [number, number][] = []) {
   const f = intentFixture();

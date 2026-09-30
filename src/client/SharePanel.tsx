@@ -15,7 +15,7 @@ export function SharePanel({ created, busy, party, create, revoke }: {
     setFeedback('');
     try {
       if (!window.WebApp?.shareMaxContent) { setFeedback('В этой версии MAX нет экрана отправки. Скопируйте ссылку ниже.'); return; }
-      // Keep this call in the direct click handler: MAX verifies the user gesture.
+
       const result = window.WebApp.shareMaxContent({ text: 'План досуга — откройте, чтобы посмотреть условия и маршрут.', link: created.deep_link });
       void Promise.resolve(result).catch(() => setFeedback('Не удалось открыть отправку. Можно скопировать ссылку.'));
     } catch { setFeedback('Не удалось открыть отправку. Можно скопировать ссылку.'); }

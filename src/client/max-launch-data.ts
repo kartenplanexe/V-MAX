@@ -1,4 +1,3 @@
-/** Only signed launch data is accepted; initDataUnsafe is not an authentication source. */
 export function readMaxLaunchData(bridgeData: string | undefined, fragment: string): string {
   const parameters = new URLSearchParams(fragment.startsWith('#') ? fragment.slice(1) : fragment);
   return bridgeData || parameters.get('WebAppData') || '';

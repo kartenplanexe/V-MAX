@@ -128,7 +128,7 @@ describe('saved own conditions allowlist and fresh binding', () => {
     const saved = projectSavedConditions(view, { now });
     expect(saved.points).toEqual({});
     expect(saved.reconfirmation_required).toContainEqual({ code: 'POINT_RECONFIRM_REQUIRED', field: 'points.origin' });
-    view.draft.points.origin!.source = 'user_geolocation'; // Source alone is not proof of a typed user operation.
+    view.draft.points.origin!.source = 'user_geolocation';
     expect(projectSavedConditions(view, { now }).points).toEqual({});
   });
 

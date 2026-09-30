@@ -43,7 +43,7 @@ function lockPageScroll(owner: Document) {
   const lock = scrollLocks.get(owner) ?? { count: 0, previous: owner.documentElement.style.overflow };
   lock.count++; scrollLocks.set(owner, lock); owner.documentElement.style.overflow = 'hidden';
   return () => {
-    // Only the last open sheet restores page scrolling.
+
     if (--lock.count === 0) { owner.documentElement.style.overflow = lock.previous; scrollLocks.delete(owner); }
   };
 }

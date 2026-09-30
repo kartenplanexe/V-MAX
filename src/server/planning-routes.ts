@@ -19,11 +19,10 @@ import { validateMaxInitData } from './max-init-data.js';
 
 export type PlanningAuthenticator = (request: FastifyRequest) => string | null;
 
-/** Derive ownership from verified initData, never from a client user_id. */
 export function maxPlanningAuthenticator(botToken: string, maxAgeSeconds: number,
   nowSeconds?: () => number): PlanningAuthenticator {
   return request => {
-    // Yandex Serverless Containers strips Authorization before forwarding HTTP requests.
+
     const initData = request.headers['x-max-init-data'];
     if (!botToken || typeof initData !== 'string') {
       if (request.url === '/api/planning/bootstrap') {
@@ -34,14 +33,13 @@ export function maxPlanningAuthenticator(botToken: string, maxAgeSeconds: number
     }
     const result = validateMaxInitData(initData, botToken, { maxAgeSeconds, nowSeconds: nowSeconds?.() });
     if (!result.ok && request.url === '/api/planning/bootstrap') {
-      // A fixed reason enum is enough to diagnose failures; never log initData or its hash.
+
       request.log.warn({ reason: result.reason }, 'MAX planner launch validation failed');
     }
     return result.ok ? `max:${result.user.id}` : null;
   };
 }
 
-/** Production injects the PostgreSQL-backed coordinator; ownership is always checked server-side. */
 export function registerPlanningRoutes(app: FastifyInstance, sessions: PlanningService,
   authenticate: PlanningAuthenticator, onChanged?: (owner: string, view: PlanningView) => Promise<void>) {
   if (sessions.activityOptions) app.get<{ Params: { id: string } }>('/api/planning/drafts/:id/activity-options', async (request, reply) => {
@@ -104,7 +102,7 @@ export function registerPlanningRoutes(app: FastifyInstance, sessions: PlanningS
         const owner = authenticate(request);
         if (!owner) return reply.code(401).send({ error: 'AUTH_REQUIRED' });
         try {
-          // Check ownership before inspecting the action body, even for malformed actions.
+
           await sessions.get(owner, request.params.id);
           const view = action === 'get' ? await sessions.get(owner, request.params.id)
             : await sessions[action](owner, request.params.id, request.body);

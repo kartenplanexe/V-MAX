@@ -1,4 +1,3 @@
-/** Keep startup logs actionable without emitting PostgreSQL error messages or credentials. */
 export function databaseStartupDiagnostic(error: unknown) {
   if (!error || typeof error !== 'object') return { code: 'UNKNOWN', name: 'Unknown' };
   const candidate = error as { code?: unknown; name?: unknown; message?: unknown };

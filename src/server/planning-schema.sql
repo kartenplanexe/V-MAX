@@ -1,4 +1,3 @@
--- Migration 001. Rerunnable; retain tables when rolling back the application.
 CREATE TABLE IF NOT EXISTS planning_owners (
   owner text PRIMARY KEY CHECK (length(owner) <= 200),
   state jsonb NOT NULL,
@@ -11,14 +10,12 @@ CREATE TABLE IF NOT EXISTS planning_daily_usage (
   calls integer NOT NULL CHECK (calls > 0),
   PRIMARY KEY(day, kind)
 );
--- Route index and bot navigation; separate from expiring checkpoints.
 CREATE TABLE IF NOT EXISTS bot_navigation (
   owner text PRIMARY KEY CHECK (length(owner) <= 200),
   state jsonb NOT NULL,
   expires_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS bot_navigation_expiry ON bot_navigation(expires_at);
--- Migration 002. User conditions have a 30-day TTL and no FK to temporary checkpoints.
 CREATE TABLE IF NOT EXISTS saved_user_conditions (
   owner text NOT NULL CHECK (length(owner) <= 200),
   draft_id text NOT NULL CHECK (length(draft_id) BETWEEN 1 AND 128),
@@ -28,16 +25,13 @@ CREATE TABLE IF NOT EXISTS saved_user_conditions (
   PRIMARY KEY(owner, draft_id)
 );
 CREATE INDEX IF NOT EXISTS saved_user_conditions_expiry ON saved_user_conditions(expires_at);
--- Retained results survive TTL cleanup until user deletion.
 ALTER TABLE planning_owners ADD COLUMN IF NOT EXISTS retained boolean NOT NULL DEFAULT false;
 ALTER TABLE saved_user_conditions ADD COLUMN IF NOT EXISTS retained boolean NOT NULL DEFAULT false;
--- Preserve existing snapshots; previously purged results cannot be recovered here.
 UPDATE planning_owners SET retained=true WHERE NOT retained
   AND jsonb_path_exists(state, '$.checkpoint.records[*] ? (@.view.result.status == "PLACES_FOUND")');
 UPDATE saved_user_conditions s SET retained=true WHERE NOT s.retained AND EXISTS (
   SELECT 1 FROM planning_owners p, jsonb_array_elements(p.state->'checkpoint'->'records') r
   WHERE p.owner=s.owner AND r->'view'->>'id'=s.draft_id AND r->'view'->'result'->>'status'='PLACES_FOUND');
--- Migration 003. Shared conditions and expiring provider previews.
 CREATE TABLE IF NOT EXISTS planning_share_links (
   id text PRIMARY KEY,
   token text NOT NULL UNIQUE,
@@ -72,7 +66,6 @@ CREATE TABLE IF NOT EXISTS planning_share_imports (
   PRIMARY KEY(owner, event_id)
 );
 CREATE INDEX IF NOT EXISTS planning_share_imports_expiry ON planning_share_imports(expires_at);
--- Migration 004. Event observations expire independently of action receipts.
 CREATE TABLE IF NOT EXISTS planning_event_previews (
   id uuid PRIMARY KEY,
   owner text NOT NULL,
@@ -95,7 +88,6 @@ CREATE TABLE IF NOT EXISTS planning_event_previews (
 );
 CREATE INDEX IF NOT EXISTS planning_event_previews_expiry ON planning_event_previews(expires_at);
 CREATE INDEX IF NOT EXISTS planning_event_previews_parent ON planning_event_previews(owner,draft_id,parent_id);
--- Physical subscription accounting, additive and independent of user data retention.
 CREATE TABLE IF NOT EXISTS routing_quota_counters (
   scope text NOT NULL, kind text NOT NULL CHECK(kind IN ('day','month')),
   period date NOT NULL, objects integer NOT NULL CHECK(objects >= 0),

@@ -197,8 +197,8 @@ describe.skipIf(!existsSync(defaultPlannerPython()))('confirmed JSON -> 2GIS HTT
     expect(output.days[0].visits.map((v: any) => v.place_id)).toEqual(['near', 'cafe']);
     expect(output.days[0].visits.map((v: any) => v.distance_before_meters)).toEqual([600, 600]);
     expect(output.days[0].visits.map((v: any) => v.starts_at)).toEqual([977, 1054]);
-    expect(output.total_expected_cost_minor).toBeNull(); // Unknown prices are not reported as free.
-    expect(output.routing.route_pair_calculations).toBe(7); // 5 matrix + 2 exact checks.
+    expect(output.total_expected_cost_minor).toBeNull();
+    expect(output.routing.route_pair_calculations).toBe(7);
     expect(output.routing.llm_calls).toBe(0);
     expect(output.routing.arrival_guaranteed).toBe(false);
     const routing = f.requests.filter(r => r.body);
@@ -229,7 +229,7 @@ describe.skipIf(!existsSync(defaultPlannerPython()))('confirmed JSON -> 2GIS HTT
 
     Object.assign(budget, { enforcement: 'estimated', price_basis_assumption: 'per_person', amount_rub: 2399 });
     const tooSmall = await planPlacesWithDgis(f.client(), input, options) as Record<string, any>;
-    expect(tooSmall.status).toBe('UNAVAILABLE'); // 1,200 per person means 2,400 for this party.
+    expect(tooSmall.status).toBe('UNAVAILABLE');
     expect(tooSmall.days[0].visits).toEqual([]);
 
     budget.amount_rub = 2400;
@@ -243,7 +243,6 @@ describe.skipIf(!existsSync(defaultPlannerPython()))('confirmed JSON -> 2GIS HTT
       'BUDGET_ESTIMATED_NOT_GUARANTEED', 'AVERAGE_CHECK_BASIS_ASSUMED_PER_PERSON',
     ]));
 
-    // Adding a place with an unknown price cannot silently count as free.
     input.intent.days[0]!.activities.unshift(culture);
     input.intent.days[0]!.order = [['culture', 'food']];
     const incomplete = await planPlacesWithDgis(f.client(), input, options) as Record<string, any>;
@@ -315,7 +314,7 @@ describe.skipIf(!existsSync(defaultPlannerPython()))('confirmed JSON -> 2GIS HTT
     Object.assign(input.visit_policy, { by_activity: { culture: 25 }, max_stops_by_activity: { culture: 19 } });
     const result = await planPlacesWithDgis(f.client(), input, options) as Record<string, any>;
     expect(result.status).toBe('AVAILABLE');
-    // Six hour-long visits fit with travel; eight do not.
+
     expect(result.days[0].visits).toHaveLength(6);
     expect(result.days[0].visits.every((visit: any) => visit.duration_minutes === 60)).toBe(true);
     expect(new Set(result.days[0].visits.map((visit: any) => visit.place_id)).size).toBe(6);

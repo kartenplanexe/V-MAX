@@ -11,7 +11,6 @@
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json && node scripts/copy-server-assets.mjs",
     "check": "npm run typecheck && npm test && npm run build",
-    "check:secrets": "node scripts/check-secrets.mjs",
     "dev": "concurrently --kill-others --success first npm:dev:server npm:dev:client",
     "dev:client": "vite",
     "dev:server": "node --watch --import tsx src/server/index.ts",

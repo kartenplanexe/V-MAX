@@ -64,7 +64,7 @@ run('applies checkpoint and revision atomically; SQL rejection leaves the origin
   try {
     const preview = await f.service.previewAlternative(f.owner, f.view.id, f.body);
     const own = await f.service.getSaved(f.owner, f.view.id);
-    // CHECK affects only this generated test owner and is removed in finally.
+
     await f.database.pool.query(`ALTER TABLE planning_owners ADD CONSTRAINT ${constraint}
       CHECK (owner <> '${f.owner}' OR (state #>> '{checkpoint,records,0,view,version}')::int <= ${f.view.version})`);
     const apply = { ...event(f.view.version), alternative_id: preview.alternatives[0]!.id };

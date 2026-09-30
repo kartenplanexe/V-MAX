@@ -41,7 +41,6 @@ export function manualSeed(raw: unknown, context: Context) {
   return { seed: FormDraft.parse({ locality: context.locality, shared: { mobility: [input.mobility] }, points: {}, days }), provenance };
 }
 
-/** Optional-parser entry point. No LLM client is accepted or reachable here. */
 export class ManualPlanning {
   constructor(readonly options: { database: PlanningDatabase; context: (token: string) => Promise<Context> }) {}
   async choices(owner: string, raw: unknown) {

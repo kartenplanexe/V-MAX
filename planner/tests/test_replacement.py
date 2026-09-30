@@ -6,7 +6,6 @@ from test_selection import job
 from vmax_planner.selection import select_places, validate_selection
 from vmax_planner.routing import prepare_routes
 
-
 def replacement(job):
     job['replacement'] = {'version': 'stop-replacement.v1',
         'target': {'day_id': 'd1', 'activity_id': 'culture', 'place_id': 'museum-near'},
@@ -14,7 +13,6 @@ def replacement(job):
             {'activity_id': 'culture', 'place_id': 'museum-near'},
             {'activity_id': 'food', 'place_id': 'cafe'}]}]}
     return job
-
 
 def test_replaces_only_target_and_validator_enforces_roster(job):
     original = select_places(job)
@@ -26,7 +24,6 @@ def test_replaces_only_target_and_validator_enforces_roster(job):
     with pytest.raises(ValueError):
         validate_selection(changed, original)
 
-
 def test_missing_fresh_fixed_place_does_not_silently_drop_activity(job):
     replacement(job)
     job['places'] = [p for p in job['places'] if p['id'] != 'cafe']
@@ -34,12 +31,10 @@ def test_missing_fresh_fixed_place_does_not_silently_drop_activity(job):
     assert result['status'] == 'NEEDS_INPUT'
     assert 'REPLACEMENT_CURRENT_PLACE_UNAVAILABLE' in result['issues']
 
-
 def test_replacement_cannot_break_budget_or_window(job):
     replacement(job)
     job['places'][1]['price']['upper_minor'] = 200000
     assert select_places(job)['status'] not in ['AVAILABLE', 'LIMITED']
-
 
 def test_replacement_cannot_remove_required_finish_or_overrun_window(job):
     replacement(job)
@@ -47,14 +42,12 @@ def test_replacement_cannot_remove_required_finish_or_overrun_window(job):
     job['route_legs'] = [r for r in job['route_legs'] if r['to_id'] != '@destination']
     assert select_places(job)['status'] not in ['AVAILABLE', 'LIMITED']
 
-
 def test_replacement_uses_fresh_schedule_and_exact_visit_duration(job):
     replacement(job)
     job['places'][1]['opening_intervals']['2026-09-25'] = [[12 * 60, 12 * 60 + 20]]
     result = select_places(job)
     assert result['status'] == 'NEEDS_INPUT'
     assert 'REPLACEMENT_NO_ELIGIBLE_ALTERNATIVE' in result['issues']
-
 
 def test_replacement_preserves_other_days_and_all_original_constraints(job):
     replacement(job)
@@ -65,14 +58,13 @@ def test_replacement_preserves_other_days_and_all_original_constraints(job):
     for place in job['places']:
         place['opening_intervals']['2026-09-26'] = [[540, 1260]]
     job['route_legs'] += [dict(r, day_id='d2', date='2026-09-26') for r in job['route_legs']]
-    # The unchanged whole-trip budget cannot afford four original-price visits.
+
     assert select_places(job)['status'] not in ['AVAILABLE', 'LIMITED']
     job['intent']['shared']['budget']['amount_rub'] = 2500
     result = select_places(job)
     assert result['status'] == 'AVAILABLE'
     assert [v['place_id'] for v in result['days'][1]['visits']] == ['museum-near', 'cafe']
     validate_selection(job, result)
-
 
 def test_route_walk_pins_all_other_slots_and_order(job):
     replacement(job)

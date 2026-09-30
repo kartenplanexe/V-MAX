@@ -1,4 +1,3 @@
-// Deterministic full catalog verification. No credentials, network or disk on import.
 import { createHash } from 'node:crypto';
 const safeFailure = () => ({ error_code: 'CATALOG_FETCH_FAILED' });
 
@@ -45,7 +44,6 @@ export function projectResponse(response, regionId) {
     total:body.result.total,items:body.result.items.map(item=>projectItem(item,regionId))};
 }
 
-// Read root and embedded rubrics in one request. Recursive traversal supports offline checks.
 export async function collectEmbeddedCatalog({regionId,fetchRoot}) {
   const summary={complete:false,region_id:regionId,http_calls:0,
     completeness_scope:'Categories API /list embedded root tree, requested region only',
@@ -147,7 +145,7 @@ export async function collectCatalog({regionId,fetchPage,pageSize=10000,maxCalls
         summary.nested_sets_verified++;
       }
     }
-    // Recheck after all observations, including a nested group shared by several parents.
+
     for(const [id,expected] of expectations){
       if(!equal(expected,directLists.get(id))) fail('NESTED_SET_MISMATCH');
     }

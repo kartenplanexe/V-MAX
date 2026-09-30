@@ -98,7 +98,7 @@ describe('server-owned form revisions', () => {
     await expect(f.sessions.calculate('owner', view.id, request)).rejects.toThrow('WALK_CATEGORY_UNAVAILABLE');
     expect(f.sessions.get('owner', view.id).phase).toBe('CONFIRMED');
     await expect(f.sessions.calculate('owner', view.id, request)).rejects.toThrow('WALK_CATEGORY_UNAVAILABLE');
-    // A new action must reach preparation, not remain blocked by PLAN_IN_PROGRESS.
+
     await expect(f.sessions.calculate('owner', view.id, event(confirmed.version, 'retry-walk-prepare')))
       .rejects.toThrow('WALK_CATEGORY_UNAVAILABLE');
     const edited = f.sessions.edit('owner', view.id, { ...event(confirmed.version, 'edit-after-failure'),

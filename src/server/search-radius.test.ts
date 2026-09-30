@@ -34,7 +34,7 @@ it('applies an explicit radius to provider requests and independently excludes o
   const places = f.requests.filter(request => request.url.hostname === 'catalog.api.2gis.com');
   expect(places.length).toBeGreaterThan(0);
   expect(places.every(request => request.url.searchParams.get('radius') === '100')).toBe(true);
-}, 30_000); // Real Python startup/solver work, like the other planner integration tests.
+}, 30_000);
 it('edits only radius, invalidates confirmation and keeps the same bound through calculation', async () => {
   const f = planningFixture();
   const sessions = new PlanningSessions({ now: demoNow, plan: job => planPlacesWithDgis(f.client(), job, options) });
